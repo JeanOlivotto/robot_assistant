@@ -1,0 +1,53 @@
+import { z } from 'zod';
+
+export const APP_CONFIG = Symbol('APP_CONFIG');
+
+const hhmm = z.string().regex(/^\d{2}:\d{2}$/, 'use HH:MM');
+const bool = z
+  .string()
+  .default('true')
+  .transform((s) => !['0', 'false', 'no', 'nao', 'não'].includes(s.toLowerCase()));
+
+const Schema = z.object({
+  PORT: z.coerce.number().int().default(8080),
+  DEVICE_TOKEN: z.string().min(8, 'DEVICE_TOKEN precisa de pelo menos 8 caracteres'),
+  APP_TOKEN: z.string().min(8, 'APP_TOKEN (senha do webapp) precisa de pelo menos 8 caracteres'),
+
+  /* Agenda: conta de serviço (lê e escreve) tem prioridade; senão, link iCal (só lê). */
+  GOOGLE_SA_KEY_FILE: z.string().default(''),
+  GCAL_ID: z.string().default(''),
+  GCAL_ICS_URL: z
+    .string()
+    .default('')
+    .refine((s) => s === '' || s.startsWith('https://'), 'GCAL_ICS_URL deve começar com https://'),
+
+  TZ_NAME: z.string().default('America/Sao_Paulo'),
+  TZ_POSIX: z.string().default('<-03>3'),
+  ALERT_LEAD_MIN: z.coerce.number().int().min(1).max(120).default(10),
+  CALENDAR_POLL_SEC: z.coerce.number().int().min(30).default(120),
+  AGENDA_HORIZON_H: z.coerce.number().int().min(1).max(168).default(36),
+
+  /* Cérebro: qualquer API compatível com OpenAI (padrão: NVIDIA). */
+  LLM_BASE_URL: z.string().default('https://integrate.api.nvidia.com/v1'),
+  LLM_API_KEY: z.string().default(''),
+  LLM_MODEL: z.string().default('google/gemma-4-31b-it'),
+
+  ROBOT_NAME: z.string().default('Robô'),
+  OWNER_NAME: z.string().default(''),
+
+  PROACTIVE: bool,
+  MORNING_AT: hhmm.default('08:00'),
+  EVENING_AT: hhmm.default('18:00'),
+
+  DATA_DIR: z.string().default('data'),
+});
+
+export type AppConfig = z.infer<typeof Schema>;
+
+export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
+  const r = Schema.safeParse(env);
+  if (!r.success) {
+    throw new Error(`Configuração inválida no .env:\n${z.prettifyError(r.error)}`);
+  }
+  return r.data;
+}

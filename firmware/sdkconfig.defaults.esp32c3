@@ -1,0 +1,5 @@
+# SpotPear ESP32-C3 1.44" — variante de 16 MB (confirmado com esptool flash-id)
+CONFIG_ESPTOOLPY_FLASHSIZE_16MB=y
+
+# Console no USB Serial/JTAG nativo: GPIO20/21 (UART0) ficam livres para o I2S na Fase 3
+CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y

@@ -1,0 +1,19 @@
+{
+  "name": "robo",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@12.4.2",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "pnpm -r build",
+    "start": "node apps/gateway/dist/main.js",
+    "dev": "pnpm --filter @robo/protocol build && pnpm --filter @robo/gateway start:dev",
+    "dev:web": "pnpm --filter @robo/web dev",
+    "test": "pnpm --filter @robo/gateway test",
+    "gen:c": "pnpm --filter @robo/protocol gen:c",
+    "fake-device": "pnpm --filter @robo/gateway fake-device",
+    "fake-app": "pnpm --filter @robo/gateway fake-app"
+  }
+}

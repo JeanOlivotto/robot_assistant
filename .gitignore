@@ -1,0 +1,26 @@
+# Node
+node_modules/
+dist/
+*.tsbuildinfo
+
+# Segredos e dados locais
+.env
+.env.local
+secrets/
+data/
+firmware/main/secrets.h
+
+# ESP-IDF
+firmware/build/
+firmware/sdkconfig
+firmware/sdkconfig.old
+firmware/managed_components/
+
+# Backups de flash (binários grandes, ficam só na máquina)
+firmware-backup/*.bin
+
+# Editor / SO
+.vscode/*
+!.vscode/extensions.json
+.DS_Store
+Thumbs.db
