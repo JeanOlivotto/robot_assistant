@@ -81,7 +81,7 @@ async function main() {
   for await (const chunk of process.stdin) input += chunk;
   let data = {};
   try {
-    data = JSON.parse(input);
+    data = JSON.parse(input.replace(/^﻿/, '')); // o pipe do PowerShell põe BOM
   } catch {
     /* segue com a barra mínima */
   }
