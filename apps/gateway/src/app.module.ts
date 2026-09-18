@@ -16,6 +16,8 @@ import { TokenGuard } from './debug/token.guard.js';
 import { AppTokenGuard } from './auth/app-token.guard.js';
 import { DeviceGateway } from './device/device.gateway.js';
 import { LlmService } from './llm/llm.service.js';
+import { MeetingController } from './meeting/meeting.controller.js';
+import { MeetingService } from './meeting/meeting.service.js';
 import { ProactiveService } from './proactive/proactive.service.js';
 import { PushController } from './push/push.controller.js';
 import { PushService } from './push/push.service.js';
@@ -26,7 +28,7 @@ import { TtsService } from './tts/tts.service.js';
 import { WsRouter } from './ws/ws-router.service.js';
 
 @Module({
-  controllers: [DebugController, AppAuthController, VoiceController, PushController, TtsController, ClaudeUsageController],
+  controllers: [DebugController, AppAuthController, VoiceController, PushController, TtsController, ClaudeUsageController, MeetingController],
   providers: [
     { provide: APP_CONFIG, useFactory: () => loadConfig() },
     WsRouter,
@@ -45,6 +47,7 @@ import { WsRouter } from './ws/ws-router.service.js';
     PushService,
     ClaudeUsageService,
     ClaudeUsageAlertService,
+    MeetingService,
     TokenGuard,
     AppTokenGuard,
   ],

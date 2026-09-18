@@ -56,7 +56,11 @@ export class LlmService {
     return this.targets.length > 0;
   }
 
-  async complete(messages: ChatCompletionMessageParam[], tools?: ChatCompletionTool[]): Promise<ChatCompletionMessage> {
+  async complete(
+    messages: ChatCompletionMessageParam[],
+    tools?: ChatCompletionTool[],
+    opts?: { maxTokens?: number; temperature?: number },
+  ): Promise<ChatCompletionMessage> {
     if (!this.targets.length) throw new Error('LLM desligado (sem chave)');
     const now = Date.now();
     // Os que estão bem primeiro, na ordem configurada; os de castigo ficam de último recurso.
@@ -72,8 +76,8 @@ export class LlmService {
           model: t.model,
           messages,
           ...(tools?.length ? { tools, tool_choice: 'auto' as const } : {}),
-          temperature: 0.6,
-          max_tokens: 800,
+          temperature: opts?.temperature ?? 0.6,
+          max_tokens: opts?.maxTokens ?? 800,
         });
         const msg = res.choices[0]?.message;
         if (!msg) throw new Error('resposta vazia');

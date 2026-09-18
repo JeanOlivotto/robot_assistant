@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Agenda } from './components/Agenda';
 import { Chat } from './components/Chat';
 import { Login } from './components/Login';
+import { MeetingView } from './components/Meeting';
 import { RobotFace } from './components/RobotFace';
 import { ago } from './lib/format';
 import { enablePush, pushState, refreshPush, testPush, type PushState } from './lib/push';
@@ -49,7 +50,7 @@ function useNow(everyMs: number): number {
 
 function Main({ token, onLogout }: { token: string; onLogout(): void }) {
   const robo = useRobo(token);
-  const [tab, setTab] = useState<'chat' | 'agenda'>('chat');
+  const [tab, setTab] = useState<'chat' | 'agenda' | 'reuniao'>('chat');
   const now = useNow(30_000);
   const r = robo.robot;
   const [speakOn, setSpeakOn] = useState(() => {
@@ -189,6 +190,9 @@ function Main({ token, onLogout }: { token: string; onLogout(): void }) {
         <button role="tab" aria-selected={tab === 'agenda'} className={tab === 'agenda' ? 'on' : ''} onClick={() => setTab('agenda')}>
           Agenda{robo.agenda.length ? ` · ${robo.agenda.filter((i) => i.end > now).length}` : ''}
         </button>
+        <button role="tab" aria-selected={tab === 'reuniao'} className={tab === 'reuniao' ? 'on' : ''} onClick={() => setTab('reuniao')}>
+          Reunião
+        </button>
       </nav>
 
       {notice && (
@@ -198,7 +202,7 @@ function Main({ token, onLogout }: { token: string; onLogout(): void }) {
       )}
       {speakOn && voiceProvider === 'elevenlabs' && <p className="credit">Voz: ElevenLabs</p>}
 
-      {tab === 'chat' ? (
+      {tab === 'chat' && (
         <Chat
           messages={robo.messages}
           thinking={!!r?.thinking}
@@ -207,9 +211,9 @@ function Main({ token, onLogout }: { token: string; onLogout(): void }) {
           onSendVoice={robo.sendVoice}
           onConfirm={robo.confirm}
         />
-      ) : (
-        <Agenda items={robo.agenda} />
       )}
+      {tab === 'agenda' && <Agenda items={robo.agenda} />}
+      {tab === 'reuniao' && <MeetingView token={token} />}
     </div>
   );
 }
