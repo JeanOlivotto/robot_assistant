@@ -60,7 +60,7 @@ function Main({ token, onLogout }: { token: string; onLogout(): void }) {
     }
   });
   const spokenUpTo = useRef(Date.now());
-  const [voiceProvider, setVoiceProvider] = useState<'elevenlabs' | null>(null);
+  const [voiceProvider, setVoiceProvider] = useState<'edge' | 'elevenlabs' | null>(null);
   const [push, setPush] = useState<PushState>(() => pushState());
   const [notice, setNotice] = useState('');
 

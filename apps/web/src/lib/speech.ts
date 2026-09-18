@@ -4,7 +4,7 @@
  */
 
 let token = '';
-let serverVoice: 'elevenlabs' | null = null;
+let serverVoice: 'edge' | 'elevenlabs' | null = null;
 let deviceVoice: SpeechSynthesisVoice | null = null;
 
 /* Um único <audio>: no iPhone, depois de destravado por um toque, ele pode tocar sozinho. */
@@ -47,11 +47,11 @@ if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
 }
 
 /** Descobre se o servidor tem voz própria. Chamar uma vez ao abrir o app. */
-export async function configureSpeech(appToken: string): Promise<'elevenlabs' | null> {
+export async function configureSpeech(appToken: string): Promise<'edge' | 'elevenlabs' | null> {
   token = appToken;
   try {
     const res = await fetch('/api/tts/status', { headers: { Authorization: `Bearer ${token}` } });
-    serverVoice = res.ok ? ((await res.json()) as { provider: 'elevenlabs' | null }).provider : null;
+    serverVoice = res.ok ? ((await res.json()) as { provider: 'edge' | 'elevenlabs' | null }).provider : null;
   } catch {
     serverVoice = null;
   }

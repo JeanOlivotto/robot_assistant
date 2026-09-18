@@ -49,7 +49,12 @@ const Schema = z.object({
   VAPID_PRIVATE_KEY: z.string().default(''),
   VAPID_SUBJECT: z.string().default('mailto:robo@localhost'),
 
-  /* Voz das respostas (ElevenLabs). Sem chave, o app usa a voz do próprio aparelho. */
+  /* Voz das respostas. edge = vozes neurais do "Ler em voz alta" do Edge (grátis, sem chave,
+     não oficial); elevenlabs = precisa de chave; off = o app usa a voz do aparelho. */
+  TTS_PROVIDER: z.enum(['edge', 'elevenlabs', 'off']).default('edge'),
+  EDGE_TTS_BIN: z.string().default('edge-tts'),
+  EDGE_TTS_VOICE: z.string().default('pt-BR-AntonioNeural'),
+  EDGE_TTS_RATE: z.string().default('+0%'),
   ELEVENLABS_API_KEY: z.string().default(''),
   ELEVENLABS_VOICE_ID: z.string().default(''),
   ELEVENLABS_MODEL: z.string().default('eleven_flash_v2_5'),

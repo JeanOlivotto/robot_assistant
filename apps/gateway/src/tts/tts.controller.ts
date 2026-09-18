@@ -13,7 +13,8 @@ export class TtsController {
   /** O app pergunta se há voz no servidor; se não, usa a do próprio aparelho. */
   @Get('status')
   status() {
-    return { enabled: this.tts.enabled, provider: this.tts.enabled ? 'elevenlabs' : null };
+    const provider = this.tts.provider;
+    return { enabled: provider !== null, provider };
   }
 
   @Post()
