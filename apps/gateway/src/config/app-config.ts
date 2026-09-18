@@ -27,14 +27,17 @@ const Schema = z.object({
   CALENDAR_POLL_SEC: z.coerce.number().int().min(30).default(120),
   AGENDA_HORIZON_H: z.coerce.number().int().min(1).max(168).default(36),
 
-  /* Cérebro: qualquer API compatível com OpenAI (padrão: NVIDIA). */
-  LLM_BASE_URL: z.string().default('https://integrate.api.nvidia.com/v1'),
+  /* Cérebro principal: qualquer API compatível com OpenAI (padrão: Groq, rápido e com plano grátis). */
+  LLM_BASE_URL: z.string().default('https://api.groq.com/openai/v1'),
   LLM_API_KEY: z.string().default(''),
-  LLM_MODEL: z.string().default('google/gemma-4-31b-it'),
-  /** Reserva, em ordem, quando o principal demora ou falha (a fila gratuita da NVIDIA oscila). */
-  LLM_FALLBACK_MODELS: z.string().default('z-ai/glm-5.3,moonshotai/kimi-k3'),
+  LLM_MODEL: z.string().default('openai/gpt-oss-120b'),
+  /* Reserva quando o principal falha. Sem LLM_FALLBACK_API_KEY, usa o mesmo provedor do principal. */
+  LLM_FALLBACK_BASE_URL: z.string().default('https://integrate.api.nvidia.com/v1'),
+  LLM_FALLBACK_API_KEY: z.string().default(''),
+  LLM_FALLBACK_MODELS: z.string().default('google/gemma-4-31b-it,z-ai/glm-5.3'),
 
-  /* Transcrição: Whisper large-v3 hospedado na NVIDIA (gRPC do Riva). Chave vazia = usa LLM_API_KEY. */
+  /* Transcrição: Whisper large-v3 hospedado na NVIDIA (gRPC do Riva).
+     Chave vazia = usa LLM_FALLBACK_API_KEY (NVIDIA) ou, por último, LLM_API_KEY. */
   STT_ENDPOINT: z.string().default('grpc.nvcf.nvidia.com:443'),
   STT_FUNCTION_ID: z.string().default('b702f636-f60c-4a3d-a6f4-f3568c13bd7d'),
   STT_API_KEY: z.string().default(''),

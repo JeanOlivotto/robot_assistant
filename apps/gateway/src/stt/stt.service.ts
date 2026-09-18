@@ -46,9 +46,10 @@ export class SttService {
   private readonly apiKey: string;
 
   constructor(@Inject(APP_CONFIG) private readonly cfg: AppConfig) {
-    this.apiKey = cfg.STT_API_KEY || cfg.LLM_API_KEY;
+    // A transcrição é da NVIDIA: a chave dela é a do STT ou, na falta, a da reserva do LLM.
+    this.apiKey = cfg.STT_API_KEY || cfg.LLM_FALLBACK_API_KEY || cfg.LLM_API_KEY;
     if (!this.apiKey) {
-      this.log.warn('Sem chave para transcrição (STT_API_KEY / LLM_API_KEY) — mensagens de voz desligadas');
+      this.log.warn('Sem chave da NVIDIA para transcrição (STT_API_KEY) — mensagens de voz desligadas');
       return;
     }
     const def = protoLoader.loadSync('riva/proto/riva_asr.proto', {
