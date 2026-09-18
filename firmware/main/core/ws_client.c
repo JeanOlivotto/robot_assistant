@@ -254,6 +254,8 @@ void ws_client_start(void)
         .buffer_size = 2048,
         .task_stack = 6144,
         .reconnect_timeout_ms = 3000,
+        /* Sem isto, um fechamento limpo pelo servidor (todo deploy) para o cliente de vez. */
+        .enable_close_reconnect = true,
         .network_timeout_ms = 10000,
         .crt_bundle_attach = esp_crt_bundle_attach, /* wss: valida o certificado (Let's Encrypt) */
     };
