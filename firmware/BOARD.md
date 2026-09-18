@@ -38,6 +38,20 @@ Configuração tirada do firmware de fábrica (`github.com/Spotpear/ESP32C3_1.44
 | LED | 11 | alimenta a flash — **não usar** |
 | Livres (header) | 1, 6, 7, 20, 21 | reservados para I2S (ver doc 2.4) |
 
+## Bateria
+
+A placa carrega a LiPo pelo PL4054, mas **não liga a bateria a nenhum pino de ADC**
+(os ADC1 — GPIO0 a 4 — são do display). Por software dá para saber só se há um
+computador na USB (`usb_serial_jtag_is_connected`, que olha os pacotes SOF do host —
+carregador de parede não conta).
+
+Para medir a carga: divisor de 2 × 100 kΩ entre o `+` da bateria e o GND, com o meio
+no **GPIO1** (ADC1_CH1, livre no header). Mede metade da tensão (4,2 V → 2,1 V) e
+consome ~20 µA. Custo: o GPIO1 estava reservado para o BCLK do I2S — nesse caso o
+BCLK vai para o GPIO21 e o amplificador fica sem o pino de SD_MODE (sempre ligado).
+No firmware muda o `hal_power_read()` e entra o ícone de bateria na barra de status;
+o protocolo (`battery.mv`) já está pronto.
+
 ## Voltar ao firmware de fábrica
 
 O backup completo (16 MB) fica em `firmware-backup/relogio-original-16MB.bin` (fora do git):
