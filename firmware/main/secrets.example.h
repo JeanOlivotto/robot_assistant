@@ -13,11 +13,10 @@
     {"rede-reserva", "senha"},            \
     {"hotspot-do-celular", "senha"}
 
-/* IP do computador rodando o gateway e a porta do .env */
-#define ROBO_SERVER_HOST  "192.168.0.16"
-#define ROBO_SERVER_PORT  8080
+/* Servidor: a VPS por WebSocket com TLS, ou um gateway local ("ws://IP-DO-PC:8080") */
+#define ROBO_SERVER_URL   "wss://srv1966497.hstgr.cloud"
 
-/* Igual ao DEVICE_TOKEN do .env na raiz do repo */
+/* Igual ao DEVICE_TOKEN do .env do servidor */
 #define ROBO_DEVICE_TOKEN "troque-por-um-token-longo"
 
 #define ROBO_DEVICE_NAME  "robo-01"

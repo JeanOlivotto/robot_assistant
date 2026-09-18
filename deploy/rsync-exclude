@@ -1,0 +1,9 @@
+# O que o Actions NÃO manda para /opt/robo (e, por estar excluído, também não apaga lá).
+.git/
+.env
+secrets/
+data/
+node_modules/
+dist/
+firmware/
+firmware-backup/

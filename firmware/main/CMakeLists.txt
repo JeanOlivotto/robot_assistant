@@ -24,5 +24,6 @@ idf_component_register(
         esp_timer
         esp_wifi
         json
+        mbedtls
         nvs_flash
 )

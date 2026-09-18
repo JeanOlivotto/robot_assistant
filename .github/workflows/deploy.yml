@@ -1,0 +1,80 @@
+# Push na main -> testa -> envia o código -> reconstrói o container na VPS.
+#
+# Segredos necessários (Settings > Secrets and variables > Actions):
+#   VPS_HOST      2.25.127.107
+#   VPS_USER      root
+#   VPS_SSH_KEY   chave PRIVADA do par dedicado a este repo (ver DEPLOY.md)
+#
+# O deploy em si mora em deploy/deploy.sh, na VPS — dá para rodar à mão por SSH
+# quando o Actions estiver fora do ar.
+
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+    # Firmware e documentação não mudam o servidor.
+    paths-ignore:
+      - 'firmware/**'
+      - '**/*.md'
+  workflow_dispatch:
+
+# Dois pushes seguidos viram dois deploys em fila, nunca em paralelo.
+concurrency:
+  group: deploy-robo
+  cancel-in-progress: false
+
+jobs:
+  testar:
+    name: Testes e build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      # O gateway serve o bundle do webapp: se o build do web quebra, não publica.
+      - run: pnpm -r build
+
+      - run: pnpm test
+        env:
+          TZ: America/Sao_Paulo
+
+  publicar:
+    name: Publicar na VPS
+    needs: testar
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Preparar chave SSH
+        env:
+          CHAVE: ${{ secrets.VPS_SSH_KEY }}
+          HOST: ${{ secrets.VPS_HOST }}
+        run: |
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          printf '%s\n' "$CHAVE" > ~/.ssh/deploy
+          chmod 600 ~/.ssh/deploy
+          ssh-keyscan -H "$HOST" >> ~/.ssh/known_hosts 2>/dev/null
+
+      - name: Enviar o código
+        env:
+          HOST: ${{ secrets.VPS_HOST }}
+          USUARIO: ${{ secrets.VPS_USER }}
+        run: |
+          rsync -az --delete --exclude-from=deploy/rsync-exclude \
+            -e "ssh -i ~/.ssh/deploy -o BatchMode=yes" \
+            ./ "$USUARIO@$HOST:/opt/robo/"
+
+      - name: Rodar o deploy no servidor
+        env:
+          HOST: ${{ secrets.VPS_HOST }}
+          USUARIO: ${{ secrets.VPS_USER }}
+        run: ssh -i ~/.ssh/deploy -o BatchMode=yes "$USUARIO@$HOST" 'bash /opt/robo/deploy/deploy.sh'

@@ -1,0 +1,39 @@
+# Produção — VPS Hostinger, ao lado do 2fitspace.
+#
+#   docker compose -f docker-compose.prod.yml up -d --build
+#
+# O nginx do HOST termina o TLS (srv1966497.hstgr.cloud) e faz proxy para 127.0.0.1:8080,
+# inclusive os WebSockets do robô (/device) e do webapp (/app).
+
+name: robo
+
+services:
+  gateway:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: robo-gateway:latest
+    container_name: robo-gateway
+    restart: unless-stopped
+    # Segredos (tokens, chave da NVIDIA, link da agenda) — só no servidor, nunca no git.
+    env_file: .env
+    environment:
+      PORT: 8080
+      DATA_DIR: data
+      GOOGLE_SA_KEY_FILE: secrets/google-sa.json
+    ports:
+      # Só no loopback: quem fala com a internet é o nginx. A VPS não tem firewall.
+      - '127.0.0.1:8080:8080'
+    volumes:
+      # Histórico da conversa e memória do robô sobrevivem a deploy.
+      - robo-data:/repo/data
+      # Chave da conta de serviço do Google (opcional; sem ela a agenda é só leitura).
+      - ./secrets:/repo/secrets:ro
+    logging:
+      driver: json-file
+      options:
+        max-size: '10m'
+        max-file: '3'
+
+volumes:
+  robo-data:

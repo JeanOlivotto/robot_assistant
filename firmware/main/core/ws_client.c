@@ -5,15 +5,26 @@
 #include "app_state.h"
 #include "cJSON.h"
 #include "esp_app_desc.h"
+#include "esp_crt_bundle.h"
 #include "esp_event.h"
 #include "esp_log.h"
 #include "esp_netif.h"
+#include "esp_system.h"
 #include "esp_websocket_client.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "hal.h"
 #include "net.h"
 #include "secrets.h"
+
+/* Servidor: ROBO_SERVER_URL ("wss://host" ou "ws://ip:porta"); o formato antigo HOST/PORT ainda vale. */
+#define STR_(x) #x
+#define STR(x)  STR_(x)
+#ifdef ROBO_SERVER_URL
+#define SERVER_BASE ROBO_SERVER_URL
+#else
+#define SERVER_BASE "ws://" ROBO_SERVER_HOST ":" STR(ROBO_SERVER_PORT)
+#endif
 
 #define PING_PERIOD_MS 15000 /* seção 7.1 */
 #define RX_MAX         4096
@@ -157,7 +168,7 @@ static void on_ws_event(void *arg, esp_event_base_t base, int32_t id, void *even
     const esp_websocket_event_data_t *d = event_data;
     switch (id) {
     case WEBSOCKET_EVENT_CONNECTED:
-        ESP_LOGI(TAG, "conectado em %s:%d", ROBO_SERVER_HOST, ROBO_SERVER_PORT);
+        ESP_LOGI(TAG, "conectado em %s (heap livre %lu)", SERVER_BASE, (unsigned long)esp_get_free_heap_size());
         s_last_errno = 0;
         net_set_server_ok(true);
         send_hello();
@@ -188,7 +199,7 @@ static void on_ws_event(void *arg, esp_event_base_t base, int32_t id, void *even
         break;
     case WEBSOCKET_EVENT_ERROR: {
         const int err = d->error_handle.esp_transport_sock_errno;
-        if (err != s_last_errno) ESP_LOGW(TAG, "sem conexão com %s:%d (errno %d)", ROBO_SERVER_HOST, ROBO_SERVER_PORT, err);
+        if (err != s_last_errno) ESP_LOGW(TAG, "sem conexão com %s (errno %d)", SERVER_BASE, err);
         s_last_errno = err;
         break;
     }
@@ -218,7 +229,7 @@ static void on_got_ip(void *arg, esp_event_base_t base, int32_t id, void *data)
 void ws_client_start(void)
 {
     static char uri[192];
-    snprintf(uri, sizeof(uri), "ws://%s:%d/device?token=%s", ROBO_SERVER_HOST, ROBO_SERVER_PORT, ROBO_DEVICE_TOKEN);
+    snprintf(uri, sizeof(uri), "%s/device?token=%s", SERVER_BASE, ROBO_DEVICE_TOKEN);
 
     /* O cliente loga cada tentativa como erro; o resumo sai por on_ws_event. */
     esp_log_level_set("transport_base", ESP_LOG_NONE);
@@ -232,6 +243,7 @@ void ws_client_start(void)
         .task_stack = 6144,
         .reconnect_timeout_ms = 3000,
         .network_timeout_ms = 10000,
+        .crt_bundle_attach = esp_crt_bundle_attach, /* wss: valida o certificado (Let's Encrypt) */
     };
     s_client = esp_websocket_client_init(&cfg);
     ESP_ERROR_CHECK(esp_websocket_register_events(s_client, WEBSOCKET_EVENT_ANY, on_ws_event, NULL));
