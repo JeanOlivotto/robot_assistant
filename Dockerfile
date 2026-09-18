@@ -20,7 +20,8 @@ RUN pnpm -r build
 
 FROM node:24-alpine
 # tzdata: datas de "dia inteiro" viram meia-noite em America/Sao_Paulo (TZ_NAME).
-RUN apk add --no-cache tzdata
+# ffmpeg: converte as mensagens de voz (AAC do iPhone, Opus do Chrome) para PCM.
+RUN apk add --no-cache tzdata ffmpeg
 WORKDIR /repo
 ENV NODE_ENV=production
 COPY --from=build /repo /repo

@@ -18,6 +18,8 @@ export interface Robo {
   agenda: AgendaItem[];
   say(text: string): boolean;
   confirm(proposalId: string, ok: boolean): void;
+  /** Manda uma mensagem de voz; devolve o texto entendido. A resposta chega pelo WebSocket. */
+  sendVoice(audio: Blob): Promise<string>;
 }
 
 /** Senha do webapp: confere no servidor antes de abrir o WebSocket. */
@@ -119,7 +121,21 @@ export function useRobo(token: string): Robo {
     [],
   );
 
-  return { conn, messages, robot, agenda, say, confirm };
+  const sendVoice = useCallback(
+    async (audio: Blob) => {
+      const res = await fetch('/api/voice', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': audio.type || 'application/octet-stream' },
+        body: audio,
+      });
+      const body = (await res.json().catch(() => ({}))) as { text?: string; message?: string };
+      if (!res.ok) throw new Error(body.message || `erro ${res.status}`);
+      return body.text ?? '';
+    },
+    [token],
+  );
+
+  return { conn, messages, robot, agenda, say, confirm, sendVoice };
 }
 
 function send(ws: WebSocket | null, msg: AppClientMessage): boolean {

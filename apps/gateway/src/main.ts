@@ -9,6 +9,8 @@ import { rootPath } from './config/paths.js';
 async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
   app.enableShutdownHooks();
+  // Mensagens de voz chegam como binário (AAC do iPhone, Opus do Chrome, WAV).
+  app.useBodyParser('raw', { type: ['audio/*', 'video/mp4', 'video/webm', 'application/octet-stream'], limit: '12mb' });
 
   // O webapp (apps/web) é servido pelo próprio gateway depois do build.
   const web = rootPath('apps/web/dist');

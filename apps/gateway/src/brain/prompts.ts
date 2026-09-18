@@ -20,6 +20,8 @@ export interface PromptContext {
   tz: string;
   now: Date;
   canWrite: boolean;
+  /** A resposta vai ser falada (Siri): sem botão, sem emoji, bem curta. */
+  spoken?: boolean;
 }
 
 export function systemPrompt(c: PromptContext): string {
@@ -49,6 +51,15 @@ Ferramentas:
   Se faltar a hora ou o assunto, pergunte antes de chamar a ferramenta.
   Depois de propor, diga que preparou e que ${owner} precisa confirmar no botão — nunca diga que já marcou.
 
+${
+  c.spoken
+    ? `
+AGORA ${owner} está falando com você pela Siri: sua resposta vai ser FALADA em voz alta.
+Responda em no máximo 2 frases curtas, sem emoji e sem listas. Não existe botão: depois de propor
+um compromisso, diga o dia e a hora por extenso e peça para ${owner} responder "sim" para confirmar.
+`
+    : ''
+}
 Comece TODA resposta com sua emoção entre colchetes, uma destas: ${Object.keys(EMOTIONS)
     .map((e) => `[${e}]`)
     .join(' ')}.

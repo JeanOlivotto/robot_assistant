@@ -22,12 +22,17 @@ export const Proposal = z.object({
 
 export const MESSAGE_KINDS = ['reply', 'proactive', 'reminder'] as const;
 
+/** Por onde a mensagem do dono chegou. */
+export const MESSAGE_VIA = ['text', 'voice', 'siri'] as const;
+export type MessageVia = (typeof MESSAGE_VIA)[number];
+
 export const ChatMessage = z.object({
   id: z.string(),
   from: z.enum(['user', 'robot']),
   text: z.string(),
   ts: epochMs,
   kind: z.enum(MESSAGE_KINDS).optional(),
+  via: z.enum(MESSAGE_VIA).optional(),
   face: z.enum(FACES).optional(),
   proposal: Proposal.optional(),
 });

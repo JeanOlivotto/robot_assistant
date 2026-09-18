@@ -290,6 +290,88 @@ button {
   cursor: default;
 }
 
+/* ── voz ────────────────────────────────────────────────────────────── */
+
+.icon-btn--on {
+  color: var(--accent);
+}
+.icon-circle {
+  width: 42px;
+  height: 42px;
+  flex: none;
+  border: 0;
+  border-radius: 50%;
+  background: var(--surface-2);
+  color: var(--dim);
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+}
+.composer--rec {
+  align-items: center;
+}
+.rec-meter {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 42px;
+  padding: 0 14px;
+  border-radius: 21px;
+  background: var(--surface);
+  min-width: 0;
+}
+.rec-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--danger);
+  animation: rec-pulse 1s infinite ease-in-out;
+}
+.rec-time {
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+  min-width: 36px;
+}
+.rec-bars {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 2px;
+  height: 24px;
+  overflow: hidden;
+}
+.rec-bars i {
+  display: block;
+  width: 3px;
+  border-radius: 2px;
+  background: var(--accent);
+  transition: height 80ms linear;
+}
+.rec-error {
+  flex: 1;
+  color: var(--danger);
+  font-size: 14px;
+}
+.voice-status {
+  margin: 0 12px 6px;
+  padding: 8px 12px;
+  border-radius: 12px;
+  font-size: 14px;
+  background: var(--surface);
+  color: var(--dim);
+}
+.voice-status--error {
+  color: var(--danger);
+  cursor: pointer;
+}
+
+@keyframes rec-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
+
 /* ── agenda ─────────────────────────────────────────────────────────── */
 
 .agenda {

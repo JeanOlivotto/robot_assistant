@@ -1,12 +1,14 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Agenda } from './components/Agenda';
 import { Chat } from './components/Chat';
 import { Login } from './components/Login';
 import { RobotFace } from './components/RobotFace';
 import { ago } from './lib/format';
+import { speak, speechSupported, stopSpeaking } from './lib/speech';
 import { useRobo } from './lib/useRobo';
 
 const TOKEN_KEY = 'robo.token';
+const SPEAK_KEY = 'robo.speak';
 
 function loadToken(): string | null {
   // Link com ?k=senha entra direto (e a senha sai da barra de endereço).
@@ -49,6 +51,37 @@ function Main({ token, onLogout }: { token: string; onLogout(): void }) {
   const [tab, setTab] = useState<'chat' | 'agenda'>('chat');
   const now = useNow(30_000);
   const r = robo.robot;
+  const [speakOn, setSpeakOn] = useState(() => {
+    try {
+      return localStorage.getItem(SPEAK_KEY) === '1';
+    } catch {
+      return false;
+    }
+  });
+  const spokenUpTo = useRef(Date.now());
+
+  // Lê em voz alta só o que o robô disser depois de ligar (não o histórico).
+  useEffect(() => {
+    if (!speakOn) return;
+    const fresh = robo.messages.filter((m) => m.from === 'robot' && m.ts > spokenUpTo.current);
+    if (!fresh.length) return;
+    spokenUpTo.current = Math.max(...fresh.map((m) => m.ts));
+    speak(fresh[fresh.length - 1]!.text);
+  }, [robo.messages, speakOn]);
+
+  const toggleSpeak = () => {
+    const on = !speakOn;
+    setSpeakOn(on);
+    try {
+      localStorage.setItem(SPEAK_KEY, on ? '1' : '0');
+    } catch {
+      /* só nesta sessão */
+    }
+    spokenUpTo.current = Date.now();
+    // No iPhone a voz só funciona depois de um toque: este é o toque.
+    if (on) speak('Beleza, vou ler minhas respostas.');
+    else stopSpeaking();
+  };
 
   let status: string;
   if (robo.conn !== 'open') status = 'reconectando…';
@@ -67,6 +100,25 @@ function Main({ token, onLogout }: { token: string; onLogout(): void }) {
           <strong>Robô</strong>
           <span className={`status ${robo.conn !== 'open' ? 'status--warn' : r?.waiting_since ? 'status--wait' : ''}`}>{status}</span>
         </div>
+        {speechSupported && (
+          <button
+            type="button"
+            className={`icon-btn ${speakOn ? 'icon-btn--on' : ''}`}
+            onClick={toggleSpeak}
+            aria-pressed={speakOn}
+            aria-label={speakOn ? 'Parar de ler as respostas' : 'Ler as respostas em voz alta'}
+            title={speakOn ? 'Lendo as respostas em voz alta' : 'Ler as respostas em voz alta'}
+          >
+            <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
+              <path d="M4 9v6h4l5 4V5L8 9H4Z" fill="currentColor" />
+              {speakOn ? (
+                <path d="M16.5 8.5a5 5 0 0 1 0 7M19 6a8.5 8.5 0 0 1 0 12" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+              ) : (
+                <path d="M16 9l5 6M21 9l-5 6" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+              )}
+            </svg>
+          </button>
+        )}
         <button type="button" className="icon-btn" onClick={onLogout} aria-label="Sair" title="Sair">
           <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
             <path d="M10 4H5v16h5M15 8l4 4-4 4M19 12H9" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
@@ -89,6 +141,7 @@ function Main({ token, onLogout }: { token: string; onLogout(): void }) {
           thinking={!!r?.thinking}
           online={robo.conn === 'open'}
           onSay={robo.say}
+          onSendVoice={robo.sendVoice}
           onConfirm={robo.confirm}
         />
       ) : (

@@ -89,13 +89,13 @@ export class BrainService {
   }
 
   /** Responde à conversa (a última mensagem do histórico é a do dono). */
-  async reply(history: ChatMessage[]): Promise<BrainReply> {
+  async reply(history: ChatMessage[], opts: { spoken?: boolean } = {}): Promise<BrainReply> {
     if (!this.llm.enabled) {
       return { text: 'Meu cérebro ainda está desligado... falta a chave da IA no servidor (LLM_API_KEY).', face: 'sad' };
     }
     const now = new Date();
     const messages: ChatCompletionMessageParam[] = [
-      { role: 'system', content: systemPrompt(this.promptContext(now)) },
+      { role: 'system', content: systemPrompt({ ...this.promptContext(now), spoken: opts.spoken }) },
       ...toLlmHistory(history.slice(-HISTORY), this.cfg.TZ_NAME),
     ];
 
