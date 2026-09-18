@@ -2,6 +2,8 @@ import { Module } from '@nestjs/common';
 import { AlertService } from './alerts/alert.service.js';
 import { BrainService } from './brain/brain.service.js';
 import { CalendarService } from './calendar/calendar.service.js';
+import { ClaudeUsageController } from './claude/claude-usage.controller.js';
+import { ClaudeUsageService } from './claude/claude-usage.service.js';
 import { AppAuthController } from './chat/app-auth.controller.js';
 import { AppGateway } from './chat/app.gateway.js';
 import { VoiceController } from './chat/voice.controller.js';
@@ -23,7 +25,7 @@ import { TtsService } from './tts/tts.service.js';
 import { WsRouter } from './ws/ws-router.service.js';
 
 @Module({
-  controllers: [DebugController, AppAuthController, VoiceController, PushController, TtsController],
+  controllers: [DebugController, AppAuthController, VoiceController, PushController, TtsController, ClaudeUsageController],
   providers: [
     { provide: APP_CONFIG, useFactory: () => loadConfig() },
     WsRouter,
@@ -40,6 +42,7 @@ import { WsRouter } from './ws/ws-router.service.js';
     AppGateway,
     ProactiveService,
     PushService,
+    ClaudeUsageService,
     TokenGuard,
     AppTokenGuard,
   ],

@@ -28,6 +28,18 @@ typedef struct {
     char preview[ROBO_PREVIEW_MAX_BYTES + 1];
 } chat_state_t;
 
+/* Uso do plano Claude do dono (mensagem `claude_usage`). pct < 0 = janela desconhecida. */
+typedef struct {
+    float pct;
+    int64_t resets_at_ms;
+} usage_window_t;
+
+typedef struct {
+    usage_window_t five_hour;
+    usage_window_t seven_day;
+    int64_t updated_at_ms; /* 0 = o servidor nunca recebeu números */
+} claude_usage_t;
+
 typedef struct {
     bool wifi_up;
     bool server_up;
@@ -42,6 +54,8 @@ typedef struct {
     bool has_say; /* frase nova do servidor para o balão */
     char say[ROBO_SAY_MAX_BYTES + 1];
     uint32_t say_ms;
+    bool has_usage; /* já chegou algum `claude_usage` nesta sessão */
+    claude_usage_t usage;
 } app_snapshot_t;
 
 void app_state_init(void);
@@ -52,6 +66,7 @@ void app_push_alert(const alert_t *a);
 void app_set_chat(const chat_state_t *c);
 void app_push_react(robo_face_t face, uint32_t ms);
 void app_push_say(const char *text, uint32_t ms);
+void app_set_usage(const claude_usage_t *u);
 
 /* Copia o estado para `out` e consome o alerta pendente. */
 void app_snapshot(app_snapshot_t *out);

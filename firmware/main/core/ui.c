@@ -19,6 +19,7 @@
 #define FRAME_MS        40 /* 25 fps — o núcleo é único, 60 fps não (seção 13) */
 #define LONG_PRESS_MS   1000
 #define AGENDA_VIEW_MS  10000
+#define CLAUDE_VIEW_MS  12000
 #define DEMO_MS         4000
 #define PET_MS          3000
 #define WORRY_BEFORE_MS (15 * 60 * 1000)
@@ -41,8 +42,9 @@
 #define C_ERR    GFX_RGB(255, 80, 80)
 #define C_INK    GFX_RGB(25, 20, 10) /* texto sobre a faixa amarela */
 #define C_BUBBLE GFX_RGB(38, 46, 62) /* balão de fala */
+#define C_CLAUDE GFX_RGB(217, 119, 87) /* terracota do Claude */
 
-typedef enum { VIEW_FACE, VIEW_ALERT, VIEW_AGENDA } view_t;
+typedef enum { VIEW_FACE, VIEW_ALERT, VIEW_AGENDA, VIEW_CLAUDE } view_t;
 
 typedef struct {
     bool down;
@@ -178,6 +180,14 @@ static void on_button(hal_btn_t b, robo_btn_ev_t ev, uint32_t now)
         life_play_ball(now, 12000);
         return;
     }
+    if (ev == ROBO_BTN_EV_LONG && b == HAL_BTN_KEY2 && s_view != VIEW_ALERT) { /* segurar KEY2: carinho */
+        set_view(VIEW_FACE, now);
+        s_demo = false;
+        life_stop();
+        set_override(FACE_LOVE, PET_MS, now);
+        life_pet(now);
+        return;
+    }
     if (ev != ROBO_BTN_EV_SHORT) return;
 
     if (s_view == VIEW_ALERT) { /* qualquer botão dispensa o alerta */
@@ -190,12 +200,8 @@ static void on_button(hal_btn_t b, robo_btn_ev_t ev, uint32_t now)
     case HAL_BTN_KEY1: /* agenda */
         set_view(s_view == VIEW_AGENDA ? VIEW_FACE : VIEW_AGENDA, now);
         break;
-    case HAL_BTN_KEY2: /* carinho */
-        set_view(VIEW_FACE, now);
-        s_demo = false;
-        life_stop();
-        set_override(FACE_LOVE, PET_MS, now);
-        life_pet(now);
+    case HAL_BTN_KEY2: /* uso do Claude */
+        set_view(s_view == VIEW_CLAUDE ? VIEW_FACE : VIEW_CLAUDE, now);
         break;
     case HAL_BTN_BOOT: /* mostruário das expressões */
         set_view(VIEW_FACE, now);
@@ -258,6 +264,7 @@ static void expire(uint32_t now)
     const uint32_t age = now - s_view_since;
     if (s_view == VIEW_ALERT && age > s_alert.ttl_ms) set_view(VIEW_FACE, now);
     if (s_view == VIEW_AGENDA && age > AGENDA_VIEW_MS) set_view(VIEW_FACE, now);
+    if (s_view == VIEW_CLAUDE && age > CLAUDE_VIEW_MS) set_view(VIEW_FACE, now);
     if (s_override < FACE__COUNT && (int32_t)(now - s_override_until) >= 0) {
         s_override = FACE__COUNT;
         s_demo = false;
@@ -526,6 +533,91 @@ static void render_agenda_view(int64_t wall_ms, bool clock_ok)
     }
 }
 
+/* Cor da barra conforme o quanto já foi usado. */
+static uint16_t usage_color(float pct)
+{
+    if (pct >= 90) return C_ERR;
+    if (pct >= 75) return C_WARN2;
+    if (pct >= 50) return C_WARN;
+    return C_OK;
+}
+
+/* Uma janela de limite: rótulo, % grande, barra e quando renova. */
+static void render_usage_window(int y, const char *label, const usage_window_t *w, int64_t wall_ms, bool clock_ok)
+{
+    const bool known = w->pct >= 0;
+    /* Já passou da renovação: o número é da janela anterior, então o uso de agora é zero. */
+    const bool renewed = known && clock_ok && w->resets_at_ms && w->resets_at_ms <= wall_ms;
+    const float pct = renewed ? 0 : w->pct;
+
+    gfx_text(4, y + 4, label, C_DIM, 1);
+    char big[12];
+    if (known) snprintf(big, sizeof(big), "%d%%", (int)(pct + 0.5f));
+    else strlcpy(big, "--", sizeof(big));
+    const uint16_t color = known ? usage_color(pct) : C_DIM;
+    gfx_text(124 - gfx_text_width(big, 2), y, big, color, 2);
+
+    const int by = y + 19, bw = 120;
+    gfx_fill_round_rect(4, by, bw, 7, 3, C_FAINT);
+    if (known && pct > 0) {
+        int fill = (int)(bw * (pct > 100 ? 100 : pct) / 100 + 0.5f);
+        if (fill < 6) fill = 6; /* arredondado precisa de um mínimo para aparecer */
+        gfx_fill_round_rect(4, by, fill, 7, 3, color);
+    }
+
+    char line[40] = "";
+    if (!known) {
+        strlcpy(line, "sem dados ainda", sizeof(line));
+    } else if (renewed) {
+        strlcpy(line, "já renovou", sizeof(line));
+    } else if (clock_ok && w->resets_at_ms) {
+        const int64_t d = w->resets_at_ms - wall_ms;
+        const int min = (int)((d + 59999) / 60000);
+        char hhmm[16];
+        if (min < 60) {
+            snprintf(line, sizeof(line), "renova em %d min", min);
+        } else if (min < 24 * 60) {
+            snprintf(line, sizeof(line), "renova em %dh%02d", min / 60, min % 60);
+        } else {
+            struct tm tm;
+            local_tm(w->resets_at_ms, &tm);
+            fmt_hhmm(w->resets_at_ms, hhmm, sizeof(hhmm));
+            snprintf(line, sizeof(line), "renova %s %s", WEEKDAYS[tm.tm_wday], hhmm);
+        }
+    }
+    gfx_text_fit(4, by + 11, 120, line, C_DIM, 1);
+}
+
+/* KEY2: quanto do plano Claude já foi usado (sessão de 5 h e semana). */
+static void render_claude_view(int64_t wall_ms, bool clock_ok)
+{
+    gfx_text(4, 4, "Claude", C_CLAUDE, 1);
+    const claude_usage_t *u = &s_snap.usage;
+    if (u->updated_at_ms && clock_ok) { /* idade dos números: só mudam enquanto o Claude Code roda */
+        char age[24];
+        const int min = (int)((wall_ms - u->updated_at_ms) / 60000);
+        if (min < 1) strlcpy(age, "agora", sizeof(age));
+        else if (min < 60) snprintf(age, sizeof(age), "há %d min", min);
+        else if (min < 48 * 60) snprintf(age, sizeof(age), "há %dh", min / 60);
+        else snprintf(age, sizeof(age), "há %d dias", min / (24 * 60));
+        gfx_text(124 - gfx_text_width(age, 1), 4, age, C_DIM, 1);
+    }
+    gfx_fill_rect(4, 15, 120, 1, C_FAINT);
+
+    if (!s_snap.has_usage) {
+        gfx_text_center(64, 56, s_snap.server_up ? "carregando..." : "sem conexão", C_DIM, 1);
+        return;
+    }
+    if (!u->updated_at_ms) {
+        gfx_text_center(64, 48, "Ainda sem dados", C_TEXT, 1);
+        gfx_text_center(64, 64, "use o Claude Code", C_DIM, 1);
+        gfx_text_center(64, 76, "que eu aprendo :)", C_DIM, 1);
+        return;
+    }
+    render_usage_window(22, "sessão 5h", &u->five_hour, wall_ms, clock_ok);
+    render_usage_window(76, "semana", &u->seven_day, wall_ms, clock_ok);
+}
+
 /* ── laço ────────────────────────────────────────────────────────────── */
 
 /* Agenda mudou (evento novo, removido, ao ligar)? Mostra o próximo no rodapé por alguns segundos. */
@@ -607,6 +699,7 @@ static void ui_task(void *arg)
         case VIEW_FACE: render_face_view(now, wall, clock_ok); break;
         case VIEW_ALERT: render_alert_view(now, wall, clock_ok); break;
         case VIEW_AGENDA: render_agenda_view(wall, clock_ok); break;
+        case VIEW_CLAUDE: render_claude_view(wall, clock_ok); break;
         }
         hal_display_blit(gfx_fb(), 0, 0, GFX_W, GFX_H);
 

@@ -32,6 +32,7 @@
 #define ROBO_MSG_CHAT "chat"
 #define ROBO_MSG_REACT "react"
 #define ROBO_MSG_SAY "say"
+#define ROBO_MSG_CLAUDE_USAGE "claude_usage"
 
 typedef enum {
     ROBO_STATE_IDLE,

@@ -8,6 +8,7 @@ import { AlertService } from '../alerts/alert.service.js';
 import { tokenEquals } from '../auth/token.js';
 import { CalendarService } from '../calendar/calendar.service.js';
 import { ChatService, type ChatState } from '../chat/chat.service.js';
+import { ClaudeUsageService, type UsageSnapshot } from '../claude/claude-usage.service.js';
 import { APP_CONFIG, type AppConfig } from '../config/app-config.js';
 import { RobotStateService } from '../robot/robot-state.service.js';
 import { rejectUpgrade, WsRouter } from '../ws/ws-router.service.js';
@@ -52,6 +53,7 @@ export class DeviceGateway implements OnModuleInit, OnModuleDestroy {
     private readonly alerts: AlertService,
     private readonly chat: ChatService,
     private readonly robot: RobotStateService,
+    private readonly claude: ClaudeUsageService,
   ) {}
 
   onModuleInit(): void {
@@ -70,6 +72,7 @@ export class DeviceGateway implements OnModuleInit, OnModuleDestroy {
       this.chat.state$.subscribe((state) => this.broadcast(this.chatMsg(state))),
       this.chat.react$.subscribe((r) => this.broadcast({ t: 'react', ts: Date.now(), v: r.face, ms: r.ms })),
       this.robot.say$.subscribe((s) => this.broadcast({ t: 'say', ts: Date.now(), text: s.text, ms: s.ms })),
+      this.claude.usage$.subscribe((u) => this.broadcast(this.usageMsg(u))),
     );
 
     this.reaper = setInterval(() => {
@@ -190,12 +193,17 @@ export class DeviceGateway implements OnModuleInit, OnModuleDestroy {
     });
     this.send(s, this.agendaMsg(this.calendar.agenda$.value));
     this.send(s, this.chatMsg(this.chat.state));
+    this.send(s, this.usageMsg(this.claude.current));
     const active = this.alerts.active(now);
     if (active) this.send(s, active);
   }
 
   private agendaMsg(items: AgendaItem[]): ServerMessage {
     return { t: 'agenda', ts: Date.now(), items };
+  }
+
+  private usageMsg(u: UsageSnapshot): ServerMessage {
+    return { t: 'claude_usage', ts: Date.now(), ...u };
   }
 
   private chatMsg(state: ChatState): ServerMessage {
