@@ -38,6 +38,9 @@ const Schema = z.object({
 
   /* Transcrição: Whisper large-v3 hospedado na NVIDIA (gRPC do Riva).
      Chave vazia = usa LLM_FALLBACK_API_KEY (NVIDIA) ou, por último, LLM_API_KEY. */
+  /* groq: Whisper turbo, rápido, um tiro só (reusa LLM_API_KEY). nvidia: Riva gRPC (antigo). */
+  STT_PROVIDER: z.enum(['groq', 'nvidia']).default('groq'),
+  STT_MODEL: z.string().default('whisper-large-v3-turbo'),
   STT_ENDPOINT: z.string().default('grpc.nvcf.nvidia.com:443'),
   STT_FUNCTION_ID: z.string().default('b702f636-f60c-4a3d-a6f4-f3568c13bd7d'),
   STT_API_KEY: z.string().default(''),

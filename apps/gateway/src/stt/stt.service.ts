@@ -38,14 +38,28 @@ export class SttError extends Error {
   }
 }
 
-/** Fala → texto com o Whisper large-v3 hospedado na NVIDIA (gRPC do Riva, mesma chave do LLM). */
+/** Fala → texto. Padrão: Whisper turbo da Groq (rápido, um tiro só). Opção: Riva gRPC da NVIDIA. */
 @Injectable()
 export class SttService {
   private readonly log = new Logger(SttService.name);
   private readonly client: RivaAsrClient | null = null;
   private readonly apiKey: string;
+  private readonly groq: { url: string; key: string; model: string } | null = null;
 
   constructor(@Inject(APP_CONFIG) private readonly cfg: AppConfig) {
+    if (cfg.STT_PROVIDER === 'groq') {
+      // Reusa a chave do LLM (Groq) por padrão; STT_API_KEY tem prioridade se você quiser separar.
+      const key = cfg.STT_API_KEY || cfg.LLM_API_KEY;
+      if (!key) {
+        this.log.warn('Sem chave para transcrição na Groq (LLM_API_KEY) — mensagens de voz desligadas');
+      } else {
+        this.groq = { url: `${cfg.LLM_BASE_URL.replace(/\/+$/, '')}/audio/transcriptions`, key, model: cfg.STT_MODEL };
+        this.log.log(`Transcrição pela Groq (${cfg.STT_MODEL})`);
+      }
+      this.apiKey = key;
+      return;
+    }
+
     // A transcrição é da NVIDIA: a chave dela é a do STT ou, na falta, a da reserva do LLM.
     this.apiKey = cfg.STT_API_KEY || cfg.LLM_FALLBACK_API_KEY || cfg.LLM_API_KEY;
     if (!this.apiKey) {
@@ -67,10 +81,11 @@ export class SttService {
   }
 
   get enabled(): boolean {
-    return this.client !== null;
+    return this.client !== null || this.groq !== null;
   }
 
   async transcribe(audio: Buffer): Promise<{ text: string; seconds: number }> {
+    if (this.groq) return this.transcribeGroq(audio);
     if (!this.client) throw new SttError('transcrição desligada no servidor', 503);
     const pcm = await this.toPcm(audio);
     const seconds = pcm.length / (SAMPLE_RATE * 2);
@@ -105,6 +120,63 @@ export class SttService {
         else resolve((res?.results ?? []).map((r) => r.alternatives[0]?.transcript ?? '').join(' '));
       });
     });
+  }
+
+  /** Groq: converte para FLAC 16 kHz mono e manda de uma vez só (bem mais rápido que a NVIDIA). */
+  private async transcribeGroq(audio: Buffer): Promise<{ text: string; seconds: number }> {
+    const g = this.groq!;
+    const flac = await this.ffmpeg(audio, ['-ac', '1', '-ar', String(SAMPLE_RATE), '-f', 'flac']);
+
+    const form = new FormData();
+    form.append('file', new Blob([new Uint8Array(flac)], { type: 'audio/flac' }), 'audio.flac');
+    form.append('model', g.model);
+    form.append('language', this.cfg.STT_LANGUAGE);
+    form.append('response_format', 'verbose_json');
+
+    const started = Date.now();
+    let res: Response;
+    try {
+      res = await fetch(g.url, {
+        method: 'POST',
+        headers: { authorization: `Bearer ${g.key}` },
+        body: form,
+        signal: AbortSignal.timeout(60_000),
+      });
+    } catch (err) {
+      throw new SttError(`transcrição falhou: ${(err as Error).message}`, 502);
+    }
+    if (!res.ok) {
+      const detail = (await res.text().catch(() => '')).slice(0, 160);
+      throw new SttError(`transcrição falhou (${res.status}): ${detail}`, res.status === 429 ? 429 : 502);
+    }
+    const data = (await res.json()) as { text?: string; duration?: number };
+    const text = (data.text ?? '').replace(/\s+/g, ' ').trim();
+    const seconds = data.duration ?? 0;
+    this.log.log(`Transcrito ${seconds ? `${seconds.toFixed(1)} s de ` : ''}áudio em ${Date.now() - started} ms (Groq)`);
+    if (!text) throw new SttError('não entendi nada nesse áudio', 422);
+    return { text, seconds };
+  }
+
+  /** Roda o ffmpeg com a saída pedida e devolve os bytes. Arquivos temporários (MP4 não faz stream). */
+  private async ffmpeg(audio: Buffer, outArgs: string[]): Promise<Buffer> {
+    const base = join(tmpdir(), `robo-${randomUUID()}`);
+    const input = `${base}.in`;
+    const output = `${base}.out`;
+    await writeFile(input, audio);
+    try {
+      await new Promise<void>((resolve, reject) => {
+        const ff = spawn(this.cfg.FFMPEG_PATH, ['-hide_banner', '-loglevel', 'error', '-y', '-i', input, ...outArgs, output]);
+        let stderr = '';
+        ff.stderr.on('data', (d: Buffer) => (stderr += d.toString()));
+        ff.on('error', (err) => reject(new SttError(`ffmpeg indisponível (${err.message})`, 500)));
+        ff.on('close', (code) =>
+          code === 0 ? resolve() : reject(new SttError(`formato de áudio não suportado: ${stderr.trim().slice(0, 160)}`, 415)),
+        );
+      });
+      return await readFile(output);
+    } finally {
+      await Promise.all([rm(input, { force: true }), rm(output, { force: true })]);
+    }
   }
 
   /** Qualquer áudio (AAC do iPhone, Opus do Chrome, WAV) → PCM 16 kHz mono 16 bits. */
