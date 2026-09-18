@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { AlertService } from './alerts/alert.service.js';
 import { BrainService } from './brain/brain.service.js';
 import { CalendarService } from './calendar/calendar.service.js';
+import { ClaudeUsageAlertService } from './claude/claude-usage-alert.service.js';
 import { ClaudeUsageController } from './claude/claude-usage.controller.js';
 import { ClaudeUsageService } from './claude/claude-usage.service.js';
 import { AppAuthController } from './chat/app-auth.controller.js';
@@ -43,6 +44,7 @@ import { WsRouter } from './ws/ws-router.service.js';
     ProactiveService,
     PushService,
     ClaudeUsageService,
+    ClaudeUsageAlertService,
     TokenGuard,
     AppTokenGuard,
   ],

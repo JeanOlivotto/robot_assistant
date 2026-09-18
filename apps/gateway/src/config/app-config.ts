@@ -66,6 +66,16 @@ const Schema = z.object({
   MORNING_AT: hhmm.default('08:00'),
   EVENING_AT: hhmm.default('18:00'),
 
+  /* Avisa (celular + telinha) ao cruzar estes % de uso do Claude, por janela. Vazio = não avisa. */
+  CLAUDE_ALERT_PERCENTS: z
+    .string()
+    .default('50,80,95')
+    .transform((s) =>
+      [...new Set(s.split(',').map((n) => Number(n.trim())).filter((n) => Number.isFinite(n) && n > 0 && n <= 1000))].sort(
+        (a, b) => a - b,
+      ),
+    ),
+
   DATA_DIR: z.string().default('data'),
 });
 
