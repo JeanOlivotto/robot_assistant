@@ -24,3 +24,6 @@ firmware-backup/*.bin
 !.vscode/extensions.json
 .DS_Store
 Thumbs.db
+
+# Commit em produção (escrito pelo Actions na VPS)
+REVISION

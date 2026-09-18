@@ -69,6 +69,8 @@ jobs:
           HOST: ${{ secrets.VPS_HOST }}
           USUARIO: ${{ secrets.VPS_USER }}
         run: |
+          # O /health mostra este commit — dá para conferir o que está no ar.
+          echo "${GITHUB_SHA::7}" > REVISION
           rsync -az --delete --exclude-from=deploy/rsync-exclude \
             -e "ssh -i ~/.ssh/deploy -o BatchMode=yes" \
             ./ "$USUARIO@$HOST:/opt/robo/"

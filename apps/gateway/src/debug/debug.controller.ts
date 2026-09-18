@@ -30,6 +30,7 @@ export class DebugController {
   health() {
     return {
       ok: true,
+      revision: process.env.GIT_SHA ?? 'dev',
       now: new Date().toISOString(),
       devices: this.devices.list().length,
       calendar: this.calendar.status,

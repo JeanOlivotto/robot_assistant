@@ -21,6 +21,7 @@ services:
       PORT: 8080
       DATA_DIR: data
       GOOGLE_SA_KEY_FILE: secrets/google-sa.json
+      GIT_SHA: ${GIT_SHA:-manual}
     ports:
       # Só no loopback: quem fala com a internet é o nginx. A VPS não tem firewall.
       - '127.0.0.1:8080:8080'

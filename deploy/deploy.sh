@@ -9,6 +9,9 @@ if [ ! -f .env ]; then
   exit 1
 fi
 mkdir -p secrets
+# Commit que o Actions acabou de enviar (deploy à mão sem o arquivo = "manual").
+GIT_SHA="$(cat REVISION 2>/dev/null || echo manual)"
+export GIT_SHA
 
 docker compose -f docker-compose.prod.yml up -d --build --remove-orphans
 docker image prune -f > /dev/null
