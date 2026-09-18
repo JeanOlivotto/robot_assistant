@@ -30,6 +30,8 @@
 #define FOOTER_AFTER_START_MS (5 * 60 * 1000)  /* ...até 5 min depois de começar */
 #define AGENDA_PEEK_MS        20000            /* agenda mudou: mostra o próximo por 20 s */
 #define NIGHT_BRIGHTNESS 90
+#define SLEEP_BRIGHTNESS 12  /* modo repouso: tela quase apagada para poupar bateria */
+#define SLEEP_FRAME_MS   200 /* dormindo, atualiza devagar (5 fps) — gasta menos CPU */
 
 #define C_BG     GFX_RGB(0, 0, 0)
 #define C_TEXT   GFX_RGB(235, 235, 235)
@@ -65,6 +67,7 @@ static face_expr_t s_override = FACE__COUNT; /* FACE__COUNT = sem expressão for
 static uint32_t s_override_until;
 static bool s_demo;
 static int s_demo_idx = -1;
+static bool s_sleeping; /* modo repouso: dorme com tela fraca até acordar */
 
 static uint32_t s_next_joy, s_joy_until;
 static uint32_t s_offline_since;
@@ -173,6 +176,17 @@ static void on_button(hal_btn_t b, robo_btn_ev_t ev, uint32_t now)
 {
     ESP_LOGI(TAG, "botão %s (%s)", robo_btn_name(to_proto(b)), robo_btn_ev_name(ev));
     ws_client_send_button(to_proto(b), ev);
+    if (s_sleeping) { /* dormindo: qualquer botão acorda o robô */
+        s_sleeping = false;
+        set_view(VIEW_FACE, now);
+        s_demo = false;
+        set_override(FACE_HAPPY, 1200, now);
+        return;
+    }
+    if (ev == ROBO_BTN_EV_LONG && b == HAL_BTN_KEY1 && s_view != VIEW_ALERT) { /* segurar KEY1: uso do Claude */
+        set_view(s_view == VIEW_CLAUDE ? VIEW_FACE : VIEW_CLAUDE, now);
+        return;
+    }
     if (ev == ROBO_BTN_EV_LONG && b == HAL_BTN_BOOT && s_view != VIEW_ALERT) { /* segurar BOOT: bolinha */
         set_view(VIEW_FACE, now);
         s_demo = false;
@@ -200,8 +214,12 @@ static void on_button(hal_btn_t b, robo_btn_ev_t ev, uint32_t now)
     case HAL_BTN_KEY1: /* agenda */
         set_view(s_view == VIEW_AGENDA ? VIEW_FACE : VIEW_AGENDA, now);
         break;
-    case HAL_BTN_KEY2: /* uso do Claude */
-        set_view(s_view == VIEW_CLAUDE ? VIEW_FACE : VIEW_CLAUDE, now);
+    case HAL_BTN_KEY2: /* modo repouso: dormir */
+        set_view(VIEW_FACE, now);
+        s_demo = false;
+        s_override = FACE__COUNT;
+        life_stop();
+        s_sleeping = true;
         break;
     case HAL_BTN_BOOT: /* mostruário das expressões */
         set_view(VIEW_FACE, now);
@@ -237,6 +255,8 @@ static void poll_buttons(uint32_t now)
 
 static void check_events(uint32_t now)
 {
+    /* Acorda quando chega alerta, quando o robô vai falar algo ou reagir. */
+    if (s_sleeping && (s_snap.has_alert || s_snap.has_say || s_snap.has_react)) s_sleeping = false;
     /* Reação do servidor (emoção da resposta, "respondeu!") — o alerta tem prioridade. */
     if (s_snap.has_react && s_view != VIEW_ALERT && (int)s_snap.react_face < (int)FACE__COUNT) {
         s_demo = false;
@@ -455,6 +475,18 @@ static void render_footer(uint32_t now, int64_t wall_ms, bool clock_ok)
     const int lw = gfx_text(4, y1, label, C_ACCENT, 1);
     gfx_text_fit(4 + lw + 4, y1, 124 - (4 + lw + 4), nx->title, C_TEXT, 1);
     gfx_text(4, y2, rel, C_DIM, 1);
+}
+
+/* Modo repouso: só a carinha dormindo, um relógio pequeno e "zzz", tudo bem fraco. */
+static void render_sleep_view(uint32_t now, int64_t wall_ms, bool clock_ok)
+{
+    if (clock_ok) {
+        char hhmm[8];
+        fmt_hhmm(wall_ms, hhmm, sizeof(hhmm));
+        gfx_text_center(64, 6, hhmm, C_DIM, 1);
+    }
+    face_draw(64, 64, now);
+    gfx_text_center(64, 116, "zzz", C_FAINT, 1);
 }
 
 static void render_face_view(uint32_t now, int64_t wall_ms, bool clock_ok)
@@ -689,21 +721,30 @@ static void ui_task(void *arg)
         check_events(now);
         poll_buttons(now);
         expire(now);
-        face_set(live_mood(now, wall, clock_ok));
+        if (s_sleeping) {
+            life_stop();
+            face_set(FACE_SLEEPING);
+        } else {
+            face_set(live_mood(now, wall, clock_ok));
+        }
         report_face();
 
         const bool dim = clock_ok && is_night(wall) && s_view != VIEW_ALERT;
-        gfx_set_brightness(dim ? NIGHT_BRIGHTNESS : 255);
+        gfx_set_brightness(s_sleeping ? SLEEP_BRIGHTNESS : dim ? NIGHT_BRIGHTNESS : 255);
         gfx_clear(C_BG);
-        switch (s_view) {
-        case VIEW_FACE: render_face_view(now, wall, clock_ok); break;
-        case VIEW_ALERT: render_alert_view(now, wall, clock_ok); break;
-        case VIEW_AGENDA: render_agenda_view(wall, clock_ok); break;
-        case VIEW_CLAUDE: render_claude_view(wall, clock_ok); break;
+        if (s_sleeping) {
+            render_sleep_view(now, wall, clock_ok);
+        } else {
+            switch (s_view) {
+            case VIEW_FACE: render_face_view(now, wall, clock_ok); break;
+            case VIEW_ALERT: render_alert_view(now, wall, clock_ok); break;
+            case VIEW_AGENDA: render_agenda_view(wall, clock_ok); break;
+            case VIEW_CLAUDE: render_claude_view(wall, clock_ok); break;
+            }
         }
         hal_display_blit(gfx_fb(), 0, 0, GFX_W, GFX_H);
 
-        vTaskDelayUntil(&last_wake, pdMS_TO_TICKS(FRAME_MS));
+        vTaskDelayUntil(&last_wake, pdMS_TO_TICKS(s_sleeping ? SLEEP_FRAME_MS : FRAME_MS));
     }
 }
 
