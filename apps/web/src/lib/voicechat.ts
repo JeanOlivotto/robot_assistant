@@ -15,6 +15,7 @@ export interface ConverseReply {
   you: string;
   reply: string;
   face: string;
+  action?: 'start_meeting';
 }
 
 export async function converse(token: string, blob: Blob): Promise<ConverseReply> {

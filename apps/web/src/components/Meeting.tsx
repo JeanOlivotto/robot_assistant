@@ -69,7 +69,7 @@ function AtaCard({ ata, titulo }: { ata: Ata; titulo: string }) {
   );
 }
 
-export function MeetingView({ token }: { token: string }) {
+export function MeetingView({ token, autoStart, onAutoStarted }: { token: string; autoStart?: boolean; onAutoStarted?(): void }) {
   const [phase, setPhase] = useState<Phase>('checking');
   const [titulo, setTitulo] = useState('');
   const [elapsed, setElapsed] = useState(0);
@@ -174,6 +174,15 @@ export function MeetingView({ token }: { token: string }) {
     meetingId.current = null;
     setPhase('idle');
   };
+
+  // Veio do modo conversa ("iniciar reunião"): começa a gravar assim que estiver pronto.
+  useEffect(() => {
+    if (autoStart && phase === 'idle') {
+      onAutoStarted?.();
+      void begin();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoStart, phase]);
 
   if (phase === 'checking') return <div className="meeting"><p className="hint">Carregando…</p></div>;
 

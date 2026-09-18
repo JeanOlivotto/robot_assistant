@@ -8,7 +8,17 @@ type Phase = 'speaking' | 'listening' | 'thinking' | 'paused' | 'error';
  * Modo conversa por voz: o robô fala, escuta a resposta (para sozinho no silêncio) e continua.
  * Um toque abre; daí é só conversar. Fecha quando você encerra.
  */
-export function VoiceConversation({ token, initialText, onClose }: { token: string; initialText?: string; onClose(): void }) {
+export function VoiceConversation({
+  token,
+  initialText,
+  onClose,
+  onStartMeeting,
+}: {
+  token: string;
+  initialText?: string;
+  onClose(): void;
+  onStartMeeting(): void;
+}) {
   const [phase, setPhase] = useState<Phase>('speaking');
   const [hint, setHint] = useState('');
   const [you, setYou] = useState('');
@@ -77,6 +87,10 @@ export function VoiceConversation({ token, initialText, onClose }: { token: stri
       setPhase('speaking');
       await speakUntilDone(r.reply);
       if (closed.current) return;
+      if (r.action === 'start_meeting') {
+        onStartMeeting(); // sai da conversa e entra no modo reunião (o microfone já está liberado)
+        return;
+      }
       void listenTurn(); // continua a conversa
     } catch (e) {
       if (closed.current) return;

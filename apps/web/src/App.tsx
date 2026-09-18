@@ -74,6 +74,7 @@ function Main({ token, onLogout }: { token: string; onLogout(): void }) {
   const [push, setPush] = useState<PushState>(() => pushState());
   const [notice, setNotice] = useState('');
   const [convo, setConvo] = useState(false);
+  const [autoMeeting, setAutoMeeting] = useState(false);
 
   useEffect(() => {
     void configureSpeech(token).then(setVoiceProvider);
@@ -242,9 +243,20 @@ function Main({ token, onLogout }: { token: string; onLogout(): void }) {
         />
       )}
       {tab === 'agenda' && <Agenda items={robo.agenda} />}
-      {tab === 'reuniao' && <MeetingView token={token} />}
+      {tab === 'reuniao' && <MeetingView token={token} autoStart={autoMeeting} onAutoStarted={() => setAutoMeeting(false)} />}
 
-      {convo && <VoiceConversation token={token} initialText={lastRobotText} onClose={() => setConvo(false)} />}
+      {convo && (
+        <VoiceConversation
+          token={token}
+          initialText={lastRobotText}
+          onClose={() => setConvo(false)}
+          onStartMeeting={() => {
+            setConvo(false);
+            setAutoMeeting(true);
+            setTab('reuniao');
+          }}
+        />
+      )}
     </div>
   );
 }

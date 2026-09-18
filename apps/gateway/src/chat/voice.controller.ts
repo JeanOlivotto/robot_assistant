@@ -18,6 +18,18 @@ function askText(body: unknown): string {
   return '';
 }
 
+/**
+ * O dono está pedindo para GRAVAR/iniciar uma reunião (não agendar uma).
+ * "marcar/agendar reunião" é agenda (vai pro cérebro); "iniciar/gravar/modo reunião" é gravar a ata.
+ */
+function wantsMeeting(text: string): boolean {
+  const t = text.toLowerCase();
+  if (/\b(marc|agend)\w*/.test(t)) return false;
+  if (/modo (de )?reuni/.test(t)) return true;
+  if (/\bata\b/.test(t) && /(faz|fazer|grav|com[eç])/.test(t)) return true;
+  return /(inici|come[cç]|grav|escut|ouv)\w*/.test(t) && /reuni/.test(t);
+}
+
 /** Tira emoji e espaços sobrando — a Siri lê emoji em voz alta ("rosto sorridente..."). */
 function forSpeech(text: string): string {
   return text
@@ -51,11 +63,15 @@ export class VoiceController {
 
   /** Conversa por voz: áudio entra, transcrição e resposta pronta pra falar saem (para o loop de conversa). */
   @Post('voice/converse')
-  async converse(@Body() audio: unknown): Promise<{ you: string; reply: string; face: string }> {
+  async converse(@Body() audio: unknown): Promise<{ you: string; reply: string; face: string; action?: 'start_meeting' }> {
     if (!Buffer.isBuffer(audio) || !audio.length) throw new BadRequestException('mande o áudio no corpo (Content-Type audio/*)');
     try {
       const { text } = await this.stt.transcribe(audio);
       if (!text) throw new SttError('não entendi nada nesse áudio', 422);
+      // Pediu para gravar uma reunião: o app entra no modo reunião (não vira conversa nem agenda).
+      if (wantsMeeting(text)) {
+        return { you: text, reply: 'Bora! Tô abrindo o modo reunião e já começo a gravar. Pode falar!', face: 'happy', action: 'start_meeting' };
+      }
       const reply = await this.chat.ask(text, 'voice');
       return {
         you: text,
