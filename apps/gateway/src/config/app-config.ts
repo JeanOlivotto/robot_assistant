@@ -68,6 +68,8 @@ const Schema = z.object({
   PROACTIVE: bool,
   MORNING_AT: hhmm.default('08:00'),
   EVENING_AT: hhmm.default('18:00'),
+  /** Dias sem tocar num assunto até o robô puxá-lo de volta ("faz tempo que não falamos disso"). */
+  MEMORY_RECALL_DAYS: z.coerce.number().int().min(1).max(60).default(4),
 
   /* Avisa (celular + telinha) ao cruzar estes % de uso do Claude, por janela. Vazio = não avisa. */
   CLAUDE_ALERT_PERCENTS: z

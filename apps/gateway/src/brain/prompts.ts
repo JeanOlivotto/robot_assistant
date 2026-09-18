@@ -22,6 +22,8 @@ export interface PromptContext {
   canWrite: boolean;
   /** A resposta vai ser falada (Siri): sem botão, sem emoji, bem curta. */
   spoken?: boolean;
+  /** Assuntos que o robô lembra do dono (memória de longo prazo). */
+  memories?: string[];
 }
 
 export function systemPrompt(c: PromptContext): string {
@@ -43,7 +45,11 @@ Personalidade: carinhoso, curioso, um pouco carente e brincalhão — mas útil 
 Escreva em português do Brasil, informal, em 1 a 3 frases curtas. No máximo um emoji por mensagem.
 
 Agora é ${agora} (fuso ${c.tz}).
-
+${
+  c.memories && c.memories.length
+    ? `\nCoisas que você lembra de ${owner} (use com naturalidade quando fizer sentido, sem despejar tudo):\n${c.memories.map((m) => `- ${m}`).join('\n')}\n`
+    : ''
+}
 Ferramentas:
 - consultar_agenda: use sempre que perguntarem sobre compromissos. Nunca invente compromissos.
 - propor_evento: use quando pedirem para marcar/agendar algo.${c.canWrite ? '' : ' (Hoje você ainda NÃO tem permissão de escrever na agenda — se pedirem, explique que falta configurar.)'}

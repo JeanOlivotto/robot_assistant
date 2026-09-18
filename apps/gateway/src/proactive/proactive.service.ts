@@ -7,6 +7,7 @@ import { BrainService, type ComposeKind } from '../brain/brain.service.js';
 import { ChatService } from '../chat/chat.service.js';
 import { APP_CONFIG, type AppConfig } from '../config/app-config.js';
 import { rootPath } from '../config/paths.js';
+import { MemoryService } from '../memory/memory.service.js';
 import { RobotStateService } from '../robot/robot-state.service.js';
 
 const TICK_MS = 60_000;
@@ -24,7 +25,10 @@ interface ProactiveMemory {
   attentionDay: string;
   attentionCount: number;
   lastAttentionAt: number;
+  recallDay: string; // último dia em que puxou um assunto antigo
 }
+
+const LEARN_GAP_MS = 90 * 60_000; // aprende assuntos no máximo a cada 1h30
 
 /** O robô puxando assunto: bom-dia, resumo do fim do dia, lembretes e pedidos de atenção. */
 @Injectable()
@@ -36,7 +40,8 @@ export class ProactiveService implements OnModuleInit, OnModuleDestroy {
   private sub?: Subscription;
   private busy = false;
   private nextThoughtAt = Date.now() + 5 * 60_000;
-  private mem: ProactiveMemory = { morning: '', evening: '', attentionDay: '', attentionCount: 0, lastAttentionAt: 0 };
+  private lastLearnAt = 0;
+  private mem: ProactiveMemory = { morning: '', evening: '', attentionDay: '', attentionCount: 0, lastAttentionAt: 0, recallDay: '' };
 
   constructor(
     @Inject(APP_CONFIG) private readonly cfg: AppConfig,
@@ -44,6 +49,7 @@ export class ProactiveService implements OnModuleInit, OnModuleDestroy {
     private readonly brain: BrainService,
     private readonly alerts: AlertService,
     private readonly robot: RobotStateService,
+    private readonly memory: MemoryService,
   ) {
     this.file = rootPath(`${cfg.DATA_DIR}/proactive.json`);
     this.clock = new Intl.DateTimeFormat('en-CA', {
@@ -95,6 +101,13 @@ export class ProactiveService implements OnModuleInit, OnModuleDestroy {
     if (this.busy || this.chat.state.thinking) return;
     // No meio de uma conversa não se puxa assunto; tenta de novo no próximo minuto.
     if (Date.now() - this.chat.lastUserAt() < QUIET_AFTER_USER_MS) return;
+
+    // De vez em quando, aprende os assuntos importantes da conversa recente (memória de longo prazo).
+    if (Date.now() - this.lastLearnAt > LEARN_GAP_MS && this.chat.lastUserAt() > this.lastLearnAt) {
+      this.lastLearnAt = Date.now();
+      void this.brain.learn(this.chat.history(12));
+    }
+
     const { date, minutes } = this.now();
     const at = (hhmm: string) => Number(hhmm.slice(0, 2)) * 60 + Number(hhmm.slice(3, 5));
 
@@ -106,6 +119,21 @@ export class ProactiveService implements OnModuleInit, OnModuleDestroy {
     if (this.mem.evening !== date && minutes >= at(this.cfg.EVENING_AT) && minutes < 22 * 60) {
       this.mem.evening = date;
       await this.send('evening');
+      return;
+    }
+
+    // Puxar um assunto antigo: no máximo uma vez por dia, na parte da tarde, quando está quieto.
+    const hourNow = Math.floor(minutes / 60);
+    if (
+      this.mem.recallDay !== date &&
+      hourNow >= 11 &&
+      hourNow < 20 &&
+      this.chat.state.waitingSince === 0 &&
+      this.memory.stale(this.cfg.MEMORY_RECALL_DAYS) &&
+      Math.random() < 1 / 25
+    ) {
+      this.mem.recallDay = date;
+      await this.sendRecall();
       return;
     }
 
@@ -129,6 +157,23 @@ export class ProactiveService implements OnModuleInit, OnModuleDestroy {
       this.mem.attentionCount++;
       this.mem.lastAttentionAt = Date.now();
       await this.send('attention', idleH);
+    }
+  }
+
+  /** O robô puxa de volta um assunto que faz tempo que não aparece. */
+  private async sendRecall(): Promise<void> {
+    this.busy = true;
+    const started = Date.now();
+    try {
+      const r = await this.brain.recall(this.chat.history(6));
+      if (!r) return;
+      if (this.chat.lastUserAt() >= started || this.chat.state.thinking) return;
+      this.memory.touch(r.memoryId);
+      this.chat.robotSay(r.text, r.face, 'proactive', { expectsReply: true });
+      this.log.log(`Puxou assunto antigo: ${r.text}`);
+    } finally {
+      this.busy = false;
+      this.save();
     }
   }
 

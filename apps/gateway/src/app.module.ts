@@ -18,6 +18,7 @@ import { DeviceGateway } from './device/device.gateway.js';
 import { LlmService } from './llm/llm.service.js';
 import { MeetingController } from './meeting/meeting.controller.js';
 import { MeetingService } from './meeting/meeting.service.js';
+import { MemoryService } from './memory/memory.service.js';
 import { ProactiveService } from './proactive/proactive.service.js';
 import { PushController } from './push/push.controller.js';
 import { PushService } from './push/push.service.js';
@@ -48,6 +49,7 @@ import { WsRouter } from './ws/ws-router.service.js';
     ClaudeUsageService,
     ClaudeUsageAlertService,
     MeetingService,
+    MemoryService,
     TokenGuard,
     AppTokenGuard,
   ],

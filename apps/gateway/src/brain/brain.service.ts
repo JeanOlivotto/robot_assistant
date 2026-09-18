@@ -7,6 +7,7 @@ import type { ChatMessage, Face } from '@robo/protocol';
 import { CalendarService } from '../calendar/calendar.service.js';
 import { APP_CONFIG, type AppConfig } from '../config/app-config.js';
 import { LlmService } from '../llm/llm.service.js';
+import { MemoryService } from '../memory/memory.service.js';
 import { describeAgenda, splitEmotion, systemPrompt } from './prompts.js';
 import { DIAS, resolveDay, resolveWhen } from './resolve-date.js';
 
@@ -78,6 +79,7 @@ export class BrainService {
     @Inject(APP_CONFIG) private readonly cfg: AppConfig,
     private readonly llm: LlmService,
     private readonly calendar: CalendarService,
+    private readonly memory: MemoryService,
   ) {
     this.dayFmt = new Intl.DateTimeFormat('pt-BR', {
       weekday: 'long',
@@ -173,7 +175,38 @@ export class BrainService {
       tz: this.cfg.TZ_NAME,
       now,
       canWrite: this.calendar.writable,
+      memories: this.memory.summaries(),
     };
+  }
+
+  /** Puxa de volta um assunto antigo ("faz tempo que não falamos disso..."). Null se não houver o que lembrar. */
+  async recall(history: ChatMessage[]): Promise<{ text: string; face: Face; memoryId: string } | null> {
+    const m = this.memory.stale(this.cfg.MEMORY_RECALL_DAYS);
+    if (!m || !this.llm.enabled) return null;
+    const owner = this.cfg.OWNER_NAME || 'o dono';
+    try {
+      const msg = await this.llm.complete([
+        { role: 'system', content: systemPrompt(this.promptContext(new Date())) },
+        ...toLlmHistory(history.slice(-4), this.cfg.TZ_NAME),
+        {
+          role: 'user',
+          content:
+            `[instrução interna do sistema — não é ${owner} falando] Faz um tempo que vocês não falam sobre "${m.texto}". ` +
+            'Puxe esse assunto de volta com carinho, numa frase curta, tipo "nossa, faz tempo que não falamos sobre..." ' +
+            'e pergunte como está. Sem inventar detalhes que você não sabe.',
+        },
+      ]);
+      const out = splitEmotion(msg.content ?? '');
+      return out.text ? { text: out.text, face: out.face, memoryId: m.id } : null;
+    } catch (err) {
+      this.log.warn(`recall() falhou: ${(err as Error).message}`);
+      return null;
+    }
+  }
+
+  /** Aprende assuntos duradouros da conversa recente (memória de longo prazo). */
+  async learn(history: ChatMessage[]): Promise<void> {
+    await this.memory.learn(history);
   }
 
   private async runTool(name: string, rawArgs: string, now: Date): Promise<{ result: string; proposal?: ProposalDraft }> {
