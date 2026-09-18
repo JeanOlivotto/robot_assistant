@@ -49,6 +49,25 @@ export class VoiceController {
     }
   }
 
+  /** Conversa por voz: áudio entra, transcrição e resposta pronta pra falar saem (para o loop de conversa). */
+  @Post('voice/converse')
+  async converse(@Body() audio: unknown): Promise<{ you: string; reply: string; face: string }> {
+    if (!Buffer.isBuffer(audio) || !audio.length) throw new BadRequestException('mande o áudio no corpo (Content-Type audio/*)');
+    try {
+      const { text } = await this.stt.transcribe(audio);
+      if (!text) throw new SttError('não entendi nada nesse áudio', 422);
+      const reply = await this.chat.ask(text, 'voice');
+      return {
+        you: text,
+        reply: reply ? forSpeech(reply.text) : 'Hmm, não sei o que dizer agora.',
+        face: reply?.face ?? 'neutral',
+      };
+    } catch (err) {
+      if (err instanceof SttError) throw new HttpException(err.message, err.status);
+      throw err;
+    }
+  }
+
   /** Atalho da Siri: texto ditado entra, resposta pronta para ser falada sai. */
   @Post('ask')
   @HttpCode(200)

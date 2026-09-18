@@ -712,3 +712,82 @@ button {
   font-size: 13px;
   line-height: 1.5;
 }
+
+/* ── Conversa por voz (overlay) ───────────────────────────────────────── */
+.convo {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  background: radial-gradient(120% 80% at 50% 20%, #16202e 0%, var(--bg) 70%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 22px;
+  padding: 24px 16px calc(24px + env(safe-area-inset-bottom));
+}
+.convo__close {
+  position: absolute;
+  top: calc(12px + env(safe-area-inset-top));
+  right: 16px;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--text);
+  font-size: 18px;
+  cursor: pointer;
+}
+.convo__stage {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+}
+.orb {
+  width: 130px;
+  height: 130px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 30%, #7ff0fb, var(--accent) 55%, #2aa7b4);
+  box-shadow: 0 0 46px rgba(90, 230, 240, 0.35);
+  transition: transform 0.08s linear;
+}
+.orb--listen {
+  background: radial-gradient(circle at 35% 30%, #b6ffd2, var(--ok) 55%, #1f9e5a);
+  box-shadow: 0 0 46px rgba(60, 220, 120, 0.4);
+}
+.orb--think {
+  animation: pulse 1s ease-in-out infinite;
+}
+.orb--speak {
+  animation: pulse 1.6s ease-in-out infinite;
+}
+.convo__phase {
+  color: var(--dim);
+  font-size: 15px;
+  min-height: 20px;
+}
+.convo__lines {
+  width: 100%;
+  max-width: 420px;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.convo__you {
+  color: var(--dim);
+  font-style: italic;
+}
+.convo__reply {
+  color: var(--text);
+  font-size: 18px;
+  line-height: 1.45;
+}
+.convo__controls {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+}

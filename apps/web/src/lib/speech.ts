@@ -103,3 +103,44 @@ export function stopSpeaking(): void {
   player?.pause();
   if ('speechSynthesis' in window) window.speechSynthesis.cancel();
 }
+
+/** Como speak(), mas só resolve quando a fala TERMINA — o modo conversa precisa disso para voltar a ouvir. */
+export async function speakUntilDone(raw: string): Promise<void> {
+  const text = raw.replace(/\p{Extended_Pictographic}|️|‍/gu, '').trim();
+  if (!text) return;
+  if (serverVoice && player) {
+    try {
+      const res = await fetch('/api/tts', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ text }),
+      });
+      if (res.ok) {
+        const url = URL.createObjectURL(await res.blob());
+        await new Promise<void>((resolve) => {
+          player.onended = () => {
+            URL.revokeObjectURL(url);
+            resolve();
+          };
+          player.onerror = () => resolve();
+          player.src = url;
+          void player.play().catch(() => resolve());
+        });
+        return;
+      }
+    } catch {
+      /* cai para a voz do aparelho */
+    }
+  }
+  if (!('speechSynthesis' in window)) return;
+  await new Promise<void>((resolve) => {
+    deviceVoice ??= pickDeviceVoice();
+    const u = new SpeechSynthesisUtterance(text);
+    u.lang = 'pt-BR';
+    if (deviceVoice) u.voice = deviceVoice;
+    u.onend = () => resolve();
+    u.onerror = () => resolve();
+    window.speechSynthesis.cancel();
+    window.speechSynthesis.speak(u);
+  });
+}

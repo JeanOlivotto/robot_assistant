@@ -4,6 +4,7 @@ import { Chat } from './components/Chat';
 import { Login } from './components/Login';
 import { MeetingView } from './components/Meeting';
 import { RobotFace } from './components/RobotFace';
+import { VoiceConversation } from './components/VoiceConversation';
 import { ago } from './lib/format';
 import { enablePush, pushState, refreshPush, testPush, type PushState } from './lib/push';
 import { configureSpeech, speak, speechSupported, stopSpeaking, unlockAudio } from './lib/speech';
@@ -72,6 +73,7 @@ function Main({ token, onLogout }: { token: string; onLogout(): void }) {
   const [voiceProvider, setVoiceProvider] = useState<'edge' | 'elevenlabs' | null>(null);
   const [push, setPush] = useState<PushState>(() => pushState());
   const [notice, setNotice] = useState('');
+  const [convo, setConvo] = useState(false);
 
   useEffect(() => {
     void configureSpeech(token).then(setVoiceProvider);
@@ -107,12 +109,14 @@ function Main({ token, onLogout }: { token: string; onLogout(): void }) {
 
   // Lê em voz alta só o que o robô disser depois de ligar (não o histórico).
   useEffect(() => {
-    if (!speakOn) return;
+    if (!speakOn || convo) return; // no modo conversa, quem fala é o próprio modo (não duplica)
     const fresh = robo.messages.filter((m) => m.from === 'robot' && m.ts > spokenUpTo.current);
     if (!fresh.length) return;
     spokenUpTo.current = Math.max(...fresh.map((m) => m.ts));
     void speak(fresh[fresh.length - 1]!.text);
-  }, [robo.messages, speakOn]);
+  }, [robo.messages, speakOn, convo]);
+
+  const lastRobotText = [...robo.messages].reverse().find((m) => m.from === 'robot')?.text;
 
   const toggleSpeak = () => {
     const on = !speakOn;
@@ -162,6 +166,23 @@ function Main({ token, onLogout }: { token: string; onLogout(): void }) {
               stroke="currentColor"
               strokeWidth="1.8"
               strokeLinejoin="round"
+            />
+          </svg>
+        </button>
+        <button
+          type="button"
+          className="icon-btn"
+          onClick={() => {
+            unlockAudio(); // este toque destrava o áudio no iPhone
+            setConvo(true);
+          }}
+          aria-label="Conversar por voz"
+          title="Conversar por voz"
+        >
+          <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
+            <path
+              d="M6.6 10.8a12 12 0 0 0 5.6 5.6l1.9-1.9c.3-.3.7-.4 1-.2 1.1.4 2.3.6 3.4.6.6 0 1 .4 1 1V19c0 .6-.4 1-1 1A16 16 0 0 1 3 4c0-.6.4-1 1-1h3.1c.6 0 1 .4 1 1 0 1.2.2 2.4.6 3.4.1.4 0 .8-.3 1l-1.8 1.9Z"
+              fill="currentColor"
             />
           </svg>
         </button>
@@ -222,6 +243,8 @@ function Main({ token, onLogout }: { token: string; onLogout(): void }) {
       )}
       {tab === 'agenda' && <Agenda items={robo.agenda} />}
       {tab === 'reuniao' && <MeetingView token={token} />}
+
+      {convo && <VoiceConversation token={token} initialText={lastRobotText} onClose={() => setConvo(false)} />}
     </div>
   );
 }
