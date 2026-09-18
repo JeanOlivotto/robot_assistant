@@ -232,6 +232,12 @@ void net_start(void)
     esp_wifi_set_ps(WIFI_PS_NONE);
 }
 
+void net_set_power_save(bool on)
+{
+    esp_wifi_set_ps(on ? WIFI_PS_MAX_MODEM : WIFI_PS_NONE);
+    ESP_LOGI(TAG, "economia do rádio %s", on ? "ligada" : "desligada");
+}
+
 int net_rssi(void)
 {
     wifi_ap_record_t ap;

@@ -30,8 +30,15 @@
 #define FOOTER_AFTER_START_MS (5 * 60 * 1000)  /* ...até 5 min depois de começar */
 #define AGENDA_PEEK_MS        20000            /* agenda mudou: mostra o próximo por 20 s */
 #define NIGHT_BRIGHTNESS 90
-#define SLEEP_BRIGHTNESS 12  /* modo repouso: tela quase apagada para poupar bateria */
-#define SLEEP_FRAME_MS   200 /* dormindo, atualiza devagar (5 fps) — gasta menos CPU */
+/* O backlight não tem controle nesta placa: escurecer os pixels não poupa nada, só apaga o
+   desenho. A economia do repouso vem do rádio em modo econômico e da animação lenta. */
+#define SLEEP_BRIGHTNESS 110
+#define SLEEP_FRAME_MS   200 /* dormindo, anima devagar (5 fps) — gasta menos CPU */
+/* Sono sozinho, como um bichinho: sem ninguém mexer nele, boceja e depois dorme. */
+#define IDLE_SLEEP_MS       (5 * 60 * 1000) /* de dia: 5 min sem interação */
+#define IDLE_SLEEP_NIGHT_MS (60 * 1000)     /* de noite: 1 min */
+#define DROWSY_MS           30000           /* 30 s bocejando antes de dormir */
+#define LONG_NAP_MS         (30 * 60 * 1000) /* dormiu mais que isso: acorda com "bom dia" */
 
 #define C_BG     GFX_RGB(0, 0, 0)
 #define C_TEXT   GFX_RGB(235, 235, 235)
@@ -69,7 +76,10 @@ static face_expr_t s_override = FACE__COUNT; /* FACE__COUNT = sem expressão for
 static uint32_t s_override_until;
 static bool s_demo;
 static int s_demo_idx = -1;
-static bool s_sleeping; /* modo repouso: dorme com tela fraca até acordar */
+static bool s_sleeping; /* modo repouso: rádio em economia e animação lenta até acordar */
+static uint32_t s_last_touch;  /* última interação (botão, mensagem, alerta, música) */
+static uint32_t s_slept_at;
+static bool s_drowsy;
 
 static uint32_t s_next_joy, s_joy_until;
 static uint32_t s_offline_since;
@@ -163,6 +173,23 @@ static void set_override(face_expr_t e, uint32_t ms, uint32_t now)
     s_override_until = now + ms;
 }
 
+static void set_sleeping(bool on, uint32_t now)
+{
+    s_last_touch = now;
+    s_drowsy = false;
+    if (on == s_sleeping) return;
+    s_sleeping = on;
+    if (on) s_slept_at = now;
+    net_set_power_save(on);
+}
+
+/* Alguém mexeu com ele: acorda (se dormia) e recomeça a contar o tempo até o próximo cochilo. */
+static void touch(uint32_t now)
+{
+    s_last_touch = now;
+    s_drowsy = false;
+}
+
 /* ── botões ──────────────────────────────────────────────────────────── */
 
 static robo_btn_t to_proto(hal_btn_t b)
@@ -178,11 +205,14 @@ static void on_button(hal_btn_t b, robo_btn_ev_t ev, uint32_t now)
 {
     ESP_LOGI(TAG, "botão %s (%s)", robo_btn_name(to_proto(b)), robo_btn_ev_name(ev));
     ws_client_send_button(to_proto(b), ev);
+    touch(now);
     if (s_sleeping) { /* dormindo: qualquer botão acorda o robô */
-        s_sleeping = false;
+        const bool long_nap = now - s_slept_at > LONG_NAP_MS;
+        set_sleeping(false, now);
         set_view(VIEW_FACE, now);
         s_demo = false;
-        set_override(FACE_HAPPY, 1200, now);
+        set_override(FACE_HAPPY, 1500, now);
+        life_say(long_nap ? "bom dia!" : "hã? oi!", 2000, now);
         return;
     }
     if (ev == ROBO_BTN_EV_LONG && b == HAL_BTN_KEY1 && s_view != VIEW_ALERT) { /* segurar KEY1: uso do Claude */
@@ -221,7 +251,7 @@ static void on_button(hal_btn_t b, robo_btn_ev_t ev, uint32_t now)
         s_demo = false;
         s_override = FACE__COUNT;
         life_stop();
-        s_sleeping = true;
+        set_sleeping(true, now);
         break;
     case HAL_BTN_BOOT: /* mostruário das expressões */
         set_view(VIEW_FACE, now);
@@ -258,7 +288,16 @@ static void poll_buttons(uint32_t now)
 static void check_events(uint32_t now)
 {
     /* Acorda quando chega alerta, quando o robô vai falar algo ou reagir. */
-    if (s_sleeping && (s_snap.has_alert || s_snap.has_say || s_snap.has_react)) s_sleeping = false;
+    if (s_snap.has_alert || s_snap.has_say || s_snap.has_react) {
+        if (s_sleeping) set_sleeping(false, now);
+        touch(now);
+    }
+    /* Pensando na resposta ou começou a tocar música: tem gente mexendo, não é hora de dormir. */
+    static bool was_playing;
+    const bool playing = s_snap.music.playing;
+    if (playing && !was_playing && s_sleeping) set_sleeping(false, now);
+    if (playing || s_snap.chat.thinking) touch(now);
+    was_playing = playing;
     /* Reação do servidor (emoção da resposta, "respondeu!") — o alerta tem prioridade. */
     if (s_snap.has_react && s_view != VIEW_ALERT && (int)s_snap.react_face < (int)FACE__COUNT) {
         s_demo = false;
@@ -303,6 +342,7 @@ static face_expr_t pick_mood(uint32_t now, int64_t wall_ms, bool clock_ok)
     if (s_override < FACE__COUNT) return s_override;
     if (!online) return now - s_offline_since > OFFLINE_GRACE_MS ? FACE_SAD : FACE_NEUTRAL;
     if (s_snap.chat.thinking) return FACE_THINKING;
+    if (s_drowsy) return FACE_SLEEPY;
 
     if (clock_ok) {
         struct tm tm;
@@ -479,7 +519,7 @@ static void render_footer(uint32_t now, int64_t wall_ms, bool clock_ok)
     gfx_text(4, y2, rel, C_DIM, 1);
 }
 
-/* Modo repouso: só a carinha dormindo, um relógio pequeno e "zzz", tudo bem fraco. */
+/* Modo repouso: só a carinha dormindo, um relógio pequeno e "zzz", em tom suave. */
 static void render_sleep_view(uint32_t now, int64_t wall_ms, bool clock_ok)
 {
     if (clock_ok) {
@@ -489,6 +529,8 @@ static void render_sleep_view(uint32_t now, int64_t wall_ms, bool clock_ok)
     }
     face_draw(64, 64, now);
     gfx_text_center(64, 116, "zzz", C_FAINT, 1);
+    const int64_t waiting = waiting_for(wall_ms, clock_ok);
+    if (waiting) render_bubble(now, waiting); /* dormindo, mas ainda avisa que tem mensagem */
 }
 
 /* Uma nota musical simples que balança. */
@@ -754,12 +796,37 @@ static void report_face(void)
     }
 }
 
+/* Sem interação por um tempo, fica com sono e dorme sozinho (mais cedo de noite).
+   Alerta, agenda aberta ou expressão forçada contam como gente mexendo; a bolinha e a falação
+   são dele mesmo, então só adiam o cochilo até ele terminar. */
+static void auto_sleep(uint32_t now, int64_t wall_ms, bool clock_ok)
+{
+    static uint32_t drowsy_at;
+    if (s_sleeping) return;
+    if (s_view != VIEW_FACE || s_demo || s_override < FACE__COUNT) {
+        touch(now);
+        return;
+    }
+    if (life_playing()) return;
+    const uint32_t limit = clock_ok && is_night(wall_ms) ? IDLE_SLEEP_NIGHT_MS : IDLE_SLEEP_MS;
+    if (!s_drowsy) {
+        if (now - s_last_touch < limit - DROWSY_MS) return;
+        s_drowsy = true;
+        drowsy_at = now;
+        life_say("que sono...", 3000, now);
+    } else if (now - drowsy_at >= DROWSY_MS) {
+        life_stop();
+        set_sleeping(true, now);
+    }
+}
+
 static void ui_task(void *arg)
 {
     gfx_init();
     face_init();
     s_next_joy = (uint32_t)(esp_timer_get_time() / 1000) + 30000;
     life_init((uint32_t)(esp_timer_get_time() / 1000));
+    s_last_touch = (uint32_t)(esp_timer_get_time() / 1000);
 
     TickType_t last_wake = xTaskGetTickCount();
     for (;;) {
@@ -772,6 +839,7 @@ static void ui_task(void *arg)
         check_events(now);
         poll_buttons(now);
         expire(now);
+        auto_sleep(now, wall, clock_ok);
         /* Tocando música na tela do rosto vira o modo música (curtindo). */
         const bool music_on = s_snap.music.playing && !s_sleeping && s_view == VIEW_FACE;
         if (s_sleeping) {

@@ -9,6 +9,9 @@ void net_start(void);
 /* Sinal do Wi-Fi em dBm (0 = desconectado). */
 int net_rssi(void);
 
+/* Repouso: rádio em economia máxima (continua conectado, só responde mais devagar). */
+void net_set_power_save(bool on);
+
 /* O cliente WebSocket avisa se o servidor responde; sem servidor por muito tempo, troca de rede. */
 void net_set_server_ok(bool ok);
 

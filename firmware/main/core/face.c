@@ -139,14 +139,16 @@ static void update(uint32_t now)
     }
     if (s_blinking) {
         const uint32_t t = now - s_blink_start;
+        /* Troca a partir do olho fechado, não só dentro da janela de 30 ms: a 5 fps (repouso)
+           o quadro pula a janela inteira e a expressão nova nunca entrava. */
+        if (t >= BLINK_CLOSE_MS && s_has_pending) {
+            s_expr = s_pending;
+            s_has_pending = false;
+        }
         if (t < BLINK_CLOSE_MS) {
             s_open = 256 - (int)(t * 256 / BLINK_CLOSE_MS);
         } else if (t < BLINK_CLOSE_MS + BLINK_HOLD_MS) {
             s_open = 0;
-            if (s_has_pending) {
-                s_expr = s_pending;
-                s_has_pending = false;
-            }
         } else if (t < BLINK_CLOSE_MS + BLINK_HOLD_MS + BLINK_OPEN_MS) {
             s_open = (int)((t - BLINK_CLOSE_MS - BLINK_HOLD_MS) * 256 / BLINK_OPEN_MS);
         } else {
