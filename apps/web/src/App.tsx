@@ -38,6 +38,14 @@ function saveToken(token: string | null): void {
   }
 }
 
+type Tab = 'chat' | 'agenda' | 'reuniao';
+
+/** Atalho da Siri pode abrir o app já numa aba: ?tab=reuniao (ou #reuniao). */
+function initialTab(): Tab {
+  const raw = (new URL(location.href).searchParams.get('tab') || location.hash.replace('#', '')).toLowerCase();
+  return raw === 'reuniao' || raw === 'agenda' ? raw : 'chat';
+}
+
 /** Re-renderiza de tempos em tempos para o "há X min" andar. */
 function useNow(everyMs: number): number {
   const [now, setNow] = useState(Date.now());
@@ -50,7 +58,7 @@ function useNow(everyMs: number): number {
 
 function Main({ token, onLogout }: { token: string; onLogout(): void }) {
   const robo = useRobo(token);
-  const [tab, setTab] = useState<'chat' | 'agenda' | 'reuniao'>('chat');
+  const [tab, setTab] = useState<Tab>(initialTab);
   const now = useNow(30_000);
   const r = robo.robot;
   const [speakOn, setSpeakOn] = useState(() => {
