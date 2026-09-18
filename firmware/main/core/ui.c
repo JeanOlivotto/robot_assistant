@@ -44,6 +44,8 @@
 #define C_ERR    GFX_RGB(255, 80, 80)
 #define C_INK    GFX_RGB(25, 20, 10) /* texto sobre a faixa amarela */
 #define C_BUBBLE GFX_RGB(38, 46, 62) /* balão de fala */
+#define C_PHONE  GFX_RGB(120, 200, 255) /* fones */
+#define C_NOTE   GFX_RGB(180, 130, 255) /* nota musical */
 #define C_CLAUDE GFX_RGB(217, 119, 87) /* terracota do Claude */
 
 typedef enum { VIEW_FACE, VIEW_ALERT, VIEW_AGENDA, VIEW_CLAUDE } view_t;
@@ -489,6 +491,55 @@ static void render_sleep_view(uint32_t now, int64_t wall_ms, bool clock_ok)
     gfx_text_center(64, 116, "zzz", C_FAINT, 1);
 }
 
+/* Uma nota musical simples que balança. */
+static void draw_note(int x, int y, uint16_t color)
+{
+    gfx_fill_ellipse(x, y, 4, 3, color);
+    gfx_fill_rect(x + 3, y - 13, 2, 13, color);
+    gfx_fill_triangle(x + 4, y - 13, x + 4, y - 7, x + 10, y - 10, color);
+}
+
+/* Texto que rola quando não cabe (marquee). */
+static void render_marquee(int y, const char *text, uint16_t color, uint32_t now)
+{
+    const int w = GFX_W - 8;
+    const int tw = gfx_text_width(text, 1);
+    if (tw <= w) {
+        gfx_text_center(64, y, text, color, 1);
+        return;
+    }
+    const int span = tw + 24;
+    const int off = (int)((now / 30) % (uint32_t)span);
+    gfx_set_clip(4, y - 1, w, 10);
+    gfx_text(4 - off, y, text, color, 1);
+    gfx_text(4 - off + span, y, text, color, 1);
+    gfx_reset_clip();
+}
+
+/* Modo música: carinha curtindo, fones de ouvido, notinhas e o que está tocando. */
+static void render_music_view(uint32_t now, int64_t wall_ms, bool clock_ok)
+{
+    char hhmm[8] = "";
+    if (clock_ok) fmt_hhmm(wall_ms, hhmm, sizeof(hhmm));
+    if (hhmm[0]) gfx_text_center(64, 3, hhmm, C_DIM, 1);
+
+    face_draw(64, 52, now);
+
+    /* Fones: arco por cima da cabeça + as duas conchas. */
+    gfx_arc_band(64, 52, 44, 44, 4, false, C_PHONE);
+    gfx_fill_round_rect(14, 44, 12, 22, 5, C_PHONE);
+    gfx_fill_round_rect(102, 44, 12, 22, 5, C_PHONE);
+
+    /* Notinhas balançando. */
+    const int bob = (now / 220) % 2 ? 0 : -3;
+    draw_note(24, 30 + bob, C_NOTE);
+    draw_note(100, 26 - bob, C_NOTE);
+
+    const music_state_t *m = &s_snap.music;
+    render_marquee(103, m->title[0] ? m->title : "tocando algo", C_TEXT, now);
+    if (m->artist[0]) gfx_text_fit(4, 116, GFX_W - 8, m->artist, C_DIM, 1);
+}
+
 static void render_face_view(uint32_t now, int64_t wall_ms, bool clock_ok)
 {
     render_status_bar(now, wall_ms, clock_ok);
@@ -721,9 +772,14 @@ static void ui_task(void *arg)
         check_events(now);
         poll_buttons(now);
         expire(now);
+        /* Tocando música na tela do rosto vira o modo música (curtindo). */
+        const bool music_on = s_snap.music.playing && !s_sleeping && s_view == VIEW_FACE;
         if (s_sleeping) {
             life_stop();
             face_set(FACE_SLEEPING);
+        } else if (music_on) {
+            life_stop();
+            face_set(FACE_JAMMING);
         } else {
             face_set(live_mood(now, wall, clock_ok));
         }
@@ -734,6 +790,8 @@ static void ui_task(void *arg)
         gfx_clear(C_BG);
         if (s_sleeping) {
             render_sleep_view(now, wall, clock_ok);
+        } else if (music_on) {
+            render_music_view(now, wall, clock_ok);
         } else {
             switch (s_view) {
             case VIEW_FACE: render_face_view(now, wall, clock_ok); break;

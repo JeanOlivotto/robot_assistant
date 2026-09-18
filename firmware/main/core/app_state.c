@@ -80,6 +80,13 @@ void app_set_usage(const claude_usage_t *u)
     xSemaphoreGive(s_lock);
 }
 
+void app_set_music(const music_state_t *m)
+{
+    xSemaphoreTake(s_lock, portMAX_DELAY);
+    s_state.music = *m;
+    xSemaphoreGive(s_lock);
+}
+
 void app_snapshot(app_snapshot_t *out)
 {
     xSemaphoreTake(s_lock, portMAX_DELAY);

@@ -27,6 +27,7 @@ export const FACES = [
   'error',
   'thinking',
   'bored',
+  'jamming',
 ] as const;
 export type Face = (typeof FACES)[number];
 
@@ -193,6 +194,15 @@ export const ClaudeUsage = z.object({
   updated_at: epochMs,
 });
 
+/** O que o dono está ouvindo no Spotify — o robô mostra a tela de música (carinha com fone). */
+export const Music = z.object({
+  t: z.literal('music'),
+  ts: epochMs,
+  playing: z.boolean(),
+  title: bytes(LIMITS.TITLE_MAX_BYTES),
+  artist: bytes(LIMITS.SUB_MAX_BYTES),
+});
+
 export const ServerMessage = z.discriminatedUnion('t', [
   HelloAck,
   Pong,
@@ -203,6 +213,7 @@ export const ServerMessage = z.discriminatedUnion('t', [
   Reaction,
   DeviceSay,
   ClaudeUsage,
+  Music,
 ]);
 
 export type Hello = z.infer<typeof Hello>;
@@ -216,6 +227,7 @@ export type Chat = z.infer<typeof Chat>;
 export type Reaction = z.infer<typeof Reaction>;
 export type DeviceSay = z.infer<typeof DeviceSay>;
 export type ClaudeUsage = z.infer<typeof ClaudeUsage>;
+export type Music = z.infer<typeof Music>;
 export type ServerMessage = z.infer<typeof ServerMessage>;
 
 export const DEVICE_MESSAGE_TYPES = DeviceMessage.options.map((o) => o.shape.t.value);

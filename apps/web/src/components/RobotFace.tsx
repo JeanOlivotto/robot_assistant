@@ -42,6 +42,7 @@ const FACE_DEFS: Record<Face, Def> = {
   error: { eyes: 'x', mouth: 'flat', w: 20, h: 20, r: 0, lidTop: 0, lidBot: 0, slant: 0, dy: 0, mw: 14, mh: 3, color: ERR },
   thinking: { eyes: 'open', mouth: 'flat', w: 22, h: 24, r: 8, lidTop: 6, lidBot: 0, slant: 0, dy: -2, mw: 8, mh: 3, color: EYE, gaze: [-7, -5], dots: true },
   bored: { eyes: 'open', mouth: 'flat', w: 24, h: 30, r: 8, lidTop: 14, lidBot: 0, slant: 0, dy: 3, mw: 10, mh: 2, color: EYE, gaze: [8, 2] },
+  jamming: { eyes: 'open', mouth: 'grin', w: 24, h: 28, r: 8, lidTop: 0, lidBot: 17, slant: 0, dy: 0, mw: 16, mh: 8, color: EYE, blush: true },
 };
 
 const EYE_GAP = 48;

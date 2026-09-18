@@ -81,6 +81,12 @@ const Schema = z.object({
       ),
     ),
 
+  /* Spotify: mostra no robô o que está tocando. Client ID/Secret do painel de dev; refresh token vem da autorização. */
+  SPOTIFY_CLIENT_ID: z.string().default(''),
+  SPOTIFY_CLIENT_SECRET: z.string().default(''),
+  SPOTIFY_REDIRECT_URI: z.string().default('https://srv1966497.hstgr.cloud/api/spotify/callback'),
+  SPOTIFY_POLL_SEC: z.coerce.number().int().min(3).max(60).default(5),
+
   DATA_DIR: z.string().default('data'),
 });
 

@@ -155,6 +155,15 @@ static void on_claude_usage(const cJSON *msg)
     ESP_LOGI(TAG, "uso do Claude: 5h %d%%, semana %d%%", (int)u.five_hour.pct, (int)u.seven_day.pct);
 }
 
+static void on_music(const cJSON *msg)
+{
+    music_state_t m = {0};
+    m.playing = cJSON_IsTrue(cJSON_GetObjectItemCaseSensitive(msg, "playing"));
+    strlcpy(m.title, str_or(msg, "title", ""), sizeof(m.title));
+    strlcpy(m.artist, str_or(msg, "artist", ""), sizeof(m.artist));
+    app_set_music(&m);
+}
+
 static void handle_message(const char *json, size_t len)
 {
     cJSON *msg = cJSON_ParseWithLength(json, len);
@@ -181,6 +190,8 @@ static void handle_message(const char *json, size_t len)
         app_push_say(str_or(msg, "text", ""), (uint32_t)num_or(msg, "ms", 5000));
     } else if (strcmp(t, ROBO_MSG_CLAUDE_USAGE) == 0) {
         on_claude_usage(msg);
+    } else if (strcmp(t, ROBO_MSG_MUSIC) == 0) {
+        on_music(msg);
     } else if (strcmp(t, ROBO_MSG_PONG) == 0 || strcmp(t, ROBO_MSG_STATE) == 0) {
         /* pong: só serve de tráfego; state: o rosto ainda é decidido localmente */
     } else {

@@ -40,6 +40,13 @@ typedef struct {
     int64_t updated_at_ms; /* 0 = o servidor nunca recebeu números */
 } claude_usage_t;
 
+/* O que o dono está ouvindo no Spotify (mensagem `music`). */
+typedef struct {
+    bool playing;
+    char title[ROBO_TITLE_MAX_BYTES + 1];
+    char artist[ROBO_SUB_MAX_BYTES + 1];
+} music_state_t;
+
 typedef struct {
     bool wifi_up;
     bool server_up;
@@ -56,6 +63,7 @@ typedef struct {
     uint32_t say_ms;
     bool has_usage; /* já chegou algum `claude_usage` nesta sessão */
     claude_usage_t usage;
+    music_state_t music;
 } app_snapshot_t;
 
 void app_state_init(void);
@@ -67,6 +75,7 @@ void app_set_chat(const chat_state_t *c);
 void app_push_react(robo_face_t face, uint32_t ms);
 void app_push_say(const char *text, uint32_t ms);
 void app_set_usage(const claude_usage_t *u);
+void app_set_music(const music_state_t *m);
 
 /* Copia o estado para `out` e consome o alerta pendente. */
 void app_snapshot(app_snapshot_t *out);

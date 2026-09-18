@@ -16,6 +16,7 @@ typedef enum {
     FACE_ERROR,
     FACE_THINKING,
     FACE_BORED,
+    FACE_JAMMING,
     FACE__COUNT
 } face_expr_t;
 

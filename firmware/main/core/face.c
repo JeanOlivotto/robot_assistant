@@ -53,6 +53,7 @@ static const face_def_t s_defs[FACE__COUNT] = {
                         .fixed_gaze = true, .gaze_x = -7, .gaze_y = -5},
     [FACE_BORED]     = {"entediado",  EYES_OPEN,   MOUTH_FLAT,  {24, 30, 8, 14, 0, 0, 3, 10, 2},  C_EYE,  .blinks = true,
                         .fixed_gaze = true, .gaze_x = 8, .gaze_y = 2},
+    [FACE_JAMMING]   = {"curtindo",   EYES_OPEN,   MOUTH_GRIN,  {24, 28, 8, 0, 17, 0, 0, 16, 8},  C_EYE,  .blinks = true, .blush = true},
 };
 
 #define BLINK_CLOSE_MS 70
