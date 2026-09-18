@@ -48,8 +48,8 @@ export class SttService {
 
   constructor(@Inject(APP_CONFIG) private readonly cfg: AppConfig) {
     if (cfg.STT_PROVIDER === 'groq') {
-      // Reusa a chave do LLM (Groq) por padrão; STT_API_KEY tem prioridade se você quiser separar.
-      const key = cfg.STT_API_KEY || cfg.LLM_API_KEY;
+      // Reusa a chave do LLM (Groq). STT_API_KEY costuma ser a da NVIDIA, então só entra se não houver a do LLM.
+      const key = cfg.LLM_API_KEY || cfg.STT_API_KEY;
       if (!key) {
         this.log.warn('Sem chave para transcrição na Groq (LLM_API_KEY) — mensagens de voz desligadas');
       } else {
