@@ -14,12 +14,16 @@ import { AppTokenGuard } from './auth/app-token.guard.js';
 import { DeviceGateway } from './device/device.gateway.js';
 import { LlmService } from './llm/llm.service.js';
 import { ProactiveService } from './proactive/proactive.service.js';
+import { PushController } from './push/push.controller.js';
+import { PushService } from './push/push.service.js';
 import { RobotStateService } from './robot/robot-state.service.js';
 import { SttService } from './stt/stt.service.js';
+import { TtsController } from './tts/tts.controller.js';
+import { TtsService } from './tts/tts.service.js';
 import { WsRouter } from './ws/ws-router.service.js';
 
 @Module({
-  controllers: [DebugController, AppAuthController, VoiceController],
+  controllers: [DebugController, AppAuthController, VoiceController, PushController, TtsController],
   providers: [
     { provide: APP_CONFIG, useFactory: () => loadConfig() },
     WsRouter,
@@ -27,6 +31,7 @@ import { WsRouter } from './ws/ws-router.service.js';
     AlertService,
     LlmService,
     SttService,
+    TtsService,
     BrainService,
     ChatStore,
     ChatService,
@@ -34,6 +39,7 @@ import { WsRouter } from './ws/ws-router.service.js';
     DeviceGateway,
     AppGateway,
     ProactiveService,
+    PushService,
     TokenGuard,
     AppTokenGuard,
   ],

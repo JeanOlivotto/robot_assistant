@@ -18,6 +18,8 @@ export class AppGateway implements OnModuleInit, OnModuleDestroy {
   private readonly log = new Logger(AppGateway.name);
   private readonly wss = new WebSocketServer({ noServer: true, maxPayload: 64 * 1024 });
   private readonly alive = new WeakSet<WebSocket>();
+  /** App aberto na tela (true) ou em segundo plano (false). */
+  private readonly visible = new WeakMap<WebSocket, boolean>();
   private readonly subs: Subscription[] = [];
   private heartbeat?: NodeJS.Timeout;
 
@@ -58,6 +60,12 @@ export class AppGateway implements OnModuleInit, OnModuleDestroy {
     }, HEARTBEAT_MS);
   }
 
+  /** Alguém está com o app aberto e olhando? Se não, a resposta vira notificação. */
+  get anyVisible(): boolean {
+    for (const ws of this.wss.clients) if (this.visible.get(ws) ?? true) return true;
+    return false;
+  }
+
   onModuleDestroy(): void {
     clearInterval(this.heartbeat);
     this.subs.forEach((s) => s.unsubscribe());
@@ -95,6 +103,7 @@ export class AppGateway implements OnModuleInit, OnModuleDestroy {
       const msg = parsed.data;
       if (msg.t === 'say') void this.chat.say(msg.text);
       else if (msg.t === 'confirm') void this.chat.confirm(msg.proposal_id, msg.ok);
+      else if (msg.t === 'presence') this.visible.set(ws, msg.visible);
       else this.send(ws, { t: 'pong', ts: Date.now() });
     });
 

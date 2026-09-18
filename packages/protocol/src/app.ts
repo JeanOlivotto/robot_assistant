@@ -64,7 +64,10 @@ export const Confirm = z.object({
 
 export const AppPing = z.object({ t: z.literal('ping'), ts: epochMs });
 
-export const AppClientMessage = z.discriminatedUnion('t', [Say, Confirm, AppPing]);
+/** O app avisa quando fica visível ou vai para segundo plano: sem ninguém olhando, a resposta vira push. */
+export const Presence = z.object({ t: z.literal('presence'), ts: epochMs, visible: z.boolean() });
+
+export const AppClientMessage = z.discriminatedUnion('t', [Say, Confirm, AppPing, Presence]);
 
 /* ───────────── Servidor → Webapp ───────────── */
 

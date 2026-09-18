@@ -43,6 +43,8 @@ export class ChatService implements OnModuleInit, OnModuleDestroy {
   readonly state$ = new BehaviorSubject<ChatState>({ thinking: false, waitingSince: 0, preview: '' });
   /** Expressão momentânea para a tela do robô. */
   readonly react$ = new Subject<Reaction>();
+  /** Cada fala nova do robô, com a origem da mensagem que ele respondeu (para decidir o push). */
+  readonly said$ = new Subject<{ message: ChatMessage; replyVia?: MessageVia }>();
 
   constructor(
     @Inject(APP_CONFIG) private readonly cfg: AppConfig,
@@ -110,9 +112,15 @@ export class ChatService implements OnModuleInit, OnModuleDestroy {
   }
 
   /** O robô fala. `expectsReply` liga a espera (a cara vai mudando se ninguém responder). */
-  robotSay(text: string, face: Face, kind: MessageKind, opts: { proposal?: Proposal; expectsReply?: boolean } = {}): ChatMessage {
+  robotSay(
+    text: string,
+    face: Face,
+    kind: MessageKind,
+    opts: { proposal?: Proposal; expectsReply?: boolean; replyVia?: MessageVia } = {},
+  ): ChatMessage {
     const msg: ChatMessage = { id: randomUUID(), from: 'robot', text, ts: Date.now(), kind, face, proposal: opts.proposal };
     this.push(msg);
+    this.said$.next({ message: msg, replyVia: opts.replyVia });
     this.react$.next({ face, ms: 5000 });
     this.setState({
       preview: deviceText(text, LIMITS.PREVIEW_MAX_BYTES),
@@ -157,11 +165,11 @@ export class ChatService implements OnModuleInit, OnModuleDestroy {
         };
       }
       this.setState({ thinking: false });
-      return this.robotSay(reply.text, reply.face, 'reply', { proposal, expectsReply: !!proposal });
+      return this.robotSay(reply.text, reply.face, 'reply', { proposal, expectsReply: !!proposal, replyVia: via });
     } catch (err) {
       this.log.error(`Cérebro falhou: ${(err as Error).message}`);
       this.setState({ thinking: false });
-      return this.robotSay('Ops, minha cabeça deu um nó... tenta de novo daqui a pouco?', 'sad', 'reply');
+      return this.robotSay('Ops, minha cabeça deu um nó... tenta de novo daqui a pouco?', 'sad', 'reply', { replyVia: via });
     }
   }
 

@@ -4,7 +4,8 @@ import { Chat } from './components/Chat';
 import { Login } from './components/Login';
 import { RobotFace } from './components/RobotFace';
 import { ago } from './lib/format';
-import { speak, speechSupported, stopSpeaking } from './lib/speech';
+import { enablePush, pushState, refreshPush, testPush, type PushState } from './lib/push';
+import { configureSpeech, speak, speechSupported, stopSpeaking, unlockAudio } from './lib/speech';
 import { useRobo } from './lib/useRobo';
 
 const TOKEN_KEY = 'robo.token';
@@ -59,6 +60,41 @@ function Main({ token, onLogout }: { token: string; onLogout(): void }) {
     }
   });
   const spokenUpTo = useRef(Date.now());
+  const [voiceProvider, setVoiceProvider] = useState<'elevenlabs' | null>(null);
+  const [push, setPush] = useState<PushState>(() => pushState());
+  const [notice, setNotice] = useState('');
+
+  useEffect(() => {
+    void configureSpeech(token).then(setVoiceProvider);
+    void refreshPush(token);
+  }, [token]);
+
+  useEffect(() => {
+    if (!notice) return;
+    const id = setTimeout(() => setNotice(''), 7000);
+    return () => clearTimeout(id);
+  }, [notice]);
+
+  const onBell = async () => {
+    const st = pushState();
+    if (st === 'needs-install') {
+      setNotice('No iPhone: toque em Compartilhar → Adicionar à Tela de Início e abra o Robô por lá para ativar as notificações.');
+      return;
+    }
+    if (st === 'unsupported') return setNotice('Este navegador não recebe notificações.');
+    if (st === 'denied') return setNotice('As notificações estão bloqueadas: libere em Ajustes → Notificações → Robô.');
+    try {
+      if (st === 'default') {
+        await enablePush(token);
+        setPush('granted');
+      }
+      const sent = await testPush(token);
+      setNotice(sent ? 'Notificações ativas — mandei uma de teste.' : 'Nenhum aparelho inscrito ainda.');
+    } catch (err) {
+      setPush(pushState());
+      setNotice(`Não deu: ${(err as Error).message}`);
+    }
+  };
 
   // Lê em voz alta só o que o robô disser depois de ligar (não o histórico).
   useEffect(() => {
@@ -66,7 +102,7 @@ function Main({ token, onLogout }: { token: string; onLogout(): void }) {
     const fresh = robo.messages.filter((m) => m.from === 'robot' && m.ts > spokenUpTo.current);
     if (!fresh.length) return;
     spokenUpTo.current = Math.max(...fresh.map((m) => m.ts));
-    speak(fresh[fresh.length - 1]!.text);
+    void speak(fresh[fresh.length - 1]!.text);
   }, [robo.messages, speakOn]);
 
   const toggleSpeak = () => {
@@ -79,7 +115,10 @@ function Main({ token, onLogout }: { token: string; onLogout(): void }) {
     }
     spokenUpTo.current = Date.now();
     // No iPhone a voz só funciona depois de um toque: este é o toque.
-    if (on) speak('Beleza, vou ler minhas respostas.');
+    if (on) {
+      unlockAudio();
+      void speak('Beleza, vou ler minhas respostas.');
+    }
     else stopSpeaking();
   };
 
@@ -100,6 +139,23 @@ function Main({ token, onLogout }: { token: string; onLogout(): void }) {
           <strong>Robô</strong>
           <span className={`status ${robo.conn !== 'open' ? 'status--warn' : r?.waiting_since ? 'status--wait' : ''}`}>{status}</span>
         </div>
+        <button
+          type="button"
+          className={`icon-btn ${push === 'granted' ? 'icon-btn--on' : ''}`}
+          onClick={onBell}
+          aria-label={push === 'granted' ? 'Notificações ativas — mandar teste' : 'Ativar notificações'}
+          title={push === 'granted' ? 'Notificações ativas (toque para testar)' : 'Ativar notificações'}
+        >
+          <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
+            <path
+              d="M6 16V11a6 6 0 1 1 12 0v5l1.5 2h-15L6 16ZM10 20.5a2 2 0 0 0 4 0"
+              fill={push === 'granted' ? 'currentColor' : 'none'}
+              stroke="currentColor"
+              strokeWidth="1.8"
+              strokeLinejoin="round"
+            />
+          </svg>
+        </button>
         {speechSupported && (
           <button
             type="button"
@@ -134,6 +190,13 @@ function Main({ token, onLogout }: { token: string; onLogout(): void }) {
           Agenda{robo.agenda.length ? ` · ${robo.agenda.filter((i) => i.end > now).length}` : ''}
         </button>
       </nav>
+
+      {notice && (
+        <div className="notice" role="status" onClick={() => setNotice('')}>
+          {notice}
+        </div>
+      )}
+      {speakOn && voiceProvider === 'elevenlabs' && <p className="credit">Voz: ElevenLabs</p>}
 
       {tab === 'chat' ? (
         <Chat

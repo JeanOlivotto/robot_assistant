@@ -25,6 +25,9 @@
 #define OFFLINE_GRACE_MS 20000
 #define WAIT_BORED_MS   (15 * 60 * 1000) /* sem resposta há 15 min: entediado */
 #define WAIT_SAD_MS     (60 * 60 * 1000) /* há 1 h: triste */
+#define FOOTER_NEAR_MS        (30 * 60 * 1000) /* rodapé mostra o compromisso a partir de 30 min antes */
+#define FOOTER_AFTER_START_MS (5 * 60 * 1000)  /* ...até 5 min depois de começar */
+#define AGENDA_PEEK_MS        20000            /* agenda mudou: mostra o próximo por 20 s */
 #define NIGHT_BRIGHTNESS 90
 
 #define C_BG     GFX_RGB(0, 0, 0)
@@ -63,6 +66,7 @@ static int s_demo_idx = -1;
 
 static uint32_t s_next_joy, s_joy_until;
 static uint32_t s_offline_since;
+static uint32_t s_agenda_peek_until;
 static btn_state_t s_btn[HAL_BTN_COUNT];
 
 /* ── utilidades ──────────────────────────────────────────────────────── */
@@ -409,8 +413,12 @@ static void render_footer(uint32_t now, int64_t wall_ms, bool clock_ok)
         gfx_text(4, y2, when, C_ACCENT, 1);
         return;
     }
+    /* O próximo compromisso só aparece perto da hora, ou por uns segundos quando a agenda muda. */
     const agenda_item_t *nx = clock_ok ? next_for_footer(wall_ms) : NULL;
-    if (!nx) {
+    const bool near = nx && !nx->all_day && nx->start_ms - wall_ms <= FOOTER_NEAR_MS &&
+                      wall_ms - nx->start_ms <= FOOTER_AFTER_START_MS;
+    const bool peek = (int32_t)(s_agenda_peek_until - now) > 0;
+    if (!nx || !(near || peek)) {
         render_date(wall_ms, clock_ok);
         return;
     }
@@ -520,6 +528,20 @@ static void render_agenda_view(int64_t wall_ms, bool clock_ok)
 
 /* ── laço ────────────────────────────────────────────────────────────── */
 
+/* Agenda mudou (evento novo, removido, ao ligar)? Mostra o próximo no rodapé por alguns segundos. */
+static void track_agenda(uint32_t now)
+{
+    static uint32_t last_sig;
+    uint32_t sig = 2166136261u; /* FNV-1a dos ids */
+    for (int i = 0; i < s_snap.n_agenda; i++) {
+        for (const char *p = s_snap.agenda[i].id; *p; p++) sig = (sig ^ (uint8_t)*p) * 16777619u;
+    }
+    if (sig != last_sig) {
+        last_sig = sig;
+        if (s_snap.n_agenda) s_agenda_peek_until = now + AGENDA_PEEK_MS;
+    }
+}
+
 /* Humor do momento + "vida" (bolinha, falas) quando a tela do rosto está livre. */
 static face_expr_t live_mood(uint32_t now, int64_t wall_ms, bool clock_ok)
 {
@@ -530,14 +552,15 @@ static face_expr_t live_mood(uint32_t now, int64_t wall_ms, bool clock_ok)
         return mood;
     }
     const agenda_item_t *nx = clock_ok ? next_timed(wall_ms) : NULL;
-    const bool today = nx && nx->start_ms > wall_ms && day_offset(nx->start_ms, wall_ms) == 0;
+    /* só comenta o compromisso quando falta menos de 1 h */
+    const bool soon = nx && nx->start_ms > wall_ms && nx->start_ms - wall_ms <= 60 * 60 * 1000;
     const life_ctx_t ctx = {
         .online = s_snap.wifi_up && s_snap.server_up,
         .waiting = waiting_for(wall_ms, clock_ok) > 0,
         .clock_ok = clock_ok,
         .wall_ms = wall_ms,
-        .next_title = today ? nx->title : NULL,
-        .next_start_ms = today ? nx->start_ms : 0,
+        .next_title = soon ? nx->title : NULL,
+        .next_start_ms = soon ? nx->start_ms : 0,
     };
     return life_update(now, mood, &ctx);
 }
@@ -570,6 +593,7 @@ static void ui_task(void *arg)
         const int64_t wall = net_epoch_ms();
 
         app_snapshot(&s_snap);
+        track_agenda(now);
         check_events(now);
         poll_buttons(now);
         expire(now);

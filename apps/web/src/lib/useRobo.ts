@@ -61,6 +61,7 @@ export function useRobo(token: string): Robo {
       ws.onopen = () => {
         attempt = 0;
         setConn('open');
+        send(ws, { t: 'presence', ts: Date.now(), visible: document.visibilityState === 'visible' });
         pinger = setInterval(() => send(ws, { t: 'ping', ts: Date.now() }), 25_000);
       };
       ws.onmessage = (ev) => {
@@ -96,8 +97,11 @@ export function useRobo(token: string): Robo {
     };
 
     // iPhone congela a aba em segundo plano: ao voltar, reconecta sem esperar o backoff.
+    // Também avisa o servidor: com o app em segundo plano, a resposta do robô vira notificação.
     const onVisible = () => {
-      if (document.visibilityState === 'visible' && !wsRef.current) {
+      const visible = document.visibilityState === 'visible';
+      send(wsRef.current, { t: 'presence', ts: Date.now(), visible });
+      if (visible && !wsRef.current) {
         attempt = 0;
         connect();
       }

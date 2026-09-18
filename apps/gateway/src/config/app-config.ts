@@ -44,6 +44,16 @@ const Schema = z.object({
   STT_LANGUAGE: z.string().default('pt'),
   FFMPEG_PATH: z.string().default('ffmpeg'),
 
+  /* Notificação push no celular (Web Push). Gerar com: npx web-push generate-vapid-keys */
+  VAPID_PUBLIC_KEY: z.string().default(''),
+  VAPID_PRIVATE_KEY: z.string().default(''),
+  VAPID_SUBJECT: z.string().default('mailto:robo@localhost'),
+
+  /* Voz das respostas (ElevenLabs). Sem chave, o app usa a voz do próprio aparelho. */
+  ELEVENLABS_API_KEY: z.string().default(''),
+  ELEVENLABS_VOICE_ID: z.string().default(''),
+  ELEVENLABS_MODEL: z.string().default('eleven_flash_v2_5'),
+
   ROBOT_NAME: z.string().default('Robô'),
   OWNER_NAME: z.string().default(''),
 
