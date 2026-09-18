@@ -6,6 +6,9 @@
 
 void net_start(void);
 
+/* Sinal do Wi-Fi em dBm (0 = desconectado). */
+int net_rssi(void);
+
 /* O cliente WebSocket avisa se o servidor responde; sem servidor por muito tempo, troca de rede. */
 void net_set_server_ok(bool ok);
 

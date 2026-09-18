@@ -25,5 +25,8 @@ void face_set(face_expr_t e);
 face_expr_t face_get(void);
 const char *face_name(face_expr_t e);
 
+/* Olha para (dx, dy) — deslocamento do olhar em px — até until_ms (ex.: seguir a bolinha). */
+void face_look_at(int dx, int dy, uint32_t until_ms);
+
 /* Avança a animação e desenha o rosto com os olhos centrados em (cx, cy). */
 void face_draw(int cx, int cy, uint32_t now_ms);

@@ -3,6 +3,7 @@
 
 #include "driver/gpio.h"
 #include "driver/spi_master.h"
+#include "driver/usb_serial_jtag.h"
 #include "esp_check.h"
 #include "esp_lcd_panel_io.h"
 #include "esp_log.h"
@@ -154,6 +155,16 @@ void hal_display_backlight(uint8_t pct)
 {
     /* Nesta placa o backlight vai direto no 3V3, sem GPIO de controle. */
     (void)pct;
+}
+
+/* ── Energia ──────────────────────────────────────────────────────────── */
+
+hal_power_t hal_power_read(void)
+{
+    /* A bateria não chega a nenhum pino de ADC (GPIO0–4 são do display): medir a carga
+       exige um divisor resistivo num pino livre — ver firmware/BOARD.md.
+       A USB é detectada pelos pacotes SOF do host, então carregador de parede não conta. */
+    return (hal_power_t){.mv = -1, .usb = usb_serial_jtag_is_connected()};
 }
 
 /* ── Botões ───────────────────────────────────────────────────────────── */

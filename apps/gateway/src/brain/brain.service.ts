@@ -138,6 +138,34 @@ export class BrainService {
     }
   }
 
+  /** Frase curtinha para o balão na tela do robô — "pensar alto". Null se o LLM não responder. */
+  async thought(history: ChatMessage[]): Promise<{ text: string; face: Face } | null> {
+    if (!this.llm.enabled) return null;
+    const now = new Date();
+    const today = resolveDay('hoje', undefined, now, this.cfg.TZ_NAME);
+    const midnight = today.ok ? today.day.getTime() : now.getTime();
+    const agenda = await this.calendar.query(now, new Date(midnight + DAY_MS)).catch(() => []);
+    try {
+      const msg = await this.llm.complete([
+        { role: 'system', content: systemPrompt(this.promptContext(now)) },
+        ...toLlmHistory(history.slice(-4), this.cfg.TZ_NAME),
+        {
+          role: 'user',
+          content:
+            '[instrução interna do sistema] Escreva UM pensamento em voz alta, bem curtinho (no máximo 6 palavras), ' +
+            'para aparecer num balão na sua telinha agora. Pode ser sobre a hora do dia, o que falta na agenda ' +
+            `ou algo fofo/engraçado de bichinho. Sem emoji, sem aspas. Resto da agenda hoje:\n${describeAgenda(agenda, this.cfg.TZ_NAME)}`,
+        },
+      ]);
+      const out = splitEmotion(msg.content ?? '');
+      const text = out.text.replace(/^["“']|["”']$/g, '').trim();
+      return text ? { text, face: out.face } : null;
+    } catch (err) {
+      this.log.warn(`thought() falhou: ${(err as Error).message}`);
+      return null;
+    }
+  }
+
   private promptContext(now: Date) {
     return {
       robotName: this.cfg.ROBOT_NAME,

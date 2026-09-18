@@ -39,6 +39,9 @@ typedef struct {
     bool has_react; /* reação nova desde o último snapshot */
     robo_face_t react_face;
     uint32_t react_ms;
+    bool has_say; /* frase nova do servidor para o balão */
+    char say[ROBO_SAY_MAX_BYTES + 1];
+    uint32_t say_ms;
 } app_snapshot_t;
 
 void app_state_init(void);
@@ -48,6 +51,7 @@ void app_set_agenda(const agenda_item_t *items, int n);
 void app_push_alert(const alert_t *a);
 void app_set_chat(const chat_state_t *c);
 void app_push_react(robo_face_t face, uint32_t ms);
+void app_push_say(const char *text, uint32_t ms);
 
 /* Copia o estado para `out` e consome o alerta pendente. */
 void app_snapshot(app_snapshot_t *out);

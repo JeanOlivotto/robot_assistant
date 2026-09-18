@@ -232,6 +232,13 @@ void net_start(void)
     esp_wifi_set_ps(WIFI_PS_NONE);
 }
 
+int net_rssi(void)
+{
+    wifi_ap_record_t ap;
+    if (!s_connected || esp_wifi_sta_get_ap_info(&ap) != ESP_OK) return 0;
+    return ap.rssi;
+}
+
 void net_set_server_ok(bool ok)
 {
     if (ok) s_switches = 0;

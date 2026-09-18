@@ -7,7 +7,7 @@ import { DeviceGateway } from '../device/device.gateway.js';
 import { ProactiveService } from '../proactive/proactive.service.js';
 import { TokenGuard } from './token.guard.js';
 
-const ProactiveBody = z.object({ kind: z.enum(['morning', 'evening', 'attention']) });
+const ProactiveBody = z.object({ kind: z.enum(['morning', 'evening', 'attention', 'thought']) });
 
 const TestAlertBody = z.object({
   title: z.string().min(1).default('Compromisso de teste'),

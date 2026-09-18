@@ -9,6 +9,7 @@ idf_component_register(
         "core/face.c"
         "core/font8x8.c"
         "core/gfx.c"
+        "core/life.c"
         "core/net.c"
         "core/ui.c"
         "core/ws_client.c"
@@ -18,6 +19,7 @@ idf_component_register(
         esp_app_format
         esp_driver_gpio
         esp_driver_spi
+        esp_driver_usb_serial_jtag
         esp_event
         esp_lcd
         esp_netif

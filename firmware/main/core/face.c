@@ -71,6 +71,15 @@ static int s_open = 256; /* abertura do olho: 256 aberto → 0 fechado */
 
 static int32_t s_gx, s_gy, s_tgx, s_tgy; /* olhar ×16 */
 static uint32_t s_next_gaze;
+static int s_look_x, s_look_y;
+static uint32_t s_look_until;
+
+void face_look_at(int dx, int dy, uint32_t until_ms)
+{
+    s_look_x = dx < -9 ? -9 : dx > 9 ? 9 : dx;
+    s_look_y = dy < -7 ? -7 : dy > 7 ? 7 : dy;
+    s_look_until = until_ms;
+}
 
 static uint32_t rnd(uint32_t lo, uint32_t hi)
 {
@@ -155,8 +164,11 @@ static void update(uint32_t now)
         s_cur[i] += (target - s_cur[i]) / 4;
     }
 
-    /* Olhar: parado onde a expressão manda, ou vagueando com olho aberto e sem susto */
-    if (d->fixed_gaze) {
+    /* Olhar: para onde mandaram (bolinha), parado onde a expressão manda, ou vagueando */
+    if ((int32_t)(s_look_until - now) > 0) {
+        s_tgx = s_look_x * 16;
+        s_tgy = s_look_y * 16;
+    } else if (d->fixed_gaze) {
         s_tgx = d->gaze_x * 16;
         s_tgy = d->gaze_y * 16;
     } else if (d->eyes == EYES_OPEN && s_expr != FACE_SURPRISED) {

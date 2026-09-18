@@ -63,11 +63,21 @@ void app_push_react(robo_face_t face, uint32_t ms)
     xSemaphoreGive(s_lock);
 }
 
+void app_push_say(const char *text, uint32_t ms)
+{
+    xSemaphoreTake(s_lock, portMAX_DELAY);
+    strlcpy(s_state.say, text, sizeof(s_state.say));
+    s_state.say_ms = ms;
+    s_state.has_say = true;
+    xSemaphoreGive(s_lock);
+}
+
 void app_snapshot(app_snapshot_t *out)
 {
     xSemaphoreTake(s_lock, portMAX_DELAY);
     *out = s_state;
     s_state.has_alert = false;
     s_state.has_react = false;
+    s_state.has_say = false;
     xSemaphoreGive(s_lock);
 }

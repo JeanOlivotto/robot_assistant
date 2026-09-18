@@ -23,6 +23,7 @@ interface Session {
   connectedAt: number;
   lastSeen: number;
   hello?: Hello;
+  power?: string;
 }
 
 export interface SessionInfo {
@@ -68,6 +69,7 @@ export class DeviceGateway implements OnModuleInit, OnModuleDestroy {
       this.alerts.alerts$.subscribe((msg) => this.broadcast(msg)),
       this.chat.state$.subscribe((state) => this.broadcast(this.chatMsg(state))),
       this.chat.react$.subscribe((r) => this.broadcast({ t: 'react', ts: Date.now(), v: r.face, ms: r.ms })),
+      this.robot.say$.subscribe((s) => this.broadcast({ t: 'say', ts: Date.now(), text: s.text, ms: s.ms })),
     );
 
     this.reaper = setInterval(() => {
@@ -160,9 +162,13 @@ export class DeviceGateway implements OnModuleInit, OnModuleDestroy {
       case 'button':
         this.log.log(`${this.label(s)} botão ${msg.id} (${msg.ev})`);
         break;
-      case 'battery':
-        this.log.log(`${this.label(s)} bateria ${msg.mv} mV, usb=${msg.usb}`);
+      case 'battery': {
+        // O robô manda a cada minuto; só vale log quando muda.
+        const power = `${msg.mv < 0 ? 'sem leitura' : `${msg.mv} mV`}, usb=${msg.usb}`;
+        if (power !== s.power) this.log.log(`${this.label(s)} energia: ${power}`);
+        s.power = power;
         break;
+      }
       case 'error':
         this.log.warn(`${this.label(s)} erro no device: ${msg.code} ${msg.detail ?? ''}`);
         break;

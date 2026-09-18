@@ -13,6 +13,7 @@
 #define ROBO_SUB_MAX_BYTES 31
 #define ROBO_ID_MAX_BYTES 23
 #define ROBO_PREVIEW_MAX_BYTES 47
+#define ROBO_SAY_MAX_BYTES 63
 
 /* Device → Servidor */
 #define ROBO_MSG_HELLO "hello"
@@ -30,6 +31,7 @@
 #define ROBO_MSG_AGENDA "agenda"
 #define ROBO_MSG_CHAT "chat"
 #define ROBO_MSG_REACT "react"
+#define ROBO_MSG_SAY "say"
 
 typedef enum {
     ROBO_STATE_IDLE,

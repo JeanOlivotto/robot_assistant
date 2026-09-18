@@ -11,6 +11,7 @@ export const LIMITS = {
   SUB_MAX_BYTES: 31,
   ID_MAX_BYTES: 23,
   PREVIEW_MAX_BYTES: 47,
+  SAY_MAX_BYTES: 63,
 } as const;
 
 /** Expressões do rostinho — a ordem vira o enum robo_face_t do firmware. */
@@ -168,7 +169,15 @@ export const Reaction = z.object({
   ms: z.number().int().min(300).max(15_000),
 });
 
-export const ServerMessage = z.discriminatedUnion('t', [HelloAck, Pong, State, Display, Agenda, Chat, Reaction]);
+/** Frase que o robô "fala" num balão na tela (pensamento, comentário). Não entra no chat. */
+export const DeviceSay = z.object({
+  t: z.literal('say'),
+  ts: epochMs,
+  text: bytes(LIMITS.SAY_MAX_BYTES),
+  ms: z.number().int().min(1000).max(15_000),
+});
+
+export const ServerMessage = z.discriminatedUnion('t', [HelloAck, Pong, State, Display, Agenda, Chat, Reaction, DeviceSay]);
 
 export type Hello = z.infer<typeof Hello>;
 export type Button = z.infer<typeof Button>;
@@ -179,6 +188,7 @@ export type AgendaItem = z.infer<typeof AgendaItem>;
 export type Agenda = z.infer<typeof Agenda>;
 export type Chat = z.infer<typeof Chat>;
 export type Reaction = z.infer<typeof Reaction>;
+export type DeviceSay = z.infer<typeof DeviceSay>;
 export type ServerMessage = z.infer<typeof ServerMessage>;
 
 export const DEVICE_MESSAGE_TYPES = DeviceMessage.options.map((o) => o.shape.t.value);

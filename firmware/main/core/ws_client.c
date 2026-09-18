@@ -155,6 +155,8 @@ static void handle_message(const char *json, size_t len)
         on_chat(msg);
     } else if (strcmp(t, ROBO_MSG_REACT) == 0) {
         on_react(msg);
+    } else if (strcmp(t, ROBO_MSG_SAY) == 0) {
+        app_push_say(str_or(msg, "text", ""), (uint32_t)num_or(msg, "ms", 5000));
     } else if (strcmp(t, ROBO_MSG_PONG) == 0 || strcmp(t, ROBO_MSG_STATE) == 0) {
         /* pong: só serve de tráfego; state: o rosto ainda é decidido localmente */
     } else {
@@ -208,13 +210,23 @@ static void on_ws_event(void *arg, esp_event_base_t base, int32_t id, void *even
     }
 }
 
+static void send_battery(void)
+{
+    const hal_power_t p = hal_power_read();
+    char buf[96];
+    snprintf(buf, sizeof(buf), "{\"t\":\"" ROBO_MSG_BATTERY "\",\"ts\":%lld,\"mv\":%d,\"usb\":%s}",
+             (long long)net_epoch_ms(), p.mv, p.usb ? "true" : "false");
+    send_json(buf);
+}
+
 static void ping_task(void *arg)
 {
-    for (;;) {
+    for (unsigned n = 0;; n++) {
         vTaskDelay(pdMS_TO_TICKS(PING_PERIOD_MS));
         char buf[48];
         snprintf(buf, sizeof(buf), "{\"t\":\"" ROBO_MSG_PING "\",\"ts\":%lld}", (long long)net_epoch_ms());
         send_json(buf);
+        if (n % 4 == 0) send_battery(); /* a cada minuto */
     }
 }
 

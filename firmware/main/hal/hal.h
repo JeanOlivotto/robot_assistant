@@ -27,6 +27,14 @@ esp_err_t hal_display_init(void);
 void hal_display_blit(const uint16_t *px, int x, int y, int w, int h);
 void hal_display_backlight(uint8_t pct);
 
+/* ── Energia ────────────────────────────────────────────────────────── */
+typedef struct {
+    int mv;   /* tensão da bateria; < 0 = a placa não tem como medir */
+    bool usb; /* ligado a um computador pela USB */
+} hal_power_t;
+
+hal_power_t hal_power_read(void);
+
 /* ── Botões ─────────────────────────────────────────────────────────── */
 typedef enum { HAL_BTN_BOOT, HAL_BTN_KEY1, HAL_BTN_KEY2, HAL_BTN_COUNT } hal_btn_t;
 

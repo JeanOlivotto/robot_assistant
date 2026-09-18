@@ -7,6 +7,7 @@ import { BrainService, type ComposeKind } from '../brain/brain.service.js';
 import { ChatService } from '../chat/chat.service.js';
 import { APP_CONFIG, type AppConfig } from '../config/app-config.js';
 import { rootPath } from '../config/paths.js';
+import { RobotStateService } from '../robot/robot-state.service.js';
 
 const TICK_MS = 60_000;
 const ATTENTION_PER_DAY = 2;
@@ -14,6 +15,8 @@ const ATTENTION_IDLE_H = 3;
 const ATTENTION_WINDOW = { from: 10, to: 20 }; // horas locais — nunca de noite
 const HOUR = 3600_000;
 const QUIET_AFTER_USER_MS = 5 * 60_000;
+const THOUGHT_WINDOW = { from: 9, to: 21 };
+const THOUGHT_GAP_MIN = { min: 35, span: 40 }; // um pensamento a cada 35–75 min
 
 interface ProactiveMemory {
   morning: string; // último dia (YYYY-MM-DD) em que mandou bom-dia
@@ -32,6 +35,7 @@ export class ProactiveService implements OnModuleInit, OnModuleDestroy {
   private timer?: NodeJS.Timeout;
   private sub?: Subscription;
   private busy = false;
+  private nextThoughtAt = Date.now() + 5 * 60_000;
   private mem: ProactiveMemory = { morning: '', evening: '', attentionDay: '', attentionCount: 0, lastAttentionAt: 0 };
 
   constructor(
@@ -39,6 +43,7 @@ export class ProactiveService implements OnModuleInit, OnModuleDestroy {
     private readonly chat: ChatService,
     private readonly brain: BrainService,
     private readonly alerts: AlertService,
+    private readonly robot: RobotStateService,
   ) {
     this.file = rootPath(`${cfg.DATA_DIR}/proactive.json`);
     this.clock = new Intl.DateTimeFormat('en-CA', {
@@ -77,7 +82,12 @@ export class ProactiveService implements OnModuleInit, OnModuleDestroy {
   }
 
   /** Força uma mensagem agora (endpoint de debug). */
-  async trigger(kind: ComposeKind): Promise<void> {
+  async trigger(kind: ComposeKind | 'thought'): Promise<void> {
+    if (kind === 'thought') {
+      this.nextThoughtAt = 0;
+      await this.maybeThink(12 * 60);
+      return;
+    }
     await this.send(kind);
   }
 
@@ -99,6 +109,8 @@ export class ProactiveService implements OnModuleInit, OnModuleDestroy {
       return;
     }
 
+    if (await this.maybeThink(minutes)) return;
+
     if (this.mem.attentionDay !== date) {
       this.mem.attentionDay = date;
       this.mem.attentionCount = 0;
@@ -117,6 +129,25 @@ export class ProactiveService implements OnModuleInit, OnModuleDestroy {
       this.mem.attentionCount++;
       this.mem.lastAttentionAt = Date.now();
       await this.send('attention', idleH);
+    }
+  }
+
+  /** Pensamento em voz alta na tela do robô, de tempos em tempos durante o dia. */
+  private async maybeThink(minutes: number): Promise<boolean> {
+    const hour = Math.floor(minutes / 60);
+    if (!this.robot.online || hour < THOUGHT_WINDOW.from || hour >= THOUGHT_WINDOW.to) return false;
+    if (Date.now() < this.nextThoughtAt) return false;
+    this.nextThoughtAt = Date.now() + (THOUGHT_GAP_MIN.min + Math.random() * THOUGHT_GAP_MIN.span) * 60_000;
+    this.busy = true;
+    try {
+      const t = await this.brain.thought(this.chat.history(4));
+      if (!t || this.chat.state.thinking) return false;
+      this.robot.say(t.text, 7000);
+      this.chat.react$.next({ face: t.face, ms: 7000 });
+      this.log.log(`Pensamento na tela: ${t.text}`);
+      return true;
+    } finally {
+      this.busy = false;
     }
   }
 

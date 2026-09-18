@@ -12,6 +12,7 @@
 #include "freertos/task.h"
 #include "gfx.h"
 #include "hal.h"
+#include "life.h"
 #include "net.h"
 #include "ws_client.h"
 
@@ -36,6 +37,7 @@
 #define C_OK     GFX_RGB(60, 220, 120)
 #define C_ERR    GFX_RGB(255, 80, 80)
 #define C_INK    GFX_RGB(25, 20, 10) /* texto sobre a faixa amarela */
+#define C_BUBBLE GFX_RGB(38, 46, 62) /* balão de fala */
 
 typedef enum { VIEW_FACE, VIEW_ALERT, VIEW_AGENDA } view_t;
 
@@ -141,6 +143,7 @@ static void set_view(view_t v, uint32_t now)
 {
     s_view = v;
     s_view_since = now;
+    if (v != VIEW_FACE) life_stop();
 }
 
 static void set_override(face_expr_t e, uint32_t ms, uint32_t now)
@@ -164,6 +167,13 @@ static void on_button(hal_btn_t b, robo_btn_ev_t ev, uint32_t now)
 {
     ESP_LOGI(TAG, "botão %s (%s)", robo_btn_name(to_proto(b)), robo_btn_ev_name(ev));
     ws_client_send_button(to_proto(b), ev);
+    if (ev == ROBO_BTN_EV_LONG && b == HAL_BTN_BOOT && s_view != VIEW_ALERT) { /* segurar BOOT: bolinha */
+        set_view(VIEW_FACE, now);
+        s_demo = false;
+        s_override = FACE__COUNT;
+        life_play_ball(now, 12000);
+        return;
+    }
     if (ev != ROBO_BTN_EV_SHORT) return;
 
     if (s_view == VIEW_ALERT) { /* qualquer botão dispensa o alerta */
@@ -179,7 +189,9 @@ static void on_button(hal_btn_t b, robo_btn_ev_t ev, uint32_t now)
     case HAL_BTN_KEY2: /* carinho */
         set_view(VIEW_FACE, now);
         s_demo = false;
+        life_stop();
         set_override(FACE_LOVE, PET_MS, now);
+        life_pet(now);
         break;
     case HAL_BTN_BOOT: /* mostruário das expressões */
         set_view(VIEW_FACE, now);
@@ -220,6 +232,7 @@ static void check_events(uint32_t now)
         s_demo = false;
         set_override((face_expr_t)s_snap.react_face, s_snap.react_ms, now);
     }
+    if (s_snap.has_say && s_snap.say[0]) life_say(s_snap.say, s_snap.say_ms, now);
     if (!s_snap.has_alert || strcmp(s_snap.alert.id, s_last_alert_id) == 0) return;
     strlcpy(s_last_alert_id, s_snap.alert.id, sizeof(s_last_alert_id));
     s_alert = s_snap.alert;
@@ -294,15 +307,73 @@ static void render_bubble(uint32_t now, int64_t waiting)
     for (int i = 0; i < 3; i++) gfx_fill_circle(x + 5 + i * 5, y + 6, 1, C_BG);
 }
 
+/* Sinal do Wi-Fi em 4 barras. Verde: servidor ok; amarelo: Wi-Fi sem servidor; X vermelho: sem Wi-Fi. */
+static void render_wifi(int x, int bottom, int rssi)
+{
+    const int level = !s_snap.wifi_up ? 0 : rssi >= -55 ? 4 : rssi >= -65 ? 3 : rssi >= -75 ? 2 : 1;
+    const uint16_t on = s_snap.server_up ? C_OK : C_WARN;
+    for (int i = 0; i < 4; i++) {
+        const int h = 3 + i * 3;
+        gfx_fill_rect(x + i * 3, bottom - h, 2, h, i < level ? on : C_FAINT);
+    }
+    if (!s_snap.wifi_up) {
+        gfx_thick_line(x + 5, bottom - 11, x + 11, bottom - 5, 1, C_ERR);
+        gfx_thick_line(x + 5, bottom - 5, x + 11, bottom - 11, 1, C_ERR);
+    }
+}
+
+/* Raiozinho de "ligado na USB". */
+static void render_usb(int x, int top)
+{
+    gfx_thick_line(x + 3, top, x, top + 6, 2, C_WARN);
+    gfx_thick_line(x, top + 6, x + 4, top + 6, 2, C_WARN);
+    gfx_thick_line(x + 4, top + 6, x + 1, top + 12, 2, C_WARN);
+}
+
 static void render_status_bar(uint32_t now, int64_t wall_ms, bool clock_ok)
 {
+    static int rssi;
+    static hal_power_t power;
+    static uint32_t read_at;
+    if (!read_at || now - read_at > 2000) { /* não precisa ler o rádio a cada quadro */
+        rssi = net_rssi();
+        power = hal_power_read();
+        read_at = now ? now : 1;
+    }
+
     char hhmm[16] = "--:--";
     if (clock_ok) fmt_hhmm(wall_ms, hhmm, sizeof(hhmm));
     gfx_text_center(64, 3, hhmm, C_TEXT, 2);
-    const uint16_t dot = s_snap.server_up ? C_OK : s_snap.wifi_up ? C_WARN : C_ERR;
-    gfx_fill_circle(121, 10, 3, dot);
+    render_wifi(113, 15, rssi);
+    if (power.usb) render_usb(104, 3);
     const int64_t waiting = waiting_for(wall_ms, clock_ok);
     if (waiting) render_bubble(now, waiting);
+}
+
+/* Balão de fala no rodapé, com o bico apontando para a boca. */
+static void render_speech(const char *text)
+{
+    const int x = 3, y = 97, w = GFX_W - 6, h = 29;
+    gfx_fill_round_rect(x, y, w, h, 8, C_BUBBLE);
+    gfx_fill_triangle(58, y + 1, 70, y + 1, 64, y - 5, C_BUBBLE);
+    if (gfx_text_width(text, 1) <= w - 12) gfx_text_center(64, y + 10, text, C_TEXT, 1);
+    else gfx_text_wrap(x + 6, y + 4, w - 12, text, C_TEXT, 1, 2);
+}
+
+/* Sem compromisso para mostrar: a data, por extenso. */
+static void render_date(int64_t wall_ms, bool clock_ok)
+{
+    static const char *const DAYS[] = {"domingo", "segunda-feira", "terça-feira", "quarta-feira",
+                                       "quinta-feira", "sexta-feira", "sábado"};
+    static const char *const MONTHS[] = {"janeiro", "fevereiro", "março", "abril", "maio", "junho",
+                                         "julho", "agosto", "setembro", "outubro", "novembro", "dezembro"};
+    if (!clock_ok) return;
+    struct tm tm;
+    local_tm(wall_ms, &tm);
+    char line[32];
+    snprintf(line, sizeof(line), "%d de %s", tm.tm_mday, MONTHS[tm.tm_mon]);
+    gfx_text_center(64, 103, DAYS[tm.tm_wday], C_DIM, 1);
+    gfx_text_center(64, 115, line, C_DIM, 1);
 }
 
 static void render_footer(uint32_t now, int64_t wall_ms, bool clock_ok)
@@ -310,6 +381,11 @@ static void render_footer(uint32_t now, int64_t wall_ms, bool clock_ok)
     const int y1 = 102, y2 = 115;
     if (s_demo) {
         gfx_text_center(64, y1 + 6, face_name(s_override), C_DIM, 1);
+        return;
+    }
+    const char *speech = life_speech(now);
+    if (speech) {
+        render_speech(speech);
         return;
     }
     if (!s_snap.wifi_up || !s_snap.server_up) {
@@ -335,7 +411,7 @@ static void render_footer(uint32_t now, int64_t wall_ms, bool clock_ok)
     }
     const agenda_item_t *nx = clock_ok ? next_for_footer(wall_ms) : NULL;
     if (!nx) {
-        gfx_text_center(64, y1 + 6, "agenda livre", C_DIM, 1);
+        render_date(wall_ms, clock_ok);
         return;
     }
 
@@ -370,6 +446,7 @@ static void render_face_view(uint32_t now, int64_t wall_ms, bool clock_ok)
 {
     render_status_bar(now, wall_ms, clock_ok);
     face_draw(64, 60, now);
+    life_draw_ball();
     render_footer(now, wall_ms, clock_ok);
 }
 
@@ -443,6 +520,28 @@ static void render_agenda_view(int64_t wall_ms, bool clock_ok)
 
 /* ── laço ────────────────────────────────────────────────────────────── */
 
+/* Humor do momento + "vida" (bolinha, falas) quando a tela do rosto está livre. */
+static face_expr_t live_mood(uint32_t now, int64_t wall_ms, bool clock_ok)
+{
+    const face_expr_t mood = pick_mood(now, wall_ms, clock_ok);
+    const bool free = s_view == VIEW_FACE && !s_demo && s_override == FACE__COUNT && mood != FACE_THINKING;
+    if (!free) {
+        life_stop();
+        return mood;
+    }
+    const agenda_item_t *nx = clock_ok ? next_timed(wall_ms) : NULL;
+    const bool today = nx && nx->start_ms > wall_ms && day_offset(nx->start_ms, wall_ms) == 0;
+    const life_ctx_t ctx = {
+        .online = s_snap.wifi_up && s_snap.server_up,
+        .waiting = waiting_for(wall_ms, clock_ok) > 0,
+        .clock_ok = clock_ok,
+        .wall_ms = wall_ms,
+        .next_title = today ? nx->title : NULL,
+        .next_start_ms = today ? nx->start_ms : 0,
+    };
+    return life_update(now, mood, &ctx);
+}
+
 /* O webapp espelha a cara da tela: avisa o servidor quando muda (e de novo a cada reconexão). */
 static void report_face(void)
 {
@@ -462,6 +561,7 @@ static void ui_task(void *arg)
     gfx_init();
     face_init();
     s_next_joy = (uint32_t)(esp_timer_get_time() / 1000) + 30000;
+    life_init((uint32_t)(esp_timer_get_time() / 1000));
 
     TickType_t last_wake = xTaskGetTickCount();
     for (;;) {
@@ -473,7 +573,7 @@ static void ui_task(void *arg)
         check_events(now);
         poll_buttons(now);
         expire(now);
-        face_set(pick_mood(now, wall, clock_ok));
+        face_set(live_mood(now, wall, clock_ok));
         report_face();
 
         const bool dim = clock_ok && is_night(wall) && s_view != VIEW_ALERT;
