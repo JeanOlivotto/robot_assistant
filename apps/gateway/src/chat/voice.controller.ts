@@ -1,10 +1,22 @@
 import { BadRequestException, Body, Controller, HttpCode, HttpException, Post, UseGuards } from '@nestjs/common';
-import { z } from 'zod';
 import { AppTokenGuard } from '../auth/app-token.guard.js';
 import { SttError, SttService } from '../stt/stt.service.js';
 import { ChatService } from './chat.service.js';
 
-const AskBody = z.object({ text: z.string().trim().min(1).max(2000) });
+/**
+ * Texto do atalho da Siri. Tolerante de propósito: {"text": ...} é o certo, mas aceita a primeira
+ * string do JSON (chave errada ou vazia no Atalhos) ou o corpo em texto puro.
+ */
+function askText(body: unknown): string {
+  if (typeof body === 'string') return body.trim();
+  if (body && typeof body === 'object') {
+    const fields = body as Record<string, unknown>;
+    if (typeof fields.text === 'string') return fields.text.trim();
+    const first = Object.values(fields).find((v): v is string => typeof v === 'string' && v.trim() !== '');
+    if (first) return first.trim();
+  }
+  return '';
+}
 
 /** Tira emoji e espaços sobrando — a Siri lê emoji em voz alta ("rosto sorridente..."). */
 function forSpeech(text: string): string {
@@ -41,9 +53,10 @@ export class VoiceController {
   @Post('ask')
   @HttpCode(200)
   async ask(@Body() body: unknown): Promise<{ reply: string; face: string }> {
-    const parsed = AskBody.safeParse(body ?? {});
-    if (!parsed.success) throw new BadRequestException('mande {"text": "..."}');
-    const reply = await this.chat.ask(parsed.data.text, 'siri');
+    // Sempre responde algo falável: um 400 deixaria a Siri em silêncio.
+    const text = askText(body).slice(0, 2000);
+    if (!text) return { reply: 'Não ouvi nada... pode repetir?', face: 'thinking' };
+    const reply = await this.chat.ask(text, 'siri');
     return {
       reply: reply ? forSpeech(reply.text) : 'Hmm, não tenho nada pra dizer agora.',
       face: reply?.face ?? 'neutral',

@@ -11,6 +11,8 @@ async function bootstrap() {
   app.enableShutdownHooks();
   // Mensagens de voz chegam como binário (AAC do iPhone, Opus do Chrome, WAV).
   app.useBodyParser('raw', { type: ['audio/*', 'video/mp4', 'video/webm', 'application/octet-stream'], limit: '12mb' });
+  // O atalho da Siri pode mandar o ditado como texto puro.
+  app.useBodyParser('text', { type: 'text/plain', limit: '16kb' });
 
   // O webapp (apps/web) é servido pelo próprio gateway depois do build.
   const web = rootPath('apps/web/dist');
