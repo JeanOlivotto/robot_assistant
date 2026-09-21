@@ -3,7 +3,6 @@ import { dirname } from 'node:path';
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { BehaviorSubject } from 'rxjs';
 import { z } from 'zod';
-import type { ClaudeUsage } from '@robo/protocol';
 import { APP_CONFIG, type AppConfig } from '../config/app-config.js';
 import { rootPath } from '../config/paths.js';
 
@@ -20,7 +19,19 @@ export const UsageReport = z.union([
 ]);
 export type UsageReport = z.infer<typeof UsageReport>;
 
-export type UsageSnapshot = Omit<ClaudeUsage, 't' | 'ts'>;
+/** Uma janela do plano: % usado (passa de 100 em limite de gasto) e quando renova. */
+export interface UsageWindow {
+  pct: number;
+  resets_at: number;
+}
+
+/** O uso do Claude do dono. Vive só no servidor: alimenta os avisos, não vai mais para o robô. */
+export interface UsageSnapshot {
+  five_hour: UsageWindow | null;
+  seven_day: UsageWindow | null;
+  /** Quando o Claude Code mandou esses números pela última vez (0 = nunca). */
+  updated_at: number;
+}
 
 const EMPTY: UsageSnapshot = { five_hour: null, seven_day: null, updated_at: 0 };
 

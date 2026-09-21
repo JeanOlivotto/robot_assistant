@@ -146,28 +146,6 @@ static void on_react(const cJSON *msg)
     if (face >= 0) app_push_react((robo_face_t)face, (uint32_t)num_or(msg, "ms", 3000));
 }
 
-static usage_window_t usage_window(const cJSON *w)
-{
-    usage_window_t out = {.pct = -1, .resets_at_ms = 0};
-    if (cJSON_IsObject(w)) {
-        const cJSON *pct = cJSON_GetObjectItemCaseSensitive(w, "pct");
-        if (cJSON_IsNumber(pct)) out.pct = (float)pct->valuedouble;
-        out.resets_at_ms = num_or(w, "resets_at", 0);
-    }
-    return out;
-}
-
-static void on_claude_usage(const cJSON *msg)
-{
-    claude_usage_t u = {
-        .five_hour = usage_window(cJSON_GetObjectItemCaseSensitive(msg, "five_hour")),
-        .seven_day = usage_window(cJSON_GetObjectItemCaseSensitive(msg, "seven_day")),
-        .updated_at_ms = num_or(msg, "updated_at", 0),
-    };
-    app_set_usage(&u);
-    ESP_LOGI(TAG, "uso do Claude: 5h %d%%, semana %d%%", (int)u.five_hour.pct, (int)u.seven_day.pct);
-}
-
 static void on_music(const cJSON *msg)
 {
     music_state_t m = {0};
@@ -203,8 +181,6 @@ static void handle_message(const char *json, size_t len)
         on_react(msg);
     } else if (strcmp(t, ROBO_MSG_SAY) == 0) {
         app_push_say(str_or(msg, "text", ""), (uint32_t)num_or(msg, "ms", 5000));
-    } else if (strcmp(t, ROBO_MSG_CLAUDE_USAGE) == 0) {
-        on_claude_usage(msg);
     } else if (strcmp(t, ROBO_MSG_MUSIC) == 0) {
         on_music(msg);
     } else if (strcmp(t, ROBO_MSG_MODE) == 0) {

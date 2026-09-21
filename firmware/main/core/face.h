@@ -19,6 +19,7 @@ typedef enum {
     FACE_BORED,
     FACE_JAMMING,
     FACE_ANGRY,
+    FACE_EVIL,
     FACE__COUNT
 } face_expr_t;
 

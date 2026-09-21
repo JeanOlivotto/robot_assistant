@@ -28,6 +28,7 @@ const EYE = '#5ae6f0';
 const LOVE = '#ff5a8c';
 const ERR = '#ff5050';
 const ANGRY = '#ff8c3c';
+const EVIL = '#be5aff';
 const SCREEN = '#000';
 
 /* Mesmos números de firmware/main/core/face.c — manter os dois em sincronia. */
@@ -45,6 +46,7 @@ const FACE_DEFS: Record<Face, Def> = {
   bored: { eyes: 'open', mouth: 'flat', w: 24, h: 30, r: 8, lidTop: 14, lidBot: 0, slant: 0, dy: 3, mw: 10, mh: 2, color: EYE, gaze: [8, 2] },
   jamming: { eyes: 'open', mouth: 'grin', w: 24, h: 28, r: 8, lidTop: 0, lidBot: 17, slant: 0, dy: 0, mw: 16, mh: 8, color: EYE, blush: true },
   angry: { eyes: 'open', mouth: 'frown', w: 24, h: 22, r: 6, lidTop: 0, lidBot: 0, slant: -13, dy: 1, mw: 14, mh: 5, color: ANGRY },
+  evil: { eyes: 'open', mouth: 'grin', w: 24, h: 20, r: 5, lidTop: 6, lidBot: 0, slant: -14, dy: 1, mw: 15, mh: 6, color: EVIL },
 };
 
 const EYE_GAP = 48;

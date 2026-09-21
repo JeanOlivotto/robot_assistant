@@ -8,7 +8,6 @@ import { AlertService } from '../alerts/alert.service.js';
 import { tokenEquals } from '../auth/token.js';
 import { CalendarService } from '../calendar/calendar.service.js';
 import { ChatService, type ChatState } from '../chat/chat.service.js';
-import { ClaudeUsageService, type UsageSnapshot } from '../claude/claude-usage.service.js';
 import { APP_CONFIG, type AppConfig } from '../config/app-config.js';
 import { FirmwareService } from '../firmware/firmware.service.js';
 import { RobotStateService } from '../robot/robot-state.service.js';
@@ -60,7 +59,6 @@ export class DeviceGateway implements OnModuleInit, OnModuleDestroy {
     private readonly alerts: AlertService,
     private readonly chat: ChatService,
     private readonly robot: RobotStateService,
-    private readonly claude: ClaudeUsageService,
     private readonly spotify: SpotifyService,
     private readonly firmware: FirmwareService,
   ) {}
@@ -82,7 +80,6 @@ export class DeviceGateway implements OnModuleInit, OnModuleDestroy {
       this.chat.react$.subscribe((r) => this.broadcast({ t: 'react', ts: Date.now(), v: r.face, ms: r.ms })),
       this.robot.say$.subscribe((s) => this.broadcast({ t: 'say', ts: Date.now(), text: s.text, ms: s.ms })),
       this.chat.mode$.subscribe((v) => this.broadcast({ t: 'mode', ts: Date.now(), v })),
-      this.claude.usage$.subscribe((u) => this.broadcast(this.usageMsg(u))),
       this.spotify.music$.subscribe((m) => this.broadcast(this.musicMsg(m))),
       // Firmware novo publicado agora: quem está conectado atualiza sem esperar reconectar.
       this.firmware.published$.subscribe(() => {
@@ -217,7 +214,6 @@ export class DeviceGateway implements OnModuleInit, OnModuleDestroy {
     });
     this.send(s, this.agendaMsg(this.calendar.agenda$.value));
     this.send(s, this.chatMsg(this.chat.state));
-    this.send(s, this.usageMsg(this.claude.current));
     this.send(s, this.musicMsg(this.spotify.music$.value));
     const active = this.alerts.active(now);
     if (active) this.send(s, active);
@@ -242,10 +238,6 @@ export class DeviceGateway implements OnModuleInit, OnModuleDestroy {
 
   private agendaMsg(items: AgendaItem[]): ServerMessage {
     return { t: 'agenda', ts: Date.now(), items };
-  }
-
-  private usageMsg(u: UsageSnapshot): ServerMessage {
-    return { t: 'claude_usage', ts: Date.now(), ...u };
   }
 
   private musicMsg(m: MusicState): ServerMessage {

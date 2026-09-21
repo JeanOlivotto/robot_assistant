@@ -72,14 +72,6 @@ void app_push_say(const char *text, uint32_t ms)
     xSemaphoreGive(s_lock);
 }
 
-void app_set_usage(const claude_usage_t *u)
-{
-    xSemaphoreTake(s_lock, portMAX_DELAY);
-    s_state.usage = *u;
-    s_state.has_usage = true;
-    xSemaphoreGive(s_lock);
-}
-
 void app_set_music(const music_state_t *m)
 {
     xSemaphoreTake(s_lock, portMAX_DELAY);

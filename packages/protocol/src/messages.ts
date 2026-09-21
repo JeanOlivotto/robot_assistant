@@ -33,6 +33,7 @@ export const FACES = [
   'bored',
   'jamming',
   'angry',
+  'evil',
 ] as const;
 export type Face = (typeof FACES)[number];
 
@@ -200,22 +201,6 @@ export const DeviceSay = z.object({
   ms: z.number().int().min(1000).max(15_000),
 });
 
-/** Janela de limite do plano Claude: % usado (pode passar de 100 em limite de gasto) e quando renova. */
-export const UsageWindow = z.object({
-  pct: z.number().min(0).max(1000),
-  resets_at: epochMs,
-});
-
-/** Uso do Claude do dono (vem da barra de status do Claude Code) — o robô mostra no KEY2. */
-export const ClaudeUsage = z.object({
-  t: z.literal('claude_usage'),
-  ts: epochMs,
-  five_hour: UsageWindow.nullable(),
-  seven_day: UsageWindow.nullable(),
-  /** Quando o Claude Code mandou esses números pela última vez (0 = nunca). */
-  updated_at: epochMs,
-});
-
 /** O que o dono está ouvindo no Spotify — o robô mostra a tela de música (carinha com fone). */
 export const Music = z.object({
   t: z.literal('music'),
@@ -255,7 +240,6 @@ export const ServerMessage = z.discriminatedUnion('t', [
   Chat,
   Reaction,
   DeviceSay,
-  ClaudeUsage,
   Music,
   Ota,
   SetMode,
@@ -271,7 +255,6 @@ export type Agenda = z.infer<typeof Agenda>;
 export type Chat = z.infer<typeof Chat>;
 export type Reaction = z.infer<typeof Reaction>;
 export type DeviceSay = z.infer<typeof DeviceSay>;
-export type ClaudeUsage = z.infer<typeof ClaudeUsage>;
 export type Music = z.infer<typeof Music>;
 export type Ota = z.infer<typeof Ota>;
 export type SetMode = z.infer<typeof SetMode>;

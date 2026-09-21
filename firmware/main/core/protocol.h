@@ -36,7 +36,6 @@
 #define ROBO_MSG_CHAT "chat"
 #define ROBO_MSG_REACT "react"
 #define ROBO_MSG_SAY "say"
-#define ROBO_MSG_CLAUDE_USAGE "claude_usage"
 #define ROBO_MSG_MUSIC "music"
 #define ROBO_MSG_OTA "ota"
 #define ROBO_MSG_MODE "mode"
@@ -144,12 +143,13 @@ typedef enum {
     ROBO_FACE_BORED,
     ROBO_FACE_JAMMING,
     ROBO_FACE_ANGRY,
+    ROBO_FACE_EVIL,
     ROBO_FACE__COUNT
 } robo_face_t;
 
 static inline const char *robo_face_name(robo_face_t v)
 {
-    static const char *const names[] = { "neutral", "happy", "love", "sleepy", "sleeping", "worried", "surprised", "sad", "error", "thinking", "bored", "jamming", "angry" };
+    static const char *const names[] = { "neutral", "happy", "love", "sleepy", "sleeping", "worried", "surprised", "sad", "error", "thinking", "bored", "jamming", "angry", "evil" };
     return (unsigned)v < ROBO_FACE__COUNT ? names[v] : "?";
 }
 

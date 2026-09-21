@@ -21,6 +21,7 @@ _Static_assert((int)FACE_THINKING == (int)ROBO_FACE_THINKING && (int)FACE_BORED 
 #define C_SWEAT GFX_RGB(110, 190, 255)
 #define C_ANGRY GFX_RGB(255, 140, 60)  /* bravo: laranja quente */
 #define C_HACK  GFX_RGB(255, 40, 40)   /* modo hacker: tudo vermelho */
+#define C_EVIL  GFX_RGB(190, 90, 255)  /* malvado: roxo (no modo hacker vira vermelho) */
 
 typedef enum { EYES_OPEN, EYES_CLOSED, EYES_X, EYES_HEART } eyes_t;
 typedef enum { MOUTH_NONE, MOUTH_SMILE, MOUTH_GRIN, MOUTH_FROWN, MOUTH_O, MOUTH_FLAT } mouth_t;
@@ -58,6 +59,8 @@ static const face_def_t s_defs[FACE__COUNT] = {
     [FACE_JAMMING]   = {"curtindo",   EYES_OPEN,   MOUTH_GRIN,  {24, 28, 8, 0, 17, 0, 0, 16, 8},  C_EYE,  .blinks = true, .blush = true},
     /* bravo: slant negativo corta o canto INTERNO do olho — é a sobrancelha fechada. */
     [FACE_ANGRY]     = {"bravo",      EYES_OPEN,   MOUTH_FROWN, {24, 22, 6, 0, 0, -13, 1, 14, 5}, C_ANGRY, .blinks = true},
+    /* malvado: mesma sobrancelha fechada do bravo, mas sorrindo — e olho mais fechado por cima. */
+    [FACE_EVIL]      = {"malvado",    EYES_OPEN,   MOUTH_GRIN,  {24, 20, 5, 6, 0, -14, 1, 15, 6}, C_EVIL,  .blinks = true},
 };
 
 /* Modo hacker: a cor da expressão dá lugar ao vermelho, e só ela muda — o desenho é o mesmo. */
