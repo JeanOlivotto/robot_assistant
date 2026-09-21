@@ -1034,14 +1034,25 @@ button {
   background: var(--bg);
 }
 /* A barra de status do iPhone come o topo: sem o safe-area, o botão de voltar fica
-   embaixo do relógio e não dá para tocar nele. */
+   embaixo do relógio e não dá para tocar nele.
+   Item flex fixo, sem sticky: quem rola é só o conteúdo abaixo. */
 .ata-cheia__topo {
-  position: sticky;
-  top: 0;
-  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 0 auto;
   padding: calc(env(safe-area-inset-top, 0px) + 6px) 8px 6px;
   background: var(--bg);
   border-bottom: 1px solid var(--line);
+}
+.ata-cheia__titulo {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  font-size: 15px;
+  font-weight: 600;
+  white-space: nowrap;
+  text-overflow: ellipsis;
 }
 .ata-cheia__voltar {
   display: inline-flex;
@@ -1057,7 +1068,10 @@ button {
   cursor: pointer;
 }
 .ata-cheia__conteudo {
-  flex: 1;
+  flex: 1 1 auto;
+  /* Sem isto o conteúdo não encolhe, transborda o container e quem rola vira a página
+     inteira — era o que jogava a barra de voltar para o meio da ata. */
+  min-height: 0;
   overflow-y: auto;
   padding: 14px 14px calc(env(safe-area-inset-bottom, 0px) + 28px);
   -webkit-overflow-scrolling: touch;

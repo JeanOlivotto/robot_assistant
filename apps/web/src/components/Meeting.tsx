@@ -94,7 +94,18 @@ function ItemAta({ texto, responsavel, token }: { texto: string; responsavel?: s
   );
 }
 
-function AtaCard({ ata, titulo, token }: { ata: Ata; titulo: string; token: string }) {
+function AtaCard({
+  ata,
+  titulo,
+  token,
+  semCabecalho,
+}: {
+  ata: Ata;
+  titulo: string;
+  token: string;
+  /** Em tela cheia o título já está na barra de cima. */
+  semCabecalho?: boolean;
+}) {
   const copy = () => {
     const linhas = [
       `Ata — ${titulo}`,
@@ -111,7 +122,7 @@ function AtaCard({ ata, titulo, token }: { ata: Ata; titulo: string; token: stri
   return (
     <div className="ata">
       <div className="ata__head">
-        <h3>{titulo}</h3>
+        {!semCabecalho && <h3>{titulo}</h3>}
         <button type="button" className="mini-btn" onClick={copy}>
           Copiar
         </button>
@@ -166,11 +177,14 @@ export function MeetingView({
   useEffect(() => {
     if (!cheia) return;
     history.pushState({ ataCheia: true }, '');
+    const travado = document.body.style.overflow;
+    document.body.style.overflow = 'hidden'; // a lista atrás não rola junto
     const voltar = () => setCheia(null);
     const tecla = (e: KeyboardEvent) => e.key === 'Escape' && fecharCheia();
     window.addEventListener('popstate', voltar);
     window.addEventListener('keydown', tecla);
     return () => {
+      document.body.style.overflow = travado;
       window.removeEventListener('popstate', voltar);
       window.removeEventListener('keydown', tecla);
     };
@@ -440,9 +454,10 @@ export function MeetingView({
             <button type="button" className="ata-cheia__voltar" onClick={fecharCheia}>
               ‹ Voltar
             </button>
+            <span className="ata-cheia__titulo">{cheia.titulo}</span>
           </div>
           <div className="ata-cheia__conteudo">
-            <AtaCard ata={cheia.ata} titulo={cheia.titulo} token={token} />
+            <AtaCard ata={cheia.ata} titulo={cheia.titulo} token={token} semCabecalho />
           </div>
         </div>
       )}
