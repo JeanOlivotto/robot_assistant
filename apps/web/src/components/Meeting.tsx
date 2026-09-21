@@ -9,6 +9,7 @@ import {
   startMeeting,
   stopMeeting,
   type Ata,
+  type FonteAudio,
   type Meeting,
 } from '../lib/meeting';
 
@@ -123,6 +124,7 @@ function AtaCard({ ata, titulo, token }: { ata: Ata; titulo: string; token: stri
 
 export function MeetingView({ token, autoStart, onAutoStarted }: { token: string; autoStart?: boolean; onAutoStarted?(): void }) {
   const [phase, setPhase] = useState<Phase>('checking');
+  const [fonte, setFonte] = useState<FonteAudio>('mic');
   const [titulo, setTitulo] = useState('');
   const [elapsed, setElapsed] = useState(0);
   const [sent, setSent] = useState(0);
@@ -193,7 +195,7 @@ export function MeetingView({ token, autoStart, onAutoStarted }: { token: string
         setPending(queue.current.length);
         void pump();
       });
-      await rec.start();
+      await rec.start(fonte);
       recorder.current = rec;
       setPhase('recording');
     } catch (e) {
@@ -265,11 +267,35 @@ export function MeetingView({ token, autoStart, onAutoStarted }: { token: string
           {!MeetingRecorder.supported ? (
             <p className="hint">Este navegador não grava áudio.</p>
           ) : (
-            <button type="button" className="rec-btn" onClick={begin}>
-              <span className="rec-dot" /> Iniciar reunião
-            </button>
+            <>
+              {MeetingRecorder.podeGravarAba && (
+                <div className="meeting__fonte">
+                  <button
+                    type="button"
+                    className={`chip ${fonte === 'mic' ? 'chip--on' : ''}`}
+                    onClick={() => setFonte('mic')}
+                  >
+                    Sala (microfone)
+                  </button>
+                  <button
+                    type="button"
+                    className={`chip ${fonte === 'aba' ? 'chip--on' : ''}`}
+                    onClick={() => setFonte('aba')}
+                  >
+                    Reunião online
+                  </button>
+                </div>
+              )}
+              <button type="button" className="rec-btn" onClick={begin}>
+                <span className="rec-dot" /> Iniciar reunião
+              </button>
+            </>
           )}
-          <p className="hint">Deixe o celular perto de quem fala. A ata sai quando você encerrar.</p>
+          <p className="hint">
+            {fonte === 'aba'
+              ? 'Escolha a aba do Meet/Zoom e marque "compartilhar áudio da guia" — ele ouve todo mundo da chamada.'
+              : 'Deixe o celular perto de quem fala. A ata sai quando você encerrar.'}
+          </p>
         </div>
       )}
 

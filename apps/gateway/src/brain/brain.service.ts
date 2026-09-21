@@ -25,9 +25,31 @@ export interface BrainReply {
 
 export type ComposeKind = 'morning' | 'evening' | 'attention';
 
+/** O que o robô sabe da situação na hora de decidir se fala ou fica quieto. */
+export interface JudgeContext {
+  /** Há quantas horas o dono não diz nada. */
+  idleHours: number;
+  /** A última coisa que o robô disse por conta própria hoje (vazio = nenhuma). */
+  lastSpontaneous: string;
+  /** Quantas vezes ele já puxou conversa hoje. */
+  spokenToday: number;
+  /** Já trocaram alguma palavra hoje? */
+  talkedToday: boolean;
+}
+
+export interface Judgement {
+  speak: boolean;
+  text: string;
+  face: Face;
+  /** Por que decidiu assim — vai para o log, nunca para o dono. */
+  reason: string;
+}
+
 const HISTORY = 16;
 /** Resposta falada é curta de propósito: menos texto = o robô começa a falar mais cedo. */
 const SPOKEN_MAX_TOKENS = 220;
+/** O juízo é uma decisão curta, não um texto longo. */
+const JUDGE_MAX_TOKENS = 260;
 const MAX_STEPS = 4;
 const DAY_MS = 24 * 3600_000;
 
@@ -142,6 +164,64 @@ export class BrainService {
     } catch (err) {
       this.log.warn(`compose(${kind}) falhou, usando texto padrão: ${(err as Error).message}`);
       return fallback;
+    }
+  }
+
+  /**
+   * Decide sozinho se vale puxar conversa agora — e, se valer, o que dizer.
+   * Quem chama já cuidou dos limites (hora, teto do dia, intervalo): aqui é só o juízo.
+   */
+  async judge(history: ChatMessage[], ctx: JudgeContext): Promise<Judgement | null> {
+    if (!this.llm.enabled) return null;
+    const now = new Date();
+    const owner = this.cfg.OWNER_NAME || 'o dono';
+    const agenda = await this.todayAgenda(now);
+    const vezes = ctx.spokenToday === 0 ? 'nenhuma vez' : ctx.spokenToday === 1 ? 'uma vez' : `${ctx.spokenToday} vezes`;
+
+    const situacao = [
+      `- ${ctx.talkedToday ? 'vocês já se falaram hoje' : 'vocês ainda não se falaram hoje'}`,
+      `- faz ${ctx.idleHours < 1 ? 'menos de uma hora' : `umas ${Math.round(ctx.idleHours)} horas`} que ${owner} não diz nada`,
+      `- hoje você já puxou conversa ${vezes}`,
+      ctx.lastSpontaneous ? `- a última coisa que você disse por conta própria foi: "${ctx.lastSpontaneous}"` : '',
+      `- agenda de hoje:\n${agenda || '(agenda não configurada)'}`,
+    ]
+      .filter(Boolean)
+      .join('\n');
+
+    try {
+      const msg = await this.llm.complete(
+        [
+          { role: 'system', content: systemPrompt({ ...this.promptContext(now), todayAgenda: agenda }) },
+          ...toLlmHistory(history.slice(-8), this.cfg.TZ_NAME),
+          {
+            role: 'user',
+            content:
+              `[instrução interna do sistema — não é ${owner} falando, e ele não vê esta mensagem]\n` +
+              `Situação agora:\n${situacao}\n\n` +
+              'Vale a pena falar com ele agora, ou é melhor ficar quieto?\n' +
+              'Fale se você tem algo que justifique a interrupção: um compromisso chegando, um assunto que ficou ' +
+              'no ar, algo que você reparou. Fique quieto se for só para encher linguiça, se já disse isso hoje ' +
+              'ou se ele parece ocupado. Ficar quieto é resposta boa e deve ser a mais comum.\n' +
+              'Responda SOMENTE com JSON: {"falar": true|false, "texto": "...", "motivo": "..."}. ' +
+              'O texto é você falando, com a sua expressão entre colchetes no começo. ' +
+              'Com "falar": false, deixe "texto" vazio.',
+          },
+        ],
+        undefined,
+        { maxTokens: JUDGE_MAX_TOKENS, temperature: 0.7 },
+      );
+
+      const out = parseJudgement(msg.content ?? '');
+      if (!out) return null;
+      if (!out.falar || !out.texto?.trim()) {
+        return { speak: false, text: '', face: 'neutral', reason: out.motivo || 'preferiu ficar quieto' };
+      }
+      const { text, face } = splitEmotion(out.texto);
+      if (!text) return null;
+      return { speak: true, text, face, reason: out.motivo || '' };
+    } catch (err) {
+      this.log.warn(`judge() falhou: ${(err as Error).message}`);
+      return null;
     }
   }
 
@@ -356,4 +436,21 @@ function toLlmHistory(history: ChatMessage[], tz: string): ChatCompletionMessage
     const note = p ? `\n(proposta "${p.title}" ${fmt.format(p.start)}: ${p.status})` : '';
     return { role: 'assistant', content: m.text + note };
   });
+}
+
+
+/** Lê o JSON do juízo, tolerando cercas de markdown e texto em volta. */
+function parseJudgement(raw: string): { falar?: boolean; texto?: string; motivo?: string } | null {
+  const clean = raw
+    .replace(/<think>[\s\S]*?<\/think>/gi, '')
+    .replace(/```json/gi, '')
+    .replace(/```/g, '');
+  const start = clean.indexOf('{');
+  const end = clean.lastIndexOf('}');
+  if (start < 0 || end <= start) return null;
+  try {
+    return JSON.parse(clean.slice(start, end + 1)) as { falar?: boolean; texto?: string; motivo?: string };
+  } catch {
+    return null;
+  }
 }

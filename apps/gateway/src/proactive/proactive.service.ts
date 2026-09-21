@@ -7,25 +7,29 @@ import { BrainService, type ComposeKind } from '../brain/brain.service.js';
 import { ChatService } from '../chat/chat.service.js';
 import { APP_CONFIG, type AppConfig } from '../config/app-config.js';
 import { rootPath } from '../config/paths.js';
-import { MemoryService } from '../memory/memory.service.js';
 import { RobotStateService } from '../robot/robot-state.service.js';
 
 const TICK_MS = 60_000;
-const ATTENTION_PER_DAY = 2;
-const ATTENTION_IDLE_H = 3;
-const ATTENTION_WINDOW = { from: 10, to: 20 }; // horas locais — nunca de noite
 const HOUR = 3600_000;
+
+/* Os limites que o robô NÃO decide: ele julga se vale falar, dentro desta cerca. */
+const AWAKE_WINDOW = { from: 7, to: 22 }; // horas locais — fora disso, nem pergunta
+const SPEAK_PER_DAY = 4; // teto de conversas puxadas por ele num dia
+const SPEAK_GAP_MS = 45 * 60_000; // intervalo mínimo entre duas falas espontâneas
+const JUDGE_GAP_MS = 20 * 60_000; // de quanto em quanto tempo ele para e pensa se vale falar
 const QUIET_AFTER_USER_MS = 5 * 60_000;
 const THOUGHT_WINDOW = { from: 9, to: 21 };
 const THOUGHT_GAP_MIN = { min: 35, span: 40 }; // um pensamento a cada 35–75 min
 
 interface ProactiveMemory {
-  morning: string; // último dia (YYYY-MM-DD) em que mandou bom-dia
-  evening: string;
-  attentionDay: string;
-  attentionCount: number;
-  lastAttentionAt: number;
-  recallDay: string; // último dia em que puxou um assunto antigo
+  /** Dia (YYYY-MM-DD) a que se refere a contagem abaixo. */
+  day: string;
+  /** Quantas vezes ele puxou conversa hoje. */
+  spokenCount: number;
+  lastSpokenAt: number;
+  /** A última fala espontânea — entra no juízo para ele não se repetir. */
+  lastSpokenText: string;
+  lastJudgeAt: number;
 }
 
 const LEARN_GAP_MS = 90 * 60_000; // aprende assuntos no máximo a cada 1h30
@@ -41,7 +45,7 @@ export class ProactiveService implements OnModuleInit, OnModuleDestroy {
   private busy = false;
   private nextThoughtAt = Date.now() + 5 * 60_000;
   private lastLearnAt = 0;
-  private mem: ProactiveMemory = { morning: '', evening: '', attentionDay: '', attentionCount: 0, lastAttentionAt: 0, recallDay: '' };
+  private mem: ProactiveMemory = { day: '', spokenCount: 0, lastSpokenAt: 0, lastSpokenText: '', lastJudgeAt: 0 };
 
   constructor(
     @Inject(APP_CONFIG) private readonly cfg: AppConfig,
@@ -49,7 +53,6 @@ export class ProactiveService implements OnModuleInit, OnModuleDestroy {
     private readonly brain: BrainService,
     private readonly alerts: AlertService,
     private readonly robot: RobotStateService,
-    private readonly memory: MemoryService,
   ) {
     this.file = rootPath(`${cfg.DATA_DIR}/proactive.json`);
     this.clock = new Intl.DateTimeFormat('en-CA', {
@@ -108,76 +111,64 @@ export class ProactiveService implements OnModuleInit, OnModuleDestroy {
       void this.brain.learn(this.chat.history(12));
     }
 
-    const { date, minutes } = this.now();
-    const at = (hhmm: string) => Number(hhmm.slice(0, 2)) * 60 + Number(hhmm.slice(3, 5));
-
-    if (this.mem.morning !== date && minutes >= at(this.cfg.MORNING_AT) && minutes < 12 * 60) {
-      this.mem.morning = date;
-      await this.send('morning');
-      return;
-    }
-    if (this.mem.evening !== date && minutes >= at(this.cfg.EVENING_AT) && minutes < 22 * 60) {
-      this.mem.evening = date;
-      await this.send('evening');
-      return;
-    }
-
-    // Puxar um assunto antigo: no máximo uma vez por dia, na parte da tarde, quando está quieto.
-    const hourNow = Math.floor(minutes / 60);
-    if (
-      this.mem.recallDay !== date &&
-      hourNow >= 11 &&
-      hourNow < 20 &&
-      this.chat.state.waitingSince === 0 &&
-      this.memory.stale(this.cfg.MEMORY_RECALL_DAYS) &&
-      Math.random() < 1 / 25
-    ) {
-      this.mem.recallDay = date;
-      await this.sendRecall();
-      return;
-    }
-
-    if (await this.maybeThink(minutes)) return;
-
-    if (this.mem.attentionDay !== date) {
-      this.mem.attentionDay = date;
-      this.mem.attentionCount = 0;
-    }
-    const hour = Math.floor(minutes / 60);
-    const idleH = (Date.now() - this.chat.lastActivityAt()) / HOUR;
-    const eligible =
-      hour >= ATTENTION_WINDOW.from &&
-      hour < ATTENTION_WINDOW.to &&
-      this.mem.attentionCount < ATTENTION_PER_DAY &&
-      this.chat.state.waitingSince === 0 &&
-      idleH >= ATTENTION_IDLE_H &&
-      Date.now() - this.mem.lastAttentionAt >= ATTENTION_IDLE_H * HOUR;
-    // Sorteio a cada minuto: chega em média ~20 min depois de ficar elegível, sem hora marcada.
-    if (eligible && Math.random() < 1 / 20) {
-      this.mem.attentionCount++;
-      this.mem.lastAttentionAt = Date.now();
-      await this.send('attention', idleH);
-    }
+    if (await this.maybeThink(this.now().minutes)) return;
+    await this.maybeSpeak();
   }
 
-  /** O robô puxa de volta um assunto que faz tempo que não aparece. */
-  private async sendRecall(): Promise<void> {
+  /**
+   * A parte que ele NÃO decide: hora, teto do dia e intervalo. Passando na cerca, quem decide
+   * se vale falar (e o que dizer) é ele, em brain.judge().
+   */
+  private async maybeSpeak(): Promise<void> {
+    const { date, minutes } = this.now();
+    if (this.mem.day !== date) {
+      this.mem.day = date;
+      this.mem.spokenCount = 0;
+    }
+
+    const hour = Math.floor(minutes / 60);
+    const now = Date.now();
+    if (hour < AWAKE_WINDOW.from || hour >= AWAKE_WINDOW.to) return; // de madrugada, nem pergunta
+    if (this.mem.spokenCount >= SPEAK_PER_DAY) return;
+    if (now - this.mem.lastSpokenAt < SPEAK_GAP_MS) return;
+    if (this.chat.state.waitingSince !== 0) return; // já perguntou algo e está esperando resposta
+    if (now - this.mem.lastJudgeAt < JUDGE_GAP_MS) return;
+
+    this.mem.lastJudgeAt = now;
     this.busy = true;
-    const started = Date.now();
+    const started = now;
     try {
-      const r = await this.brain.recall(this.chat.history(6));
-      if (!r) return;
+      const lastUser = this.chat.lastUserAt();
+      const call = await this.brain.judge(this.chat.history(10), {
+        idleHours: (now - this.chat.lastActivityAt()) / HOUR,
+        lastSpontaneous: this.mem.lastSpokenText,
+        spokenToday: this.mem.spokenCount,
+        talkedToday: lastUser > 0 && this.sameDay(lastUser, now),
+      });
+      if (!call) return;
+      if (!call.speak) {
+        this.log.debug(`Ficou quieto: ${call.reason}`);
+        return;
+      }
+      // Ele demorou pensando e o dono falou nesse meio tempo: a fala perdeu a hora.
       if (this.chat.lastUserAt() >= started || this.chat.state.thinking) return;
-      this.memory.touch(r.memoryId);
-      this.chat.robotSay(r.text, r.face, 'proactive', { expectsReply: true });
-      this.log.log(`Puxou assunto antigo: ${r.text}`);
+
+      this.mem.spokenCount += 1;
+      this.mem.lastSpokenAt = Date.now();
+      this.mem.lastSpokenText = call.text;
+      this.chat.robotSay(call.text, call.face, 'proactive', { expectsReply: true });
+      this.log.log(`Puxou conversa (${this.mem.spokenCount}/${SPEAK_PER_DAY}): ${call.text} — ${call.reason}`);
     } finally {
       this.busy = false;
       this.save();
     }
   }
 
-  /** Pensamento em voz alta na tela do robô, de tempos em tempos durante o dia. */
+  private sameDay(a: number, b: number): boolean {
+    return this.clock.format(a).slice(0, 10) === this.clock.format(b).slice(0, 10);
+  }
+
+  /** Pensamento em voz alta no balão da telinha — não vai para o chat. */
   private async maybeThink(minutes: number): Promise<boolean> {
     const hour = Math.floor(minutes / 60);
     if (!this.robot.online || hour < THOUGHT_WINDOW.from || hour >= THOUGHT_WINDOW.to) return false;

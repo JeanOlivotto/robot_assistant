@@ -855,3 +855,27 @@ button {
   align-items: center;
   gap: 12px;
 }
+
+/* Escolha da fonte de áudio da reunião: sala ou aba do navegador. */
+.meeting__fonte {
+  display: flex;
+  gap: 8px;
+  justify-content: center;
+  flex-wrap: wrap;
+  margin-bottom: 4px;
+}
+.chip {
+  padding: 7px 14px;
+  font: inherit;
+  font-size: 14px;
+  color: var(--dim);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  cursor: pointer;
+}
+.chip--on {
+  color: var(--bg);
+  background: var(--accent);
+  border-color: var(--accent);
+}

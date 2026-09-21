@@ -56,6 +56,12 @@ export async function agendar(token: string, title: string, start: Date, minutes
   if (!res.ok) throw new Error((await res.text().catch(() => '')) || `HTTP ${res.status}`);
 }
 
+/**
+ * De onde vem o áudio da reunião: o microfone da sala, ou o som da aba (reunião online —
+ * você compartilha a aba do Meet/Zoom marcando "compartilhar áudio" e ele ouve todo mundo).
+ */
+export type FonteAudio = 'mic' | 'aba';
+
 /** Grava a reunião em segmentos completos, entregando cada Blob pronto para envio. */
 export class MeetingRecorder {
   static get supported(): boolean {
@@ -64,6 +70,8 @@ export class MeetingRecorder {
 
   private stream: MediaStream | null = null;
   private source: MediaStreamAudioSourceNode | null = null;
+  /** Stream da aba (quando a fonte é 'aba'): é nosso, não vem do microfone compartilhado. */
+  private tela: MediaStream | null = null;
   private rec: MediaRecorder | null = null;
   private timer: ReturnType<typeof setTimeout> | null = null;
   private stopped = false;
@@ -75,9 +83,26 @@ export class MeetingRecorder {
 
   constructor(private readonly onSegment: (blob: Blob) => void) {}
 
-  async start(): Promise<void> {
-    // Microfone emprestado do app (mic.ts): não pede permissão de novo a cada reunião.
-    this.stream = await acquireMic();
+  static get podeGravarAba(): boolean {
+    return typeof navigator !== 'undefined' && !!navigator.mediaDevices?.getDisplayMedia;
+  }
+
+  async start(fonte: FonteAudio = 'mic'): Promise<void> {
+    if (fonte === 'aba') {
+      // O vídeo é só o preço de entrada: o Chrome não compartilha áudio de aba sem ele.
+      this.tela = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true });
+      this.tela.getVideoTracks().forEach((t) => t.stop());
+      const audio = this.tela.getAudioTracks();
+      if (!audio.length) {
+        this.tela.getTracks().forEach((t) => t.stop());
+        this.tela = null;
+        throw new Error('Você compartilhou a aba sem o áudio. Repita marcando "compartilhar áudio da guia".');
+      }
+      this.stream = new MediaStream(audio);
+    } else {
+      // Microfone emprestado do app (mic.ts): não pede permissão de novo a cada reunião.
+      this.stream = await acquireMic();
+    }
     try {
       this.mime = MIME_CANDIDATES.find((m) => MediaRecorder.isTypeSupported(m));
       this.ctx = await audioContext();
@@ -128,7 +153,9 @@ export class MeetingRecorder {
   }
 
   private release(): void {
-    const had = !!this.stream;
+    const had = !!this.stream && !this.tela; // o mic é emprestado; o da aba é nosso e morre aqui
+    this.tela?.getTracks().forEach((t) => t.stop());
+    this.tela = null;
     try {
       this.source?.disconnect();
       this.analyser?.disconnect();
