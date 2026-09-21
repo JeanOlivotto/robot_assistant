@@ -1,8 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
 import { ago } from '../lib/format';
+import { addTask } from '../lib/tasks';
 import {
   MeetingRecorder,
   agendar,
+  apagarMeeting,
   convidar,
   listMeetings,
   meetingStatus,
@@ -35,7 +37,7 @@ function amanhaCedo(): string {
 function ItemAta({ texto, responsavel, token }: { texto: string; responsavel?: string; token: string }) {
   const [abrindo, setAbrindo] = useState(false);
   const [quando, setQuando] = useState(amanhaCedo);
-  const [estado, setEstado] = useState<'' | 'enviando' | 'ok' | string>('');
+  const [estado, setEstado] = useState<'' | 'enviando' | 'ok' | 'lembrado' | string>('');
 
   const confirmar = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -55,10 +57,27 @@ function ItemAta({ texto, responsavel, token }: { texto: string; responsavel?: s
         <span className="item-ata__texto">{texto}</span>
         {estado === 'ok' ? (
           <span className="item-ata__ok">na agenda</span>
+        ) : estado === 'lembrado' ? (
+          <span className="item-ata__ok">nas pendências</span>
         ) : (
-          <button type="button" className="mini-btn item-ata__btn" onClick={() => setAbrindo(!abrindo)}>
-            {abrindo ? 'Fechar' : 'Agendar'}
-          </button>
+          <span className="item-ata__acoes">
+            <button
+              type="button"
+              className="mini-btn item-ata__btn"
+              title="Sem hora marcada: ele cobra você depois"
+              onClick={() => {
+                setEstado('enviando');
+                addTask(token, texto)
+                  .then(() => setEstado('lembrado'))
+                  .catch((e: Error) => setEstado(e.message));
+              }}
+            >
+              Lembrar
+            </button>
+            <button type="button" className="mini-btn item-ata__btn" onClick={() => setAbrindo(!abrindo)}>
+              {abrindo ? 'Fechar' : 'Agendar'}
+            </button>
+          </span>
         )}
       </div>
       {responsavel && <span className="item-ata__resp">{responsavel}</span>}
@@ -70,7 +89,7 @@ function ItemAta({ texto, responsavel, token }: { texto: string; responsavel?: s
           </button>
         </form>
       )}
-      {estado && estado !== 'ok' && estado !== 'enviando' && <span className="item-ata__erro">{estado}</span>}
+      {estado && !['ok', 'lembrado', 'enviando'].includes(estado) && <span className="item-ata__erro">{estado}</span>}
     </li>
   );
 }
@@ -140,6 +159,8 @@ export function MeetingView({
      microfone gravando a sala. Quem está no computador ainda pode trocar para a sala no botão. */
   const [fonte, setFonte] = useState<FonteAudio>(MeetingRecorder.podeGravarAba ? 'aba' : 'mic');
   const [convite, setConvite] = useState('');
+  /** Ata aberta em tela cheia — em telas pequenas a ata fica espremida no meio da lista. */
+  const [cheia, setCheia] = useState<Meeting | null>(null);
   const [titulo, setTitulo] = useState('');
   const [elapsed, setElapsed] = useState(0);
   const [sent, setSent] = useState(0);
@@ -380,10 +401,26 @@ export function MeetingView({
 
       {phase === 'done' && !guest && result?.ata && (
         <div className="meeting__done">
+          <div className="meeting__item-acoes">
+            <button type="button" className="mini-btn" onClick={() => setCheia(result)}>
+              Abrir em tela cheia
+            </button>
+          </div>
           <AtaCard ata={result.ata} titulo={result.titulo} token={token} />
           <button type="button" className="rec-btn" onClick={() => setPhase('idle')}>
             Nova reunião
           </button>
+        </div>
+      )}
+
+      {cheia?.ata && (
+        <div className="ata-cheia" role="dialog" aria-label={`Ata: ${cheia.titulo}`}>
+          <button type="button" className="ata-cheia__fechar" onClick={() => setCheia(null)} aria-label="Fechar">
+            ✕
+          </button>
+          <div className="ata-cheia__conteudo">
+            <AtaCard ata={cheia.ata} titulo={cheia.titulo} token={token} />
+          </div>
         </div>
       )}
 
@@ -396,7 +433,31 @@ export function MeetingView({
                 <span>{m.titulo}</span>
                 <span className="hint">{ago(m.startedAt, Date.now())}</span>
               </button>
-              {open === m.id && m.ata && <AtaCard ata={m.ata} titulo={m.titulo} token={token} />}
+              {open === m.id && m.ata && (
+                <>
+                  <div className="meeting__item-acoes">
+                    <button type="button" className="mini-btn" onClick={() => setCheia(m)}>
+                      Abrir em tela cheia
+                    </button>
+                    <button
+                      type="button"
+                      className="mini-btn mini-btn--perigo"
+                      onClick={() => {
+                        if (!confirm(`Apagar "${m.titulo}"? A ata some de vez.`)) return;
+                        void apagarMeeting(token, m.id)
+                          .then(() => {
+                            setOpen(null);
+                            setPast((lista) => lista.filter((x) => x.id !== m.id));
+                          })
+                          .catch((e: Error) => setError(`Não consegui apagar: ${e.message}`));
+                      }}
+                    >
+                      Apagar
+                    </button>
+                  </div>
+                  <AtaCard ata={m.ata} titulo={m.titulo} token={token} />
+                </>
+              )}
             </div>
           ))}
         </div>

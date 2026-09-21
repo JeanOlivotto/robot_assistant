@@ -43,6 +43,19 @@ describe('MeetingService', () => {
     expect(abertas[0]!.meetingId).toBe(m.id);
   });
 
+  it('apagar tira a reunião da lista de vez', async () => {
+    const { svc } = make(CLEAN);
+    const m = svc.start('Reunião para apagar');
+    await svc.addSegment(m.id, Buffer.from('audio'));
+    await svc.stop(m.id);
+    expect(svc.list()).toHaveLength(1);
+
+    expect(svc.remove(m.id)).toBe(true);
+    expect(svc.list()).toEqual([]);
+    expect(svc.get(m.id)).toBeNull();
+    expect(svc.remove(m.id)).toBe(false); // já não existe
+  });
+
   it('fluxo completo: transcreve, gera ata e notifica', async () => {
     const { svc, push } = make(CLEAN);
     const m = svc.start('Planejamento');

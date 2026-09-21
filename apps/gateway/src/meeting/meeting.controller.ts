@@ -2,6 +2,7 @@ import {
   BadRequestException,
   Body,
   Controller,
+  Delete,
   Get,
   HttpCode,
   HttpException,
@@ -101,6 +102,14 @@ export class MeetingController {
   @UseGuards(AppTokenGuard)
   list() {
     return this.meetings.list().map(slim);
+  }
+
+  @Delete(':id')
+  @UseGuards(AppTokenGuard)
+  @HttpCode(200)
+  remove(@Param('id') id: string) {
+    if (!this.meetings.remove(id)) throw new HttpException('reunião não encontrada', 404);
+    return { ok: true };
   }
 
   @Get(':id')

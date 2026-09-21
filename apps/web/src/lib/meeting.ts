@@ -45,6 +45,7 @@ export const sendSegment = (token: string, id: string, blob: Blob) =>
   });
 export const stopMeeting = (token: string, id: string) => api<Meeting>(token, `/${id}/stop`, { method: 'POST' });
 export const listMeetings = (token: string) => api<Meeting[]>(token, '/list');
+export const apagarMeeting = (token: string, id: string) => api<{ ok: true }>(token, `/${id}`, { method: 'DELETE' });
 
 /** Cria o link para outra pessoa gravar uma reunião no seu lugar (vale 12 h). */
 export const convidar = (token: string, titulo: string) =>

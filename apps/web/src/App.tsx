@@ -78,6 +78,7 @@ function Main({ token, onLogout }: { token: string; onLogout(): void }) {
   const [notice, setNotice] = useState('');
   const [convo, setConvo] = useState(false);
   const [autoMeeting, setAutoMeeting] = useState(false);
+  const proximos = robo.agenda.filter((i) => i.end > now).length;
 
   useEffect(() => {
     void configureSpeech(token).then(setVoiceProvider);
@@ -226,7 +227,8 @@ function Main({ token, onLogout }: { token: string; onLogout(): void }) {
           Conversa
         </button>
         <button role="tab" aria-selected={tab === 'agenda'} className={tab === 'agenda' ? 'on' : ''} onClick={() => setTab('agenda')}>
-          Agenda{robo.agenda.length ? ` · ${robo.agenda.filter((i) => i.end > now).length}` : ''}
+          Agenda
+          {proximos > 0 && <span className="tab-badge">{proximos}</span>}
         </button>
         <button
           role="tab"

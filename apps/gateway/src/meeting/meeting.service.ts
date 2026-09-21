@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { APP_CONFIG, type AppConfig } from '../config/app-config.js';
@@ -182,6 +182,21 @@ export class MeetingService {
     }
     // Sem JSON utilizável: guarda o texto como resumo para não perder o trabalho.
     return { resumo: clean.slice(0, 1500), decisoes: [], acoes: [] };
+  }
+
+  /** Joga a reunião fora de vez: some da lista e o arquivo vai junto. */
+  remove(id: string): boolean {
+    const m = this.active.get(id) ?? this.load(id);
+    if (!m) return false;
+    this.active.delete(id);
+    try {
+      rmSync(join(this.dir, `${safeId(id)}.json`));
+    } catch (err) {
+      this.log.warn(`Não consegui apagar a ata ${id}: ${(err as Error).message}`);
+      return false;
+    }
+    this.log.log(`Reunião apagada: ${m.titulo}`);
+    return true;
   }
 
   private load(id: string): Meeting | null {
