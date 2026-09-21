@@ -136,7 +136,8 @@ export function MeetingView({
   guest?: boolean;
 }) {
   const [phase, setPhase] = useState<Phase>('checking');
-  const [fonte, setFonte] = useState<FonteAudio>('mic');
+  // Quem chegou por link está numa reunião online — só cai no microfone se o navegador não capturar aba.
+  const [fonte, setFonte] = useState<FonteAudio>(guest && MeetingRecorder.podeGravarAba ? 'aba' : 'mic');
   const [convite, setConvite] = useState('');
   const [titulo, setTitulo] = useState('');
   const [elapsed, setElapsed] = useState(0);
@@ -285,7 +286,7 @@ export function MeetingView({
             <p className="hint">Este navegador não grava áudio.</p>
           ) : (
             <>
-              {MeetingRecorder.podeGravarAba && (
+              {!guest && MeetingRecorder.podeGravarAba && (
                 <div className="meeting__fonte">
                   <button
                     type="button"
@@ -309,9 +310,11 @@ export function MeetingView({
             </>
           )}
           <p className="hint">
-            {fonte === 'aba'
-              ? 'Escolha a aba do Meet/Zoom e marque "compartilhar áudio da guia" — ele ouve todo mundo da chamada.'
-              : 'Deixe o celular perto de quem fala. A ata sai quando você encerrar.'}
+            {guest && fonte === 'mic'
+              ? 'Este navegador não captura o áudio da aba: ele vai gravar pelo microfone. Para pegar todo mundo da chamada, abra este link no Chrome do computador.'
+              : fonte === 'aba'
+                ? 'Ao iniciar, escolha a aba do Meet/Zoom e marque "compartilhar áudio da guia" — ele ouve todo mundo da chamada.'
+                : 'Deixe o celular perto de quem fala. A ata sai quando você encerrar.'}
           </p>
           {!guest && (
             <div className="meeting__convite">

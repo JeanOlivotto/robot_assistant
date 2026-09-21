@@ -35,7 +35,9 @@ export function Guest({ token }: { token: string }) {
         <p className="hint">
           Você foi convidado para gravar esta reunião. Ao encerrar, a ata vai direto para quem te mandou o link —
           você não precisa fazer mais nada.
-          {MeetingRecorder.podeGravarAba && ' Se a reunião for online, escolha "Reunião online" e compartilhe a aba com áudio.'}
+          {MeetingRecorder.podeGravarAba
+            ? ' Ao iniciar, o navegador vai pedir qual aba compartilhar: escolha a da reunião e marque a opção de compartilhar o áudio.'
+            : ' Este navegador não captura o áudio da chamada, então a gravação vai pelo microfone. Se puder, abra este link no Chrome do computador.'}
         </p>
       </div>
       <MeetingView token={token} guest />
