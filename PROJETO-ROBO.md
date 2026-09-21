@@ -459,9 +459,46 @@ Campo `t` = tipo. Todas carregam `ts` (epoch ms).
 { "t":"meeting_state", "v":"recording|uploading|done", "elapsed_s":1820 }
 
 { "t":"sleep", "ms":0 }                    // 0 = dormir até próximo VAD
-{ "t":"ota", "url":"https://.../fw.bin", "sha256":"..." }   // [V2]
+{ "t":"ota", "version":"0.8.0", "url":"https://.../api/device/firmware.bin?k=...",
+  "sha256":"...", "size":1133120 }   // atualização pelo Wi-Fi (ver 7.6)
 { "t":"pong" }
 ```
+
+### 7.6 Atualização de firmware pelo Wi-Fi (OTA)
+
+Sem cabo: o robô baixa a versão nova sozinho e reinicia nela.
+
+```
+  idf.py build                      firmware/build/robo.bin
+        │
+        ▼
+  node tools/publish-firmware.mjs   POST /api/firmware (APP_TOKEN, corpo = o .bin)
+        │                           o servidor lê a versão de dentro do binário
+        ▼                           (esp_app_desc) e guarda em DATA_DIR/firmware/
+  gateway
+        │  no `hello`, compara o `fw` do robô com a versão publicada
+        ▼
+  { "t":"ota", version, url, sha256, size }
+        │
+        ▼
+  robô: baixa → confere o sha256 → grava na partição livre → reinicia
+        │
+        ▼
+  no boot, a imagem sobe "em teste"; ela só é confirmada quando o hello_ack chega.
+  Se não chegar em 5 min, o bootloader volta para a versão anterior sozinho.
+```
+
+Detalhes que importam:
+
+- **O primeiro flash é por cabo.** Uma versão sem `core/ota.c` não sabe se atualizar — o OTA
+  vale a partir da 0.8.0.
+- **Duas partições** (`ota_0`/`ota_1`, 3 MB cada): a versão que está rodando nunca é apagada,
+  então queda de luz no meio do download não deixa o robô sem firmware.
+- **A URL leva uma chave derivada** do `DEVICE_TOKEN` (`?k=…`), não o token — ela aparece em log
+  de proxy e não deve valer como credencial.
+- **Voltar atrás** é publicar o .bin antigo: o robô aceita versão diferente, não só maior.
+- Falhou? O robô espera 30 min antes de tentar a mesma versão de novo, e o erro aparece no log
+  do gateway (`ota_status`).
 
 ### 7.4 Máquina de estados do device
 
@@ -1043,7 +1080,7 @@ Recomendação: **ESP-IDF puro**. Você vai precisar de controle fino de driver 
 - [ ] Backoff de reconexão e recuperação de falha de I2S
 - [ ] Telemetria de latência por etapa em `utterances.latency_ms`
 - [ ] Ajuste de threshold do VAD com dados reais
-- [ ] OTA `[V2]`
+- [x] OTA — atualização pelo Wi-Fi (seção 7.6)
 
 ### Fase 6 — Migração S3 `[V2]`
 

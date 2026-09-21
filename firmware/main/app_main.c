@@ -3,6 +3,7 @@
 #include "esp_log.h"
 #include "hal.h"
 #include "net.h"
+#include "ota.h"
 #include "ui.h"
 #include "ws_client.h"
 
@@ -13,6 +14,7 @@ void app_main(void)
     ESP_LOGI(TAG, "robo fw %s em %s", esp_app_get_description()->version, hal_caps()->chip_name);
 
     app_state_init();
+    ota_init(); /* veio de uma atualização? a imagem só é confirmada quando o servidor responder */
     ESP_ERROR_CHECK(hal_display_init());
     ESP_ERROR_CHECK(hal_buttons_init());
     ui_start(); /* o rosto aparece antes da rede subir */

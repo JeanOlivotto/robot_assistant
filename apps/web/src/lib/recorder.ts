@@ -1,4 +1,5 @@
 /** Grava uma mensagem de voz pelo microfone (AAC no iPhone, Opus no Chrome) e mede o volume para a tela. */
+import { acquireMic, audioContext, micSupported, releaseMic } from './mic';
 
 const MIME_CANDIDATES = ['audio/mp4', 'audio/webm;codecs=opus', 'audio/webm', 'audio/ogg;codecs=opus'];
 
@@ -6,6 +7,7 @@ export const MAX_VOICE_MS = 120_000;
 
 export class VoiceRecorder {
   private stream: MediaStream | null = null;
+  private source: MediaStreamAudioSourceNode | null = null;
   private recorder: MediaRecorder | null = null;
   private chunks: Blob[] = [];
   private ctx: AudioContext | null = null;
@@ -13,25 +15,29 @@ export class VoiceRecorder {
   private samples = new Uint8Array(256);
 
   static get supported(): boolean {
-    return typeof MediaRecorder !== 'undefined' && !!navigator.mediaDevices?.getUserMedia;
+    return typeof MediaRecorder !== 'undefined' && micSupported;
   }
 
   async start(): Promise<void> {
-    this.stream = await navigator.mediaDevices.getUserMedia({
-      audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true },
-    });
-    const mimeType = MIME_CANDIDATES.find((m) => MediaRecorder.isTypeSupported(m));
-    this.recorder = new MediaRecorder(this.stream, mimeType ? { mimeType } : undefined);
-    this.chunks = [];
-    this.recorder.ondataavailable = (e) => e.data.size && this.chunks.push(e.data);
-    this.recorder.start();
+    // Microfone emprestado do app (mic.ts): a permissão é pedida uma vez só.
+    this.stream = await acquireMic();
+    try {
+      const mimeType = MIME_CANDIDATES.find((m) => MediaRecorder.isTypeSupported(m));
+      this.recorder = new MediaRecorder(this.stream, mimeType ? { mimeType } : undefined);
+      this.chunks = [];
+      this.recorder.ondataavailable = (e) => e.data.size && this.chunks.push(e.data);
+      this.recorder.start();
 
-    // Medidor de volume: só visual, para você ver que o microfone está pegando.
-    this.ctx = new AudioContext();
-    const source = this.ctx.createMediaStreamSource(this.stream);
-    this.analyser = this.ctx.createAnalyser();
-    this.analyser.fftSize = 512;
-    source.connect(this.analyser);
+      // Medidor de volume: só visual, para você ver que o microfone está pegando.
+      this.ctx = await audioContext();
+      this.source = this.ctx.createMediaStreamSource(this.stream);
+      this.analyser = this.ctx.createAnalyser();
+      this.analyser.fftSize = 512;
+      this.source.connect(this.analyser);
+    } catch (err) {
+      this.release();
+      throw err;
+    }
   }
 
   /** 0..1 */
@@ -65,11 +71,18 @@ export class VoiceRecorder {
   }
 
   private release(): void {
-    this.stream?.getTracks().forEach((t) => t.stop());
-    void this.ctx?.close();
+    const had = !!this.stream;
+    try {
+      this.source?.disconnect();
+      this.analyser?.disconnect();
+    } catch {
+      /* já estava solto */
+    }
     this.stream = null;
+    this.source = null;
     this.recorder = null;
-    this.ctx = null;
+    this.ctx = null; // o AudioContext é do app inteiro: não se fecha aqui
     this.analyser = null;
+    if (had) releaseMic();
   }
 }

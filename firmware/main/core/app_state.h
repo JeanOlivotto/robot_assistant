@@ -47,6 +47,14 @@ typedef struct {
     char artist[ROBO_SUB_MAX_BYTES + 1];
 } music_state_t;
 
+/* Atualização de firmware em andamento (mensagem `ota`). A tela para tudo e mostra a barra. */
+typedef struct {
+    bool active;
+    robo_ota_phase_t phase;
+    int pct; /* 0..100 durante o download */
+    char version[ROBO_OTA_VERSION_MAX_BYTES + 1];
+} ota_state_t;
+
 typedef struct {
     bool wifi_up;
     bool server_up;
@@ -64,6 +72,7 @@ typedef struct {
     bool has_usage; /* já chegou algum `claude_usage` nesta sessão */
     claude_usage_t usage;
     music_state_t music;
+    ota_state_t ota;
 } app_snapshot_t;
 
 void app_state_init(void);
@@ -76,6 +85,7 @@ void app_push_react(robo_face_t face, uint32_t ms);
 void app_push_say(const char *text, uint32_t ms);
 void app_set_usage(const claude_usage_t *u);
 void app_set_music(const music_state_t *m);
+void app_set_ota(const ota_state_t *o);
 
 /* Copia o estado para `out` e consome o alerta pendente. */
 void app_snapshot(app_snapshot_t *out);

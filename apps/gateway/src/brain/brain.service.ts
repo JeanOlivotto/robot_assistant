@@ -26,6 +26,8 @@ export interface BrainReply {
 export type ComposeKind = 'morning' | 'evening' | 'attention';
 
 const HISTORY = 16;
+/** Resposta falada é curta de propósito: menos texto = o robô começa a falar mais cedo. */
+const SPOKEN_MAX_TOKENS = 220;
 const MAX_STEPS = 4;
 const DAY_MS = 24 * 3600_000;
 
@@ -103,7 +105,7 @@ export class BrainService {
 
     let proposal: ProposalDraft | undefined;
     for (let step = 0; step < MAX_STEPS; step++) {
-      const msg = await this.llm.complete(messages, TOOLS);
+      const msg = await this.llm.complete(messages, TOOLS, opts.spoken ? { maxTokens: SPOKEN_MAX_TOKENS } : undefined);
       const calls = (msg.tool_calls ?? []).filter((c) => c.type === 'function');
       if (!calls.length) {
         const { text, face } = splitEmotion(msg.content ?? '');

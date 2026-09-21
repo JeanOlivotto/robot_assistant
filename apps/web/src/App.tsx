@@ -7,6 +7,7 @@ import { RobotFace } from './components/RobotFace';
 import { VoiceConversation } from './components/VoiceConversation';
 import { ago } from './lib/format';
 import { enablePush, pushState, refreshPush, testPush, type PushState } from './lib/push';
+import { audioContext, closeMic } from './lib/mic';
 import { configureSpeech, speak, speechSupported, stopSpeaking, unlockAudio } from './lib/speech';
 import { useRobo } from './lib/useRobo';
 
@@ -110,14 +111,17 @@ function Main({ token, onLogout }: { token: string; onLogout(): void }) {
 
   // Lê em voz alta só o que o robô disser depois de ligar (não o histórico).
   useEffect(() => {
-    if (!speakOn || convo) return; // no modo conversa, quem fala é o próprio modo (não duplica)
+    if (convo) {
+      // Na chamada quem fala é o próprio modo: marca tudo como já falado para não repetir ao sair.
+      spokenUpTo.current = Date.now();
+      return;
+    }
+    if (!speakOn) return;
     const fresh = robo.messages.filter((m) => m.from === 'robot' && m.ts > spokenUpTo.current);
     if (!fresh.length) return;
     spokenUpTo.current = Math.max(...fresh.map((m) => m.ts));
     void speak(fresh[fresh.length - 1]!.text);
   }, [robo.messages, speakOn, convo]);
-
-  const lastRobotText = [...robo.messages].reverse().find((m) => m.from === 'robot')?.text;
 
   const toggleSpeak = () => {
     const on = !speakOn;
@@ -174,7 +178,9 @@ function Main({ token, onLogout }: { token: string; onLogout(): void }) {
           type="button"
           className="icon-btn"
           onClick={() => {
-            unlockAudio(); // este toque destrava o áudio no iPhone
+            // Este toque destrava o áudio E o microfone no iPhone: os dois só ligam dentro de um gesto.
+            unlockAudio();
+            void audioContext();
             setConvo(true);
           }}
           aria-label="Conversar por voz"
@@ -248,7 +254,6 @@ function Main({ token, onLogout }: { token: string; onLogout(): void }) {
       {convo && (
         <VoiceConversation
           token={token}
-          initialText={lastRobotText}
           onClose={() => setConvo(false)}
           onStartMeeting={() => {
             setConvo(false);
@@ -278,6 +283,7 @@ export function App() {
     <Main
       token={token}
       onLogout={() => {
+        closeMic(); // sair do app desliga o microfone (é o único lugar que desliga)
         saveToken(null);
         setToken(null);
       }}

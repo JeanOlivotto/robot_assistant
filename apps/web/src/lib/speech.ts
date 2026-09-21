@@ -1,11 +1,16 @@
 /**
- * Lê as respostas do robô em voz alta. Com voz no servidor (ElevenLabs), usa ela;
+ * Lê as respostas do robô em voz alta. Com voz no servidor (edge-tts/ElevenLabs), usa ela;
  * sem ela (ou com a cota do mês esgotada), cai para a voz do aparelho — de preferência masculina.
+ *
+ * A fala sai por frases: o robô começa a falar assim que a PRIMEIRA frase fica pronta, enquanto
+ * a seguinte já está sendo gerada. É o que tira aquele silêncio comprido antes de ele responder.
  */
 
 let token = '';
 let serverVoice: 'edge' | 'elevenlabs' | null = null;
 let deviceVoice: SpeechSynthesisVoice | null = null;
+/** Corta a reprodução no meio (interrupção) sem deixar ninguém esperando para sempre. */
+let cutPlayback: (() => void) | null = null;
 
 /* Um único <audio>: no iPhone, depois de destravado por um toque, ele pode tocar sozinho. */
 const player = typeof Audio !== 'undefined' ? new Audio() : null;
@@ -65,82 +70,159 @@ export function unlockAudio(): void {
   void player.play().catch(() => undefined);
 }
 
-function speakWithDevice(text: string): void {
-  if (!('speechSynthesis' in window)) return;
-  deviceVoice ??= pickDeviceVoice();
-  const u = new SpeechSynthesisUtterance(text);
-  u.lang = 'pt-BR';
-  if (deviceVoice) u.voice = deviceVoice;
-  window.speechSynthesis.cancel();
-  window.speechSynthesis.speak(u);
+function forSpeech(raw: string): string {
+  return raw.replace(/\p{Extended_Pictographic}|️|‍/gu, '').trim();
+}
+
+/** Quebra a resposta em pedaços que valem uma ida ao servidor: frases, sem picotar demais. */
+function phrases(text: string): string[] {
+  const parts = text
+    .replace(/([.!?…])\s+/g, '$1\n')
+    .split('\n')
+    .map((s) => s.trim())
+    .filter(Boolean);
+  const out: string[] = [];
+  for (const part of parts) {
+    const last = out[out.length - 1];
+    // Pedaço curto demais soa picado na voz sintética: gruda no anterior.
+    if (last && (last.length < 30 || part.length < 16) && last.length + part.length <= 160) out[out.length - 1] = `${last} ${part}`;
+    else out.push(part);
+  }
+  return out;
+}
+
+async function fetchSpeech(text: string, signal: AbortSignal): Promise<string | null> {
+  try {
+    const res = await fetch('/api/tts', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text }),
+      signal,
+    });
+    if (!res.ok) return null;
+    return URL.createObjectURL(await res.blob());
+  } catch {
+    return null; // sem servidor (ou cancelado): quem chamou decide o que fazer
+  }
+}
+
+function playUrl(url: string, onStart?: () => void): Promise<void> {
+  return new Promise<void>((resolve) => {
+    if (!player) return resolve();
+    const end = () => {
+      cutPlayback = null;
+      player.onended = null;
+      player.onerror = null;
+      URL.revokeObjectURL(url);
+      resolve();
+    };
+    cutPlayback = end;
+    player.onended = end;
+    player.onerror = end;
+    player.src = url;
+    void player
+      .play()
+      .then(() => onStart?.())
+      .catch(() => end());
+  });
+}
+
+function deviceSay(text: string, onStart?: () => void): Promise<void> {
+  return new Promise<void>((resolve) => {
+    if (!('speechSynthesis' in window)) return resolve();
+    deviceVoice ??= pickDeviceVoice();
+    const u = new SpeechSynthesisUtterance(text);
+    u.lang = 'pt-BR';
+    if (deviceVoice) u.voice = deviceVoice;
+    const end = () => {
+      cutPlayback = null;
+      resolve();
+    };
+    cutPlayback = end;
+    u.onend = end;
+    u.onerror = end;
+    u.onstart = () => onStart?.();
+    window.speechSynthesis.cancel();
+    window.speechSynthesis.speak(u);
+  });
+}
+
+export interface Speaking {
+  /** Resolve quando a fala termina — ou na hora, se for interrompida. */
+  done: Promise<void>;
+  /** Cala a boca agora (você falou por cima). */
+  stop(): void;
+}
+
+/**
+ * Fala o texto e devolve o controle: `done` para esperar o fim, `stop()` para cortar no meio.
+ * Enquanto uma frase toca, a próxima já está sendo gerada no servidor.
+ *
+ * `onStart` avisa quando o som realmente sai do alto-falante (não quando a fala foi pedida) —
+ * é por esse aviso que o modo chamada só então passa a escutar quem fala por cima.
+ */
+export function speakStream(raw: string, onStart?: () => void): Speaking {
+  const text = forSpeech(raw);
+  const parts = phrases(text);
+  const fetches = new AbortController();
+  let stopped = false;
+
+  let started = false;
+  const announce = () => {
+    if (started) return;
+    started = true;
+    onStart?.();
+  };
+
+  const stop = () => {
+    if (stopped) return;
+    stopped = true;
+    fetches.abort();
+    stopSpeaking();
+  };
+
+  const done = (async () => {
+    if (!parts.length) return;
+    if (serverVoice && player) {
+      let next: Promise<string | null> | null = fetchSpeech(parts[0]!, fetches.signal);
+      for (let i = 0; i < parts.length && !stopped; i++) {
+        const current = next;
+        next = i + 1 < parts.length ? fetchSpeech(parts[i + 1]!, fetches.signal) : null;
+        const url = current ? await current : null;
+        if (stopped) {
+          if (url) URL.revokeObjectURL(url);
+          break;
+        }
+        if (!url) {
+          // Servidor de voz caiu no meio: termina o resto com a voz do aparelho.
+          fetches.abort();
+          await deviceSay(parts.slice(i).join(' '), announce);
+          return;
+        }
+        await playUrl(url, announce);
+      }
+      return;
+    }
+    for (const part of parts) {
+      if (stopped) return;
+      await deviceSay(part, announce);
+    }
+  })();
+
+  return { done, stop };
 }
 
 export async function speak(raw: string): Promise<void> {
-  const text = raw.replace(/\p{Extended_Pictographic}|️|‍/gu, '').trim();
-  if (!text) return;
-  if (serverVoice && player) {
-    try {
-      const res = await fetch('/api/tts', {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text }),
-      });
-      if (res.ok) {
-        const url = URL.createObjectURL(await res.blob());
-        player.onended = () => URL.revokeObjectURL(url);
-        player.src = url;
-        await player.play();
-        return;
-      }
-    } catch {
-      /* cai para a voz do aparelho */
-    }
-  }
-  speakWithDevice(text);
+  await speakStream(raw).done;
+}
+
+/** Como speak(), mas só volta quando a fala TERMINA. */
+export async function speakUntilDone(raw: string): Promise<void> {
+  await speakStream(raw).done;
 }
 
 export function stopSpeaking(): void {
   player?.pause();
   if ('speechSynthesis' in window) window.speechSynthesis.cancel();
-}
-
-/** Como speak(), mas só resolve quando a fala TERMINA — o modo conversa precisa disso para voltar a ouvir. */
-export async function speakUntilDone(raw: string): Promise<void> {
-  const text = raw.replace(/\p{Extended_Pictographic}|️|‍/gu, '').trim();
-  if (!text) return;
-  if (serverVoice && player) {
-    try {
-      const res = await fetch('/api/tts', {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text }),
-      });
-      if (res.ok) {
-        const url = URL.createObjectURL(await res.blob());
-        await new Promise<void>((resolve) => {
-          player.onended = () => {
-            URL.revokeObjectURL(url);
-            resolve();
-          };
-          player.onerror = () => resolve();
-          player.src = url;
-          void player.play().catch(() => resolve());
-        });
-        return;
-      }
-    } catch {
-      /* cai para a voz do aparelho */
-    }
-  }
-  if (!('speechSynthesis' in window)) return;
-  await new Promise<void>((resolve) => {
-    deviceVoice ??= pickDeviceVoice();
-    const u = new SpeechSynthesisUtterance(text);
-    u.lang = 'pt-BR';
-    if (deviceVoice) u.voice = deviceVoice;
-    u.onend = () => resolve();
-    u.onerror = () => resolve();
-    window.speechSynthesis.cancel();
-    window.speechSynthesis.speak(u);
-  });
+  cutPlayback?.(); // quem estava esperando o fim não fica pendurado
 }

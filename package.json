@@ -14,6 +14,7 @@
     "test": "pnpm --filter @robo/gateway test",
     "gen:c": "pnpm --filter @robo/protocol gen:c",
     "fake-device": "pnpm --filter @robo/gateway fake-device",
-    "fake-app": "pnpm --filter @robo/gateway fake-app"
+    "fake-app": "pnpm --filter @robo/gateway fake-app",
+    "publish:fw": "node tools/publish-firmware.mjs"
   }
 }

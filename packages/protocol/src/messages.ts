@@ -12,6 +12,10 @@ export const LIMITS = {
   ID_MAX_BYTES: 23,
   PREVIEW_MAX_BYTES: 47,
   SAY_MAX_BYTES: 63,
+  /* OTA: a URL do binário e a versão que o robô mostra na telinha enquanto atualiza. */
+  OTA_URL_MAX_BYTES: 191,
+  OTA_VERSION_MAX_BYTES: 31,
+  OTA_SHA256_BYTES: 64,
 } as const;
 
 /** Expressões do rostinho — a ordem vira o enum robo_face_t do firmware. */
@@ -36,6 +40,8 @@ export const BUTTON_EVENTS = ['short', 'long'] as const;
 export const DISPLAY_MODES = ['alert'] as const;
 export const WAKE_MODES = ['vad_local', 'ondevice_kw', 'button', 'none'] as const;
 export const CODECS = ['adpcm', 'pcm16', 'opus'] as const;
+/** Fases da atualização de firmware, na ordem em que acontecem. */
+export const OTA_PHASES = ['start', 'download', 'verify', 'done', 'error'] as const;
 
 export function utf8Bytes(s: string): number {
   let n = 0;
@@ -99,7 +105,18 @@ export const FaceReport = z.object({
   v: z.enum(FACES),
 });
 
-export const DeviceMessage = z.discriminatedUnion('t', [Hello, Ping, Button, Battery, DeviceError, FaceReport]);
+/** Como vai a atualização de firmware — o robô conta para o servidor enquanto baixa e grava. */
+export const OtaStatus = z.object({
+  t: z.literal('ota_status'),
+  ts: epochMs,
+  phase: z.enum(OTA_PHASES),
+  /** 0–100 durante o download; ausente nas outras fases. */
+  pct: z.number().int().min(0).max(100).optional(),
+  version: bytes(LIMITS.OTA_VERSION_MAX_BYTES).optional(),
+  detail: z.string().max(120).optional(),
+});
+
+export const DeviceMessage = z.discriminatedUnion('t', [Hello, Ping, Button, Battery, DeviceError, FaceReport, OtaStatus]);
 
 /* ───────────── Servidor → Device ───────────── */
 
@@ -203,6 +220,20 @@ export const Music = z.object({
   artist: bytes(LIMITS.SUB_MAX_BYTES),
 });
 
+/**
+ * Tem firmware novo: baixe daqui e atualize sozinho (seção 7.4 do doc).
+ * O robô valida o sha256 do que gravou antes de reiniciar; se a versão nova não conectar
+ * no servidor, o bootloader volta para a anterior por conta própria.
+ */
+export const Ota = z.object({
+  t: z.literal('ota'),
+  ts: epochMs,
+  version: bytes(LIMITS.OTA_VERSION_MAX_BYTES),
+  url: bytes(LIMITS.OTA_URL_MAX_BYTES),
+  sha256: z.string().length(LIMITS.OTA_SHA256_BYTES).regex(/^[0-9a-f]+$/),
+  size: z.number().int().positive(),
+});
+
 export const ServerMessage = z.discriminatedUnion('t', [
   HelloAck,
   Pong,
@@ -214,6 +245,7 @@ export const ServerMessage = z.discriminatedUnion('t', [
   DeviceSay,
   ClaudeUsage,
   Music,
+  Ota,
 ]);
 
 export type Hello = z.infer<typeof Hello>;
@@ -228,6 +260,8 @@ export type Reaction = z.infer<typeof Reaction>;
 export type DeviceSay = z.infer<typeof DeviceSay>;
 export type ClaudeUsage = z.infer<typeof ClaudeUsage>;
 export type Music = z.infer<typeof Music>;
+export type Ota = z.infer<typeof Ota>;
+export type OtaStatus = z.infer<typeof OtaStatus>;
 export type ServerMessage = z.infer<typeof ServerMessage>;
 
 export const DEVICE_MESSAGE_TYPES = DeviceMessage.options.map((o) => o.shape.t.value);

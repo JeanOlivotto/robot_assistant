@@ -8,6 +8,7 @@ import { ClaudeUsageService } from './claude/claude-usage.service.js';
 import { AppAuthController } from './chat/app-auth.controller.js';
 import { AppGateway } from './chat/app.gateway.js';
 import { VoiceController } from './chat/voice.controller.js';
+import { VoiceSessionService } from './chat/voice-session.service.js';
 import { ChatService } from './chat/chat.service.js';
 import { ChatStore } from './chat/chat.store.js';
 import { APP_CONFIG, loadConfig } from './config/app-config.js';
@@ -15,6 +16,8 @@ import { DebugController } from './debug/debug.controller.js';
 import { TokenGuard } from './debug/token.guard.js';
 import { AppTokenGuard } from './auth/app-token.guard.js';
 import { DeviceGateway } from './device/device.gateway.js';
+import { FirmwareController } from './firmware/firmware.controller.js';
+import { FirmwareService } from './firmware/firmware.service.js';
 import { LlmService } from './llm/llm.service.js';
 import { MeetingController } from './meeting/meeting.controller.js';
 import { MeetingService } from './meeting/meeting.service.js';
@@ -31,7 +34,7 @@ import { TtsService } from './tts/tts.service.js';
 import { WsRouter } from './ws/ws-router.service.js';
 
 @Module({
-  controllers: [DebugController, AppAuthController, VoiceController, PushController, TtsController, ClaudeUsageController, MeetingController, SpotifyController],
+  controllers: [DebugController, AppAuthController, VoiceController, PushController, TtsController, ClaudeUsageController, MeetingController, SpotifyController, FirmwareController],
   providers: [
     { provide: APP_CONFIG, useFactory: () => loadConfig() },
     WsRouter,
@@ -43,6 +46,7 @@ import { WsRouter } from './ws/ws-router.service.js';
     BrainService,
     ChatStore,
     ChatService,
+    VoiceSessionService,
     RobotStateService,
     DeviceGateway,
     AppGateway,
@@ -53,6 +57,7 @@ import { WsRouter } from './ws/ws-router.service.js';
     MeetingService,
     MemoryService,
     SpotifyService,
+    FirmwareService,
     TokenGuard,
     AppTokenGuard,
   ],

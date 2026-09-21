@@ -10,6 +10,7 @@ import { CalendarService } from '../calendar/calendar.service.js';
 import { ChatService, type ChatState } from '../chat/chat.service.js';
 import { ClaudeUsageService, type UsageSnapshot } from '../claude/claude-usage.service.js';
 import { APP_CONFIG, type AppConfig } from '../config/app-config.js';
+import { FirmwareService } from '../firmware/firmware.service.js';
 import { RobotStateService } from '../robot/robot-state.service.js';
 import { SpotifyService, type MusicState } from '../spotify/spotify.service.js';
 import { rejectUpgrade, WsRouter } from '../ws/ws-router.service.js';
@@ -26,6 +27,10 @@ interface Session {
   lastSeen: number;
   hello?: Hello;
   power?: string;
+  /** Versão já oferecida nesta conexão — não adianta mandar atualizar duas vezes seguidas. */
+  otaOffered?: string;
+  /** Última notícia da atualização em andamento, para o /debug e o log. */
+  ota?: string;
 }
 
 export interface SessionInfo {
@@ -36,6 +41,7 @@ export interface SessionInfo {
   ip: string;
   connectedAt: string;
   lastSeenAgoMs: number;
+  ota: string | null;
 }
 
 /** Servidor WebSocket `robo-ws/1` em /device — `ws` puro, sem socket.io (seção 6.1). */
@@ -56,6 +62,7 @@ export class DeviceGateway implements OnModuleInit, OnModuleDestroy {
     private readonly robot: RobotStateService,
     private readonly claude: ClaudeUsageService,
     private readonly spotify: SpotifyService,
+    private readonly firmware: FirmwareService,
   ) {}
 
   onModuleInit(): void {
@@ -76,6 +83,10 @@ export class DeviceGateway implements OnModuleInit, OnModuleDestroy {
       this.robot.say$.subscribe((s) => this.broadcast({ t: 'say', ts: Date.now(), text: s.text, ms: s.ms })),
       this.claude.usage$.subscribe((u) => this.broadcast(this.usageMsg(u))),
       this.spotify.music$.subscribe((m) => this.broadcast(this.musicMsg(m))),
+      // Firmware novo publicado agora: quem está conectado atualiza sem esperar reconectar.
+      this.firmware.published$.subscribe(() => {
+        for (const s of this.sessions) this.offerOta(s);
+      }),
     );
 
     this.reaper = setInterval(() => {
@@ -106,6 +117,7 @@ export class DeviceGateway implements OnModuleInit, OnModuleDestroy {
       ip: s.ip,
       connectedAt: new Date(s.connectedAt).toISOString(),
       lastSeenAgoMs: now - s.lastSeen,
+      ota: s.ota ?? null,
     }));
   }
 
@@ -178,6 +190,14 @@ export class DeviceGateway implements OnModuleInit, OnModuleDestroy {
       case 'error':
         this.log.warn(`${this.label(s)} erro no device: ${msg.code} ${msg.detail ?? ''}`);
         break;
+      case 'ota_status': {
+        s.ota = msg.phase === 'download' ? `baixando ${msg.pct ?? 0}%` : msg.phase;
+        const extra = [msg.version, msg.detail].filter(Boolean).join(' — ');
+        // O download conta de 10 em 10%: só vale uma linha de log quando muda de fase.
+        if (msg.phase === 'error') this.log.error(`${this.label(s)} atualização falhou: ${extra}`);
+        else if (msg.phase !== 'download') this.log.log(`${this.label(s)} atualização: ${msg.phase} ${extra}`);
+        break;
+      }
     }
   }
 
@@ -200,6 +220,23 @@ export class DeviceGateway implements OnModuleInit, OnModuleDestroy {
     this.send(s, this.musicMsg(this.spotify.music$.value));
     const active = this.alerts.active(now);
     if (active) this.send(s, active);
+    this.offerOta(s);
+  }
+
+  /** O robô acabou de dizer em que versão está: se houver outra publicada, manda buscar. */
+  private offerOta(s: Session): void {
+    const fw = this.firmware.latest();
+    if (!fw || !s.hello || s.hello.fw === fw.version || s.otaOffered === fw.version) return;
+    s.otaOffered = fw.version;
+    this.log.log(`${this.label(s)} está em ${s.hello.fw || '?'} e tem ${fw.version} publicado — mandando atualizar`);
+    this.send(s, {
+      t: 'ota',
+      ts: Date.now(),
+      version: fw.version,
+      url: this.firmware.downloadUrl(),
+      sha256: fw.sha256,
+      size: fw.size,
+    });
   }
 
   private agendaMsg(items: AgendaItem[]): ServerMessage {

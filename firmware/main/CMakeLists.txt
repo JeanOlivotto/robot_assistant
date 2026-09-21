@@ -11,20 +11,25 @@ idf_component_register(
         "core/gfx.c"
         "core/life.c"
         "core/net.c"
+        "core/ota.c"
         "core/ui.c"
         "core/ws_client.c"
         "hal/hal_${IDF_TARGET}.c"
     INCLUDE_DIRS "." "core" "hal"
     PRIV_REQUIRES
+        app_update
         esp_app_format
         esp_driver_gpio
         esp_driver_spi
         esp_driver_usb_serial_jtag
         esp_event
+        esp_http_client
         esp_lcd
         esp_netif
+        esp_partition
         esp_timer
         esp_wifi
+        esp-tls
         json
         mbedtls
         nvs_flash

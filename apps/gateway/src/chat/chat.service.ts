@@ -23,6 +23,13 @@ export interface Reaction {
 
 type MessageKind = NonNullable<ChatMessage['kind']>;
 
+export interface AskOptions {
+  /** Só conta como conversa o que veio depois deste instante (o modo chamada começa do zero). */
+  since?: number;
+  /** A resposta vai ser FALADA: curta, sem emoji, sem botão. */
+  spoken?: boolean;
+}
+
 const PROPOSAL_TTL_MS = 30 * 60_000;
 const YES = /^(sim|s|pode|pode sim|confirma|confirmado|confirmo|ok|isso|bora|claro|manda ver)[\s!.]*$/i;
 const NO = /^(n[aã]o|cancela|cancelar|deixa|esquece|deixa pra l[aá])[\s!.]*$/i;
@@ -102,9 +109,9 @@ export class ChatService implements OnModuleInit, OnModuleDestroy {
     await this.ask(text, via);
   }
 
-  /** Como say(), mas devolve a resposta do robô (a Siri precisa dela para falar). */
-  ask(text: string, via: MessageVia = 'text'): Promise<ChatMessage | undefined> {
-    return this.enqueue(() => this.handleUserText(text, via));
+  /** Como say(), mas devolve a resposta do robô (a voz precisa dela para falar). */
+  ask(text: string, via: MessageVia = 'text', opts: AskOptions = {}): Promise<ChatMessage | undefined> {
+    return this.enqueue(() => this.handleUserText(text, via, opts));
   }
 
   async confirm(proposalId: string, ok: boolean): Promise<void> {
@@ -138,7 +145,7 @@ export class ChatService implements OnModuleInit, OnModuleDestroy {
     return run;
   }
 
-  private async handleUserText(text: string, via: MessageVia): Promise<ChatMessage | undefined> {
+  private async handleUserText(text: string, via: MessageVia, opts: AskOptions = {}): Promise<ChatMessage | undefined> {
     const wasWaiting = this.state.waitingSince > 0;
     this.push({ id: randomUUID(), from: 'user', text, ts: Date.now(), via: via === 'text' ? undefined : via });
 
@@ -151,7 +158,7 @@ export class ChatService implements OnModuleInit, OnModuleDestroy {
     this.setState({ thinking: true, waitingSince: 0 });
     if (wasWaiting) this.react$.next({ face: 'love', ms: 2000 }); // finalmente respondeu!
     try {
-      const reply = await this.brain.reply(this.store.recent(40), { spoken: via === 'siri' });
+      const reply = await this.brain.reply(this.context(opts.since), { spoken: opts.spoken ?? via === 'siri' });
       let proposal: Proposal | undefined;
       if (reply.proposal) {
         this.cancelPending('substituída por outra proposta');
@@ -199,6 +206,17 @@ export class ChatService implements OnModuleInit, OnModuleDestroy {
       this.settleWaiting();
       return this.robotSay(`Não consegui marcar: ${error}`, 'sad', 'reply');
     }
+  }
+
+  /**
+   * O que o cérebro enxerga da conversa. Com `since` (uma chamada de voz), só o que foi dito
+   * depois que a chamada abriu — o robô começa do zero, mas continua lembrando pela memória longa.
+   */
+  private context(since?: number): ChatMessage[] {
+    const all = this.store.recent(40);
+    if (!since) return all;
+    const fresh = all.filter((m) => m.ts >= since);
+    return fresh.length ? fresh : all.slice(-1);
   }
 
   private cancelPending(reason: string): void {

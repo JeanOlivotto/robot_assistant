@@ -87,6 +87,13 @@ void app_set_music(const music_state_t *m)
     xSemaphoreGive(s_lock);
 }
 
+void app_set_ota(const ota_state_t *o)
+{
+    xSemaphoreTake(s_lock, portMAX_DELAY);
+    s_state.ota = *o;
+    xSemaphoreGive(s_lock);
+}
+
 void app_snapshot(app_snapshot_t *out)
 {
     xSemaphoreTake(s_lock, portMAX_DELAY);

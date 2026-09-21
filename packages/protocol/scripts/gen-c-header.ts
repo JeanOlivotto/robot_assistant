@@ -13,6 +13,7 @@ import {
   DISPLAY_MODES,
   FACES,
   LIMITS,
+  OTA_PHASES,
   PROTOCOL,
   SERVER_MESSAGE_TYPES,
 } from '../src/index.js';
@@ -75,7 +76,8 @@ ${cEnum('ROBO_STATE', 'robo_state_t', DEVICE_STATES)}
 ${cEnum('ROBO_BTN', 'robo_btn_t', BUTTON_IDS)}
 ${cEnum('ROBO_BTN_EV', 'robo_btn_ev_t', BUTTON_EVENTS)}
 ${cEnum('ROBO_DISPLAY', 'robo_display_t', DISPLAY_MODES)}
-${cEnum('ROBO_FACE', 'robo_face_t', FACES)}`;
+${cEnum('ROBO_FACE', 'robo_face_t', FACES)}
+${cEnum('ROBO_OTA', 'robo_ota_phase_t', OTA_PHASES)}`;
 
 mkdirSync(dirname(out), { recursive: true });
 writeFileSync(out, header);

@@ -1,4 +1,5 @@
 /** Modo reunião: grava em segmentos completos (cada um é um arquivo válido) e envia um a um. */
+import { acquireMic, audioContext, micSupported, releaseMic } from './mic';
 
 const MIME_CANDIDATES = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4', 'audio/ogg;codecs=opus'];
 /** Tamanho de cada trecho enviado. Curto o bastante para dar retorno; longo para não floodar. */
@@ -48,10 +49,11 @@ export const listMeetings = (token: string) => api<Meeting[]>(token, '/list');
 /** Grava a reunião em segmentos completos, entregando cada Blob pronto para envio. */
 export class MeetingRecorder {
   static get supported(): boolean {
-    return typeof MediaRecorder !== 'undefined' && !!navigator.mediaDevices?.getUserMedia;
+    return typeof MediaRecorder !== 'undefined' && micSupported;
   }
 
   private stream: MediaStream | null = null;
+  private source: MediaStreamAudioSourceNode | null = null;
   private rec: MediaRecorder | null = null;
   private timer: ReturnType<typeof setTimeout> | null = null;
   private stopped = false;
@@ -64,15 +66,19 @@ export class MeetingRecorder {
   constructor(private readonly onSegment: (blob: Blob) => void) {}
 
   async start(): Promise<void> {
-    this.stream = await navigator.mediaDevices.getUserMedia({
-      audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true },
-    });
-    this.mime = MIME_CANDIDATES.find((m) => MediaRecorder.isTypeSupported(m));
-    this.ctx = new AudioContext();
-    const source = this.ctx.createMediaStreamSource(this.stream);
-    this.analyser = this.ctx.createAnalyser();
-    this.analyser.fftSize = 512;
-    source.connect(this.analyser);
+    // Microfone emprestado do app (mic.ts): não pede permissão de novo a cada reunião.
+    this.stream = await acquireMic();
+    try {
+      this.mime = MIME_CANDIDATES.find((m) => MediaRecorder.isTypeSupported(m));
+      this.ctx = await audioContext();
+      this.source = this.ctx.createMediaStreamSource(this.stream);
+      this.analyser = this.ctx.createAnalyser();
+      this.analyser.fftSize = 512;
+      this.source.connect(this.analyser);
+    } catch (err) {
+      this.release();
+      throw err;
+    }
     this.cycle();
   }
 
@@ -112,12 +118,19 @@ export class MeetingRecorder {
   }
 
   private release(): void {
-    this.stream?.getTracks().forEach((t) => t.stop());
-    void this.ctx?.close();
+    const had = !!this.stream;
+    try {
+      this.source?.disconnect();
+      this.analyser?.disconnect();
+    } catch {
+      /* já estava solto */
+    }
     this.stream = null;
+    this.source = null;
     this.rec = null;
-    this.ctx = null;
+    this.ctx = null; // o AudioContext é do app inteiro: não se fecha aqui
     this.analyser = null;
+    if (had) releaseMic();
     this.doneResolve?.();
     this.doneResolve = null;
   }

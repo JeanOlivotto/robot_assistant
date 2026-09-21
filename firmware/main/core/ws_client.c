@@ -15,6 +15,7 @@
 #include "freertos/task.h"
 #include "hal.h"
 #include "net.h"
+#include "ota.h"
 #include "secrets.h"
 
 /* Servidor: ROBO_SERVER_URL ("wss://host" ou "ws://ip:porta"); o formato antigo HOST/PORT ainda vale. */
@@ -64,6 +65,17 @@ void ws_client_send_face(robo_face_t face)
     char buf[64];
     snprintf(buf, sizeof(buf), "{\"t\":\"" ROBO_MSG_FACE "\",\"ts\":%lld,\"v\":\"%s\"}", (long long)net_epoch_ms(),
              robo_face_name(face));
+    send_json(buf);
+}
+
+void ws_client_send_ota_status(robo_ota_phase_t phase, int pct, const char *version, const char *detail)
+{
+    char buf[256];
+    char extra[160] = "";
+    if (detail && detail[0]) snprintf(extra, sizeof(extra), ",\"detail\":\"%.100s\"", detail);
+    snprintf(buf, sizeof(buf), "{\"t\":\"" ROBO_MSG_OTA_STATUS "\",\"ts\":%lld,\"phase\":\"%s\",\"pct\":%d,\"version\":\"%.31s\"%s}",
+             (long long)net_epoch_ms(), robo_ota_phase_name(phase), pct < 0 ? 0 : pct > 100 ? 100 : pct,
+             version ? version : "", extra);
     send_json(buf);
 }
 
@@ -177,6 +189,8 @@ static void handle_message(const char *json, size_t len)
     if (strcmp(t, ROBO_MSG_HELLO_ACK) == 0) {
         net_set_tz(str_or(msg, "tz_posix", NULL));
         app_set_server(true);
+        /* O servidor respondeu: se esta imagem acabou de ser instalada, ela presta. */
+        ota_confirm_running();
         ESP_LOGI(TAG, "sessão aberta (%s)", str_or(msg, "tz", "?"));
     } else if (strcmp(t, ROBO_MSG_AGENDA) == 0) {
         on_agenda(msg);
@@ -192,6 +206,9 @@ static void handle_message(const char *json, size_t len)
         on_claude_usage(msg);
     } else if (strcmp(t, ROBO_MSG_MUSIC) == 0) {
         on_music(msg);
+    } else if (strcmp(t, ROBO_MSG_OTA) == 0) {
+        ota_offer(str_or(msg, "version", ""), str_or(msg, "url", ""), str_or(msg, "sha256", ""),
+                  (int)num_or(msg, "size", 0));
     } else if (strcmp(t, ROBO_MSG_PONG) == 0 || strcmp(t, ROBO_MSG_STATE) == 0) {
         /* pong: só serve de tráfego; state: o rosto ainda é decidido localmente */
     } else {

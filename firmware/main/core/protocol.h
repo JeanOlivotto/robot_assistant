@@ -14,6 +14,9 @@
 #define ROBO_ID_MAX_BYTES 23
 #define ROBO_PREVIEW_MAX_BYTES 47
 #define ROBO_SAY_MAX_BYTES 63
+#define ROBO_OTA_URL_MAX_BYTES 191
+#define ROBO_OTA_VERSION_MAX_BYTES 31
+#define ROBO_OTA_SHA256_BYTES 64
 
 /* Device → Servidor */
 #define ROBO_MSG_HELLO "hello"
@@ -22,6 +25,7 @@
 #define ROBO_MSG_BATTERY "battery"
 #define ROBO_MSG_ERROR "error"
 #define ROBO_MSG_FACE "face"
+#define ROBO_MSG_OTA_STATUS "ota_status"
 
 /* Servidor → Device */
 #define ROBO_MSG_HELLO_ACK "hello_ack"
@@ -34,6 +38,7 @@
 #define ROBO_MSG_SAY "say"
 #define ROBO_MSG_CLAUDE_USAGE "claude_usage"
 #define ROBO_MSG_MUSIC "music"
+#define ROBO_MSG_OTA "ota"
 
 typedef enum {
     ROBO_STATE_IDLE,
@@ -151,6 +156,30 @@ static inline int robo_face_from_name(const char *s)
 {
     for (int i = 0; i < ROBO_FACE__COUNT; i++) {
         if (strcmp(s, robo_face_name((robo_face_t)i)) == 0) return i;
+    }
+    return -1;
+}
+
+typedef enum {
+    ROBO_OTA_START,
+    ROBO_OTA_DOWNLOAD,
+    ROBO_OTA_VERIFY,
+    ROBO_OTA_DONE,
+    ROBO_OTA_ERROR,
+    ROBO_OTA__COUNT
+} robo_ota_phase_t;
+
+static inline const char *robo_ota_phase_name(robo_ota_phase_t v)
+{
+    static const char *const names[] = { "start", "download", "verify", "done", "error" };
+    return (unsigned)v < ROBO_OTA__COUNT ? names[v] : "?";
+}
+
+/* Retorna -1 se o nome não existir. */
+static inline int robo_ota_phase_from_name(const char *s)
+{
+    for (int i = 0; i < ROBO_OTA__COUNT; i++) {
+        if (strcmp(s, robo_ota_phase_name((robo_ota_phase_t)i)) == 0) return i;
     }
     return -1;
 }

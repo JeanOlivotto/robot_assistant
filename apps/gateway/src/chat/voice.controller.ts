@@ -1,7 +1,9 @@
-import { BadRequestException, Body, Controller, HttpCode, HttpException, Post, UseGuards } from '@nestjs/common';
+import { BadRequestException, Body, Controller, HttpCode, HttpException, Post, Query, UseGuards } from '@nestjs/common';
 import { AppTokenGuard } from '../auth/app-token.guard.js';
 import { SttError, SttService } from '../stt/stt.service.js';
+import { TtsService } from '../tts/tts.service.js';
 import { ChatService } from './chat.service.js';
+import { VoiceSessionService } from './voice-session.service.js';
 
 /**
  * Texto do atalho da Siri. Tolerante de propósito: {"text": ...} é o certo, mas aceita a primeira
@@ -44,7 +46,21 @@ export class VoiceController {
   constructor(
     private readonly stt: SttService,
     private readonly chat: ChatService,
+    private readonly sessions: VoiceSessionService,
+    private readonly tts: TtsService,
   ) {}
+
+  /**
+   * O app abriu o modo chamada: começa uma conversa nova e devolve a fala de abertura.
+   * O mp3 da saudação já vai sendo gerado aqui, para o robô atender sem aquele silêncio inicial.
+   */
+  @Post('voice/session')
+  @HttpCode(200)
+  session(): { session: string; greeting: string } {
+    const s = this.sessions.start();
+    void this.tts.synth(s.greeting).catch(() => undefined);
+    return { session: s.id, greeting: s.greeting };
+  }
 
   /** Mensagem de voz do webapp: áudio no corpo (AAC do iPhone, Opus, WAV). A resposta chega pelo WebSocket. */
   @Post('voice')
@@ -63,7 +79,10 @@ export class VoiceController {
 
   /** Conversa por voz: áudio entra, transcrição e resposta pronta pra falar saem (para o loop de conversa). */
   @Post('voice/converse')
-  async converse(@Body() audio: unknown): Promise<{ you: string; reply: string; face: string; action?: 'start_meeting' }> {
+  async converse(
+    @Body() audio: unknown,
+    @Query('s') session?: string,
+  ): Promise<{ you: string; reply: string; face: string; action?: 'start_meeting' }> {
     if (!Buffer.isBuffer(audio) || !audio.length) throw new BadRequestException('mande o áudio no corpo (Content-Type audio/*)');
     try {
       const { text } = await this.stt.transcribe(audio);
@@ -72,7 +91,7 @@ export class VoiceController {
       if (wantsMeeting(text)) {
         return { you: text, reply: 'Bora! Tô abrindo o modo reunião e já começo a gravar. Pode falar!', face: 'happy', action: 'start_meeting' };
       }
-      const reply = await this.chat.ask(text, 'voice');
+      const reply = await this.chat.ask(text, 'voice', { since: this.sessions.since(session), spoken: true });
       return {
         you: text,
         reply: reply ? forSpeech(reply.text) : 'Hmm, não sei o que dizer agora.',

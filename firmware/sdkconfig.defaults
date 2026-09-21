@@ -7,3 +7,7 @@ CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
 CONFIG_FREERTOS_HZ=1000
 CONFIG_ESP_MAIN_TASK_STACK_SIZE=8192
 CONFIG_COMPILER_OPTIMIZATION_PERF=y
+
+# OTA pelo Wi-Fi: a imagem recém-instalada sobe em teste e só é confirmada quando o robô
+# consegue falar com o servidor (core/ota.c). Se não conseguir, o bootloader volta para a anterior.
+CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y

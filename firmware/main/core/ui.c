@@ -559,6 +559,62 @@ static void render_marquee(int y, const char *text, uint16_t color, uint32_t now
 }
 
 /* Modo música: carinha curtindo, fones de ouvido, notinhas e o que está tocando. */
+/* Atualizando o firmware: a tela para tudo e vira barra de progresso até reiniciar. */
+static void render_ota_view(uint32_t now)
+{
+    const ota_state_t *o = &s_snap.ota;
+    const bool bad = o->phase == ROBO_OTA_ERROR;
+    const bool ready = o->phase == ROBO_OTA_DONE;
+    const uint16_t tint = bad ? C_ERR : ready ? C_OK : C_ACCENT;
+
+    gfx_text_center(64, 8, bad ? "Ops" : "Atualizando", tint, 1);
+    if (o->version[0]) {
+        char v[ROBO_OTA_VERSION_MAX_BYTES + 10];
+        snprintf(v, sizeof(v), "v%s", o->version);
+        gfx_text_center(64, 21, v, C_DIM, 1);
+    }
+
+    /* Caixinha com uma seta para baixo — "chegando coisa nova". */
+    const int cx = 64, cy = 52;
+    const int bob = bad || ready ? 0 : ((now / 400) % 2 ? 0 : -2);
+    gfx_fill_round_rect(cx - 16, cy - 16 + bob, 32, 26, 5, C_FAINT);
+    if (bad) {
+        gfx_thick_line(cx - 7, cy - 8, cx + 7, cy + 6, 3, C_ERR);
+        gfx_thick_line(cx + 7, cy - 8, cx - 7, cy + 6, 3, C_ERR);
+    } else if (ready) {
+        gfx_thick_line(cx - 7, cy - 1, cx - 2, cy + 5, 3, C_OK);
+        gfx_thick_line(cx - 2, cy + 5, cx + 8, cy - 8, 3, C_OK);
+    } else {
+        gfx_fill_rect(cx - 2, cy - 11, 5, 11, C_ACCENT);
+        gfx_fill_triangle(cx - 8, cy, cx + 9, cy, cx, cy + 8, C_ACCENT);
+    }
+
+    /* Barra de progresso: só o download tem porcentagem de verdade. */
+    const int x = 14, y = 84, w = 100, h = 10;
+    gfx_fill_round_rect(x, y, w, h, 4, C_FAINT);
+    int pct = o->pct < 0 ? 0 : o->pct > 100 ? 100 : o->pct;
+    if (o->phase == ROBO_OTA_START) pct = 0;
+    if (ready || o->phase == ROBO_OTA_VERIFY) pct = 100;
+    if (!bad && pct > 0) gfx_fill_round_rect(x, y, (w * pct) / 100 < 8 ? 8 : (w * pct) / 100, h, 4, tint);
+
+    const char *legend;
+    switch (o->phase) {
+    case ROBO_OTA_START:    legend = "buscando..."; break;
+    case ROBO_OTA_DOWNLOAD: legend = "baixando"; break;
+    case ROBO_OTA_VERIFY:   legend = "conferindo..."; break;
+    case ROBO_OTA_DONE:     legend = "pronto! reiniciando"; break;
+    default:                legend = "não deu, tento depois"; break;
+    }
+    if (o->phase == ROBO_OTA_DOWNLOAD) {
+        char line[24];
+        snprintf(line, sizeof(line), "%s %d%%", legend, pct);
+        gfx_text_center(64, 100, line, C_TEXT, 1);
+    } else {
+        gfx_text_center(64, 100, legend, bad ? C_ERR : C_TEXT, 1);
+    }
+    if (!bad && !ready) gfx_text_center(64, 114, "não me desligue", C_WARN, 1);
+}
+
 static void render_music_view(uint32_t now, int64_t wall_ms, bool clock_ok)
 {
     char hhmm[8] = "";
@@ -840,9 +896,15 @@ static void ui_task(void *arg)
         poll_buttons(now);
         expire(now);
         auto_sleep(now, wall, clock_ok);
+        /* Atualizando o firmware: nada mais importa até reiniciar (ou desistir). */
+        const bool updating = s_snap.ota.active;
+        if (updating && s_sleeping) set_sleeping(false, now);
         /* Tocando música na tela do rosto vira o modo música (curtindo). */
-        const bool music_on = s_snap.music.playing && !s_sleeping && s_view == VIEW_FACE;
-        if (s_sleeping) {
+        const bool music_on = !updating && s_snap.music.playing && !s_sleeping && s_view == VIEW_FACE;
+        if (updating) {
+            life_stop();
+            face_set(FACE_THINKING);
+        } else if (s_sleeping) {
             life_stop();
             face_set(FACE_SLEEPING);
         } else if (music_on) {
@@ -853,10 +915,12 @@ static void ui_task(void *arg)
         }
         report_face();
 
-        const bool dim = clock_ok && is_night(wall) && s_view != VIEW_ALERT;
-        gfx_set_brightness(s_sleeping ? SLEEP_BRIGHTNESS : dim ? NIGHT_BRIGHTNESS : 255);
+        const bool dim = clock_ok && is_night(wall) && s_view != VIEW_ALERT && !updating;
+        gfx_set_brightness(updating ? 255 : s_sleeping ? SLEEP_BRIGHTNESS : dim ? NIGHT_BRIGHTNESS : 255);
         gfx_clear(C_BG);
-        if (s_sleeping) {
+        if (updating) {
+            render_ota_view(now);
+        } else if (s_sleeping) {
             render_sleep_view(now, wall, clock_ok);
         } else if (music_on) {
             render_music_view(now, wall, clock_ok);

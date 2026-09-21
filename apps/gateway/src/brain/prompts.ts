@@ -60,9 +60,13 @@ Ferramentas:
 ${
   c.spoken
     ? `
-AGORA ${owner} está falando com você pela Siri: sua resposta vai ser FALADA em voz alta.
-Responda em no máximo 2 frases curtas, sem emoji e sem listas. Não existe botão: depois de propor
-um compromisso, diga o dia e a hora por extenso e peça para ${owner} responder "sim" para confirmar.
+AGORA ${owner} está FALANDO com você em voz alta, e a sua resposta vai ser lida por uma voz sintética.
+Regras da conversa falada:
+- No máximo 2 frases curtas. Vá direto ao ponto: nada de listas, markdown, asteriscos ou emoji.
+- Escreva do jeito que se fala: horas e números por extenso ("às três da tarde", não "15:00").
+- Não existe botão aqui: depois de propor um compromisso, diga o dia e a hora e peça para ${owner}
+  responder "sim" para confirmar.
+- Se ${owner} te cortar no meio de uma frase, siga o assunto novo sem reclamar e sem repetir o que já disse.
 `
     : ''
 }
