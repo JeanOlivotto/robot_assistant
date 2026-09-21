@@ -136,8 +136,9 @@ export function MeetingView({
   guest?: boolean;
 }) {
   const [phase, setPhase] = useState<Phase>('checking');
-  // Quem chegou por link está numa reunião online — só cai no microfone se o navegador não capturar aba.
-  const [fonte, setFonte] = useState<FonteAudio>(guest && MeetingRecorder.podeGravarAba ? 'aba' : 'mic');
+  /* No computador a reunião é online (áudio da aba); no celular, que não captura aba, é o
+     microfone gravando a sala. Quem está no computador ainda pode trocar para a sala no botão. */
+  const [fonte, setFonte] = useState<FonteAudio>(MeetingRecorder.podeGravarAba ? 'aba' : 'mic');
   const [convite, setConvite] = useState('');
   const [titulo, setTitulo] = useState('');
   const [elapsed, setElapsed] = useState(0);
