@@ -161,6 +161,27 @@ export function MeetingView({
   const [convite, setConvite] = useState('');
   /** Ata aberta em tela cheia — em telas pequenas a ata fica espremida no meio da lista. */
   const [cheia, setCheia] = useState<Meeting | null>(null);
+
+  /* Com a tela cheia aberta, o gesto de voltar do celular fecha a ata em vez de sair do app. */
+  useEffect(() => {
+    if (!cheia) return;
+    history.pushState({ ataCheia: true }, '');
+    const voltar = () => setCheia(null);
+    const tecla = (e: KeyboardEvent) => e.key === 'Escape' && fecharCheia();
+    window.addEventListener('popstate', voltar);
+    window.addEventListener('keydown', tecla);
+    return () => {
+      window.removeEventListener('popstate', voltar);
+      window.removeEventListener('keydown', tecla);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cheia]);
+
+  /** Sai pelo history quando foi ele que abriu, para não deixar entrada solta na navegação. */
+  const fecharCheia = () => {
+    if (window.history.state?.ataCheia) window.history.back();
+    else setCheia(null);
+  };
   const [titulo, setTitulo] = useState('');
   const [elapsed, setElapsed] = useState(0);
   const [sent, setSent] = useState(0);
@@ -415,9 +436,11 @@ export function MeetingView({
 
       {cheia?.ata && (
         <div className="ata-cheia" role="dialog" aria-label={`Ata: ${cheia.titulo}`}>
-          <button type="button" className="ata-cheia__fechar" onClick={() => setCheia(null)} aria-label="Fechar">
-            ✕
-          </button>
+          <div className="ata-cheia__topo">
+            <button type="button" className="ata-cheia__voltar" onClick={fecharCheia}>
+              ‹ Voltar
+            </button>
+          </div>
           <div className="ata-cheia__conteudo">
             <AtaCard ata={cheia.ata} titulo={cheia.titulo} token={token} />
           </div>

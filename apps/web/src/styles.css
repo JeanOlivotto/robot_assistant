@@ -1033,12 +1033,25 @@ button {
   flex-direction: column;
   background: var(--bg);
 }
-.ata-cheia__fechar {
-  align-self: flex-end;
-  margin: 10px 14px 0;
-  padding: 8px 12px;
-  font-size: 18px;
-  color: var(--dim);
+/* A barra de status do iPhone come o topo: sem o safe-area, o botão de voltar fica
+   embaixo do relógio e não dá para tocar nele. */
+.ata-cheia__topo {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  padding: calc(env(safe-area-inset-top, 0px) + 6px) 8px 6px;
+  background: var(--bg);
+  border-bottom: 1px solid var(--line);
+}
+.ata-cheia__voltar {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  min-height: 44px; /* alvo de toque confortável */
+  padding: 0 14px;
+  font: inherit;
+  font-size: 16px;
+  color: var(--accent);
   background: none;
   border: none;
   cursor: pointer;
@@ -1046,7 +1059,7 @@ button {
 .ata-cheia__conteudo {
   flex: 1;
   overflow-y: auto;
-  padding: 0 14px 28px;
+  padding: 14px 14px calc(env(safe-area-inset-bottom, 0px) + 28px);
   -webkit-overflow-scrolling: touch;
 }
 /* Em tela cheia a ata ocupa tudo: sem moldura dentro de moldura. */
