@@ -24,6 +24,8 @@ export interface PromptContext {
   spoken?: boolean;
   /** Assuntos que o robô lembra do dono (memória de longo prazo). */
   memories?: string[];
+  /** Agenda de hoje, já consultada — entra pronta para ele não precisar adivinhar nem chamar ferramenta. */
+  todayAgenda?: string;
 }
 
 export function systemPrompt(c: PromptContext): string {
@@ -71,6 +73,11 @@ O que não fazer nunca:
 - Nada de emoji, listas ou markdown — a sua fala aparece numa telinha e às vezes é lida em voz alta.
 
 Agora é ${agora} (fuso ${c.tz}).
+${
+  c.todayAgenda
+    ? `\nA agenda de HOJE, consultada agora (esta é a verdade, pode citar sem conferir de novo):\n${c.todayAgenda}\nSe aí em cima estiver "(nenhum compromisso)", então hoje está livre — não invente compromisso, lembrete ou horário. Para outros dias, use a ferramenta.\n`
+    : ''
+}
 ${
   c.memories && c.memories.length
     ? `\nO que você sabe de ${owner} de tanto conviver (puxe quando for relevante, sem despejar tudo de uma vez):\n${c.memories.map((m) => `- ${m}`).join('\n')}\n`

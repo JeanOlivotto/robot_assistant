@@ -99,7 +99,10 @@ export class BrainService {
     }
     const now = new Date();
     const messages: ChatCompletionMessageParam[] = [
-      { role: 'system', content: systemPrompt({ ...this.promptContext(now), spoken: opts.spoken }) },
+      {
+        role: 'system',
+        content: systemPrompt({ ...this.promptContext(now), spoken: opts.spoken, todayAgenda: await this.todayAgenda(now) }),
+      },
       ...toLlmHistory(history.slice(-HISTORY), this.cfg.TZ_NAME),
     ];
 
@@ -169,6 +172,18 @@ export class BrainService {
       this.log.warn(`thought() falhou: ${(err as Error).message}`);
       return null;
     }
+  }
+
+  /**
+   * A agenda de hoje entra pronta no prompt. Sem isso ele inventava compromisso no "bom dia":
+   * o modelo não chama a ferramenta quando ninguém pergunta da agenda, mas comenta o dia assim mesmo.
+   */
+  private async todayAgenda(now: Date): Promise<string> {
+    if (this.calendar.status.source === 'none') return '';
+    const today = resolveDay('hoje', undefined, now, this.cfg.TZ_NAME);
+    const midnight = today.ok ? today.day.getTime() : now.getTime();
+    const list = await this.calendar.query(new Date(midnight), new Date(midnight + DAY_MS)).catch(() => []);
+    return describeAgenda(list, this.cfg.TZ_NAME);
   }
 
   private promptContext(now: Date) {
