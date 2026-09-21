@@ -1,6 +1,7 @@
 /* Rostinho procedural: expressões com parâmetros interpolados, piscada e olhar vivo. */
 #pragma once
 
+#include <stdbool.h>
 #include <stdint.h>
 
 /* Mesma ordem de FACES em packages/protocol (robo_face_t) — face.c confere na compilação. */
@@ -17,6 +18,7 @@ typedef enum {
     FACE_THINKING,
     FACE_BORED,
     FACE_JAMMING,
+    FACE_ANGRY,
     FACE__COUNT
 } face_expr_t;
 
@@ -25,6 +27,10 @@ void face_init(void);
 void face_set(face_expr_t e);
 face_expr_t face_get(void);
 const char *face_name(face_expr_t e);
+
+/* Modo hacker: o rosto inteiro passa a ser desenhado em vermelho, seja qual for a expressão. */
+void face_set_hacker(bool on);
+bool face_hacker(void);
 
 /* Olha para (dx, dy) — deslocamento do olhar em px — até until_ms (ex.: seguir a bolinha). */
 void face_look_at(int dx, int dy, uint32_t until_ms);

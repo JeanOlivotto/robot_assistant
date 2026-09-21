@@ -87,6 +87,7 @@ static uint32_t s_offline_since;
 static uint32_t s_agenda_peek_until;
 static btn_state_t s_btn[HAL_BTN_COUNT];
 static uint32_t s_key1_clicked; /* quando foi o último toque curto no KEY1 (0 = nenhum) */
+static uint32_t s_boot_clicked; /* idem para o BOOT, que alterna o modo hacker em dois toques */
 
 /* ── utilidades ──────────────────────────────────────────────────────── */
 
@@ -264,11 +265,23 @@ static void on_button(hal_btn_t b, robo_btn_ev_t ev, uint32_t now)
         life_stop();
         set_sleeping(true, now);
         break;
-    case HAL_BTN_BOOT: /* mostruário das expressões */
+    case HAL_BTN_BOOT:
+        /* Um toque passa para a próxima expressão; dois toques entram (ou saem) do modo hacker. */
         set_view(VIEW_FACE, now);
-        s_demo_idx = (s_demo_idx + 1) % FACE__COUNT;
-        s_demo = true;
-        set_override((face_expr_t)s_demo_idx, DEMO_MS, now);
+        if (s_boot_clicked && now - s_boot_clicked <= DOUBLE_CLICK_MS) {
+            s_boot_clicked = 0;
+            s_demo = false;
+            s_override = FACE__COUNT;
+            const bool on = !face_hacker();
+            face_set_hacker(on);
+            life_say(on ? "modo hacker" : "voltei ao normal", 2500, now);
+            ESP_LOGI(TAG, "modo hacker %s", on ? "ligado" : "desligado");
+        } else {
+            s_boot_clicked = now;
+            s_demo_idx = (s_demo_idx + 1) % FACE__COUNT;
+            s_demo = true;
+            set_override((face_expr_t)s_demo_idx, DEMO_MS, now);
+        }
         break;
     default:
         break;

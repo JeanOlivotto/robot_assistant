@@ -13,6 +13,7 @@ import {
   DISPLAY_MODES,
   FACES,
   LIMITS,
+  MODES,
   OTA_PHASES,
   PROTOCOL,
   SERVER_MESSAGE_TYPES,
@@ -77,7 +78,8 @@ ${cEnum('ROBO_BTN', 'robo_btn_t', BUTTON_IDS)}
 ${cEnum('ROBO_BTN_EV', 'robo_btn_ev_t', BUTTON_EVENTS)}
 ${cEnum('ROBO_DISPLAY', 'robo_display_t', DISPLAY_MODES)}
 ${cEnum('ROBO_FACE', 'robo_face_t', FACES)}
-${cEnum('ROBO_OTA', 'robo_ota_phase_t', OTA_PHASES)}`;
+${cEnum('ROBO_OTA', 'robo_ota_phase_t', OTA_PHASES)}
+${cEnum('ROBO_MODE', 'robo_mode_t', MODES)}`;
 
 mkdirSync(dirname(out), { recursive: true });
 writeFileSync(out, header);

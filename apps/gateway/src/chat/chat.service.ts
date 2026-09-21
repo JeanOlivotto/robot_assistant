@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { Inject, Injectable, Logger, type OnModuleDestroy, type OnModuleInit } from '@nestjs/common';
 import { BehaviorSubject, Subject } from 'rxjs';
-import { LIMITS, type ChatMessage, type Face, type MessageVia, type Proposal } from '@robo/protocol';
+import { LIMITS, type ChatMessage, type Face, type MessageVia, type Mode, type Proposal } from '@robo/protocol';
 import { BrainService } from '../brain/brain.service.js';
 import { CalendarService } from '../calendar/calendar.service.js';
 import { deviceText } from '../calendar/device-text.js';
@@ -31,6 +31,9 @@ export interface AskOptions {
 }
 
 const PROPOSAL_TTL_MS = 30 * 60_000;
+/* "modo hacker" por voz ou texto — o robô também alterna sozinho com dois toques no BOOT. */
+const HACKER_OFF = /\b(sa[ií]r?|sai|desliga\w*|tira\w*|encerra\w*|volta\w*)\b[^.]{0,20}\bhacker\b/i;
+const HACKER_ON = /\bmodo hacker\b/i;
 const YES = /^(sim|s|pode|pode sim|confirma|confirmado|confirmo|ok|isso|bora|claro|manda ver)[\s!.]*$/i;
 const NO = /^(n[aã]o|cancela|cancelar|deixa|esquece|deixa pra l[aá])[\s!.]*$/i;
 
@@ -52,6 +55,8 @@ export class ChatService implements OnModuleInit, OnModuleDestroy {
   readonly react$ = new Subject<Reaction>();
   /** Cada fala nova do robô, com a origem da mensagem que ele respondeu (para decidir o push). */
   readonly said$ = new Subject<{ message: ChatMessage; replyVia?: MessageVia }>();
+  /** Modo visual pedido na conversa — o rosto do robô fica vermelho no 'hacker'. */
+  readonly mode$ = new Subject<Mode>();
 
   constructor(
     @Inject(APP_CONFIG) private readonly cfg: AppConfig,
@@ -160,6 +165,15 @@ export class ChatService implements OnModuleInit, OnModuleDestroy {
     const pending = this.store.pendingProposals();
     if (pending.length === 1 && (YES.test(text) || NO.test(text))) {
       return this.handleConfirm(pending[0]!.proposal!.id, YES.test(text));
+    }
+
+    // "entra em modo hacker" / "sai do modo hacker": muda a cor do rosto e responde na hora.
+    const hacker = HACKER_OFF.test(text) ? false : HACKER_ON.test(text) ? true : null;
+    if (hacker !== null) {
+      this.mode$.next(hacker ? 'hacker' : 'normal');
+      return this.robotSay(hacker ? 'Modo hacker.' : 'Voltando ao normal.', hacker ? 'thinking' : 'neutral', 'reply', {
+        replyVia: via,
+      });
     }
 
     this.setState({ thinking: true, waitingSince: 0 });

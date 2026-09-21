@@ -14,6 +14,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "hal.h"
+#include "face.h"
 #include "net.h"
 #include "ota.h"
 #include "secrets.h"
@@ -206,6 +207,10 @@ static void handle_message(const char *json, size_t len)
         on_claude_usage(msg);
     } else if (strcmp(t, ROBO_MSG_MUSIC) == 0) {
         on_music(msg);
+    } else if (strcmp(t, ROBO_MSG_MODE) == 0) {
+        const bool hacker = robo_mode_from_name(str_or(msg, "v", "")) == ROBO_MODE_HACKER;
+        face_set_hacker(hacker);
+        ESP_LOGI(TAG, "modo %s (pelo servidor)", hacker ? "hacker" : "normal");
     } else if (strcmp(t, ROBO_MSG_OTA) == 0) {
         ota_offer(str_or(msg, "version", ""), str_or(msg, "url", ""), str_or(msg, "sha256", ""),
                   (int)num_or(msg, "size", 0));

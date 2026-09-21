@@ -81,6 +81,7 @@ export class DeviceGateway implements OnModuleInit, OnModuleDestroy {
       this.chat.state$.subscribe((state) => this.broadcast(this.chatMsg(state))),
       this.chat.react$.subscribe((r) => this.broadcast({ t: 'react', ts: Date.now(), v: r.face, ms: r.ms })),
       this.robot.say$.subscribe((s) => this.broadcast({ t: 'say', ts: Date.now(), text: s.text, ms: s.ms })),
+      this.chat.mode$.subscribe((v) => this.broadcast({ t: 'mode', ts: Date.now(), v })),
       this.claude.usage$.subscribe((u) => this.broadcast(this.usageMsg(u))),
       this.spotify.music$.subscribe((m) => this.broadcast(this.musicMsg(m))),
       // Firmware novo publicado agora: quem está conectado atualiza sem esperar reconectar.

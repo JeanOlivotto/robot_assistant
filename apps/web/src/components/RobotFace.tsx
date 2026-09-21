@@ -27,6 +27,7 @@ interface Def {
 const EYE = '#5ae6f0';
 const LOVE = '#ff5a8c';
 const ERR = '#ff5050';
+const ANGRY = '#ff8c3c';
 const SCREEN = '#000';
 
 /* Mesmos números de firmware/main/core/face.c — manter os dois em sincronia. */
@@ -43,6 +44,7 @@ const FACE_DEFS: Record<Face, Def> = {
   thinking: { eyes: 'open', mouth: 'flat', w: 22, h: 24, r: 8, lidTop: 6, lidBot: 0, slant: 0, dy: -2, mw: 8, mh: 3, color: EYE, gaze: [-7, -5], dots: true },
   bored: { eyes: 'open', mouth: 'flat', w: 24, h: 30, r: 8, lidTop: 14, lidBot: 0, slant: 0, dy: 3, mw: 10, mh: 2, color: EYE, gaze: [8, 2] },
   jamming: { eyes: 'open', mouth: 'grin', w: 24, h: 28, r: 8, lidTop: 0, lidBot: 17, slant: 0, dy: 0, mw: 16, mh: 8, color: EYE, blush: true },
+  angry: { eyes: 'open', mouth: 'frown', w: 24, h: 22, r: 6, lidTop: 0, lidBot: 0, slant: -13, dy: 1, mw: 14, mh: 5, color: ANGRY },
 };
 
 const EYE_GAP = 48;
@@ -85,7 +87,9 @@ function Eye({ side, ex, ey, d, color }: { side: -1 | 1; ex: number; ey: number;
       <rect x={ex - w / 2} y={top} width={w} height={h} rx={Math.min(d.r, h / 2)} fill={color} />
       {d.lidTop > 0 && <rect x={ex - w / 2 - 1} y={top - 1} width={w + 2} height={d.lidTop + 1} fill={SCREEN} />}
       {d.lidBot > 0 && <ellipse cx={ex} cy={top + h - d.lidBot + w / 2} rx={w / 2 + 2} ry={w / 2} fill={SCREEN} />}
+      {/* slant > 0 derruba o canto de fora (triste); < 0 fecha o de dentro (bravo) */}
       {d.slant > 0 && <polygon points={`${outer},${top - 1} ${outer},${top + d.slant} ${inner},${top - 1}`} fill={SCREEN} />}
+      {d.slant < 0 && <polygon points={`${inner},${top - 1} ${inner},${top - d.slant} ${outer},${top - 1}`} fill={SCREEN} />}
     </g>
   );
 }

@@ -19,6 +19,8 @@ _Static_assert((int)FACE_THINKING == (int)ROBO_FACE_THINKING && (int)FACE_BORED 
 #define C_ERR   GFX_RGB(255, 80, 80)
 #define C_BLUSH GFX_RGB(255, 120, 170)
 #define C_SWEAT GFX_RGB(110, 190, 255)
+#define C_ANGRY GFX_RGB(255, 140, 60)  /* bravo: laranja quente */
+#define C_HACK  GFX_RGB(255, 40, 40)   /* modo hacker: tudo vermelho */
 
 typedef enum { EYES_OPEN, EYES_CLOSED, EYES_X, EYES_HEART } eyes_t;
 typedef enum { MOUTH_NONE, MOUTH_SMILE, MOUTH_GRIN, MOUTH_FROWN, MOUTH_O, MOUTH_FLAT } mouth_t;
@@ -54,7 +56,28 @@ static const face_def_t s_defs[FACE__COUNT] = {
     [FACE_BORED]     = {"entediado",  EYES_OPEN,   MOUTH_FLAT,  {24, 30, 8, 14, 0, 0, 3, 10, 2},  C_EYE,  .blinks = true,
                         .fixed_gaze = true, .gaze_x = 8, .gaze_y = 2},
     [FACE_JAMMING]   = {"curtindo",   EYES_OPEN,   MOUTH_GRIN,  {24, 28, 8, 0, 17, 0, 0, 16, 8},  C_EYE,  .blinks = true, .blush = true},
+    /* bravo: slant negativo corta o canto INTERNO do olho — é a sobrancelha fechada. */
+    [FACE_ANGRY]     = {"bravo",      EYES_OPEN,   MOUTH_FROWN, {24, 22, 6, 0, 0, -13, 1, 14, 5}, C_ANGRY, .blinks = true},
 };
+
+/* Modo hacker: a cor da expressão dá lugar ao vermelho, e só ela muda — o desenho é o mesmo. */
+static bool s_hacker;
+
+void face_set_hacker(bool on)
+{
+    s_hacker = on;
+}
+
+bool face_hacker(void)
+{
+    return s_hacker;
+}
+
+/* Cor do traço: a da expressão, ou o vermelho do modo hacker. */
+static uint16_t ink(const face_def_t *d)
+{
+    return s_hacker ? C_HACK : d->color;
+}
 
 #define BLINK_CLOSE_MS 70
 #define BLINK_HOLD_MS  30
@@ -224,22 +247,22 @@ static void draw_mouth(int mx, int my, const face_def_t *d)
     const int w = P(P_MOUTH_W), h = P(P_MOUTH_H);
     switch (d->mouth) {
     case MOUTH_SMILE:
-        gfx_arc_band(mx, my - h / 2, w / 2, h, 3, true, d->color);
+        gfx_arc_band(mx, my - h / 2, w / 2, h, 3, true, ink(d));
         break;
     case MOUTH_GRIN: /* meia elipse cheia */
         gfx_set_clip(0, my - h / 2, GFX_W, GFX_H);
-        gfx_fill_ellipse(mx, my - h / 2, w / 2, h, d->color);
+        gfx_fill_ellipse(mx, my - h / 2, w / 2, h, ink(d));
         gfx_reset_clip();
         break;
     case MOUTH_FROWN:
-        gfx_arc_band(mx, my + h / 2, w / 2, h, 3, false, d->color);
+        gfx_arc_band(mx, my + h / 2, w / 2, h, 3, false, ink(d));
         break;
     case MOUTH_O:
-        gfx_fill_ellipse(mx, my, w / 2, h / 2, d->color);
+        gfx_fill_ellipse(mx, my, w / 2, h / 2, ink(d));
         if (w / 2 > 2 && h / 2 > 2) gfx_fill_ellipse(mx, my, w / 2 - 2, h / 2 - 2, C_BG);
         break;
     case MOUTH_FLAT:
-        gfx_fill_round_rect(mx - w / 2, my - h / 2, w, h, h / 2, d->color);
+        gfx_fill_round_rect(mx - w / 2, my - h / 2, w, h, h / 2, ink(d));
         break;
     case MOUTH_NONE:
         break;
@@ -251,7 +274,7 @@ static void draw_extras(int cx, int cy, uint32_t now, const face_def_t *d)
     if (d->zzz) {
         for (int i = 0; i < 3; i++) {
             const uint32_t ph = (now + i * 900) % 2700;
-            const uint16_t c = gfx_mix(d->color, C_BG, (uint8_t)(ph * 255 / 2700));
+            const uint16_t c = gfx_mix(ink(d), C_BG, (uint8_t)(ph * 255 / 2700));
             gfx_text(cx + 34 + ph / 150, cy - 14 - ph / 112, "z", c, ph > 1400 ? 2 : 1);
         }
     }
@@ -266,7 +289,7 @@ static void draw_extras(int cx, int cy, uint32_t now, const face_def_t *d)
     if (d->dots) { /* três pontinhos pulsando, em sequência */
         for (int i = 0; i < 3; i++) {
             const bool up = ((now / 220) % 4) == (uint32_t)i;
-            gfx_fill_circle(cx + 28 + i * 8, cy - 36 - (up ? 2 : 0), up ? 3 : 2, d->color);
+            gfx_fill_circle(cx + 28 + i * 8, cy - 36 - (up ? 2 : 0), up ? 3 : 2, ink(d));
         }
     }
     if (d->sweat) {
@@ -297,19 +320,19 @@ void face_draw(int cx, int cy, uint32_t now_ms)
         const int ex = cx + side * EYE_GAP / 2 + gx;
         switch (d->eyes) {
         case EYES_OPEN:
-            draw_open_eye(ex, ey, side, d->color);
+            draw_open_eye(ex, ey, side, ink(d));
             break;
         case EYES_CLOSED:
-            gfx_arc_band(ex, ey - 3, P(P_EYE_W) / 2, 7, 3, true, d->color);
+            gfx_arc_band(ex, ey - 3, P(P_EYE_W) / 2, 7, 3, true, ink(d));
             break;
         case EYES_X: {
             const int s = P(P_EYE_W) / 2 - 2;
-            gfx_thick_line(ex - s, ey - s, ex + s, ey + s, 4, d->color);
-            gfx_thick_line(ex - s, ey + s, ex + s, ey - s, 4, d->color);
+            gfx_thick_line(ex - s, ey - s, ex + s, ey + s, 4, ink(d));
+            gfx_thick_line(ex - s, ey + s, ex + s, ey - s, 4, ink(d));
             break;
         }
         case EYES_HEART:
-            gfx_heart(ex, ey, P(P_EYE_W) + ((now_ms / 300) % 2 ? 2 : 0), d->color);
+            gfx_heart(ex, ey, P(P_EYE_W) + ((now_ms / 300) % 2 ? 2 : 0), ink(d));
             break;
         }
         if (d->blush) gfx_fill_ellipse(ex + side * 4, ey + P(P_EYE_H) / 2 + 6, 6, 3, C_BLUSH);

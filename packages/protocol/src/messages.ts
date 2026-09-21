@@ -32,6 +32,7 @@ export const FACES = [
   'thinking',
   'bored',
   'jamming',
+  'angry',
 ] as const;
 export type Face = (typeof FACES)[number];
 
@@ -40,6 +41,10 @@ export const BUTTON_EVENTS = ['short', 'long'] as const;
 export const DISPLAY_MODES = ['alert'] as const;
 export const WAKE_MODES = ['vad_local', 'ondevice_kw', 'button', 'none'] as const;
 export const CODECS = ['adpcm', 'pcm16', 'opus'] as const;
+/** Modo visual do robô. No 'hacker' o rosto inteiro fica vermelho. */
+export const MODES = ['normal', 'hacker'] as const;
+export type Mode = (typeof MODES)[number];
+
 /** Fases da atualização de firmware, na ordem em que acontecem. */
 export const OTA_PHASES = ['start', 'download', 'verify', 'done', 'error'] as const;
 
@@ -234,6 +239,13 @@ export const Ota = z.object({
   size: z.number().int().positive(),
 });
 
+/** Liga ou desliga o modo hacker — o robô também alterna sozinho no botão BOOT. */
+export const SetMode = z.object({
+  t: z.literal('mode'),
+  ts: epochMs,
+  v: z.enum(MODES),
+});
+
 export const ServerMessage = z.discriminatedUnion('t', [
   HelloAck,
   Pong,
@@ -246,6 +258,7 @@ export const ServerMessage = z.discriminatedUnion('t', [
   ClaudeUsage,
   Music,
   Ota,
+  SetMode,
 ]);
 
 export type Hello = z.infer<typeof Hello>;
@@ -261,6 +274,7 @@ export type DeviceSay = z.infer<typeof DeviceSay>;
 export type ClaudeUsage = z.infer<typeof ClaudeUsage>;
 export type Music = z.infer<typeof Music>;
 export type Ota = z.infer<typeof Ota>;
+export type SetMode = z.infer<typeof SetMode>;
 export type OtaStatus = z.infer<typeof OtaStatus>;
 export type ServerMessage = z.infer<typeof ServerMessage>;
 

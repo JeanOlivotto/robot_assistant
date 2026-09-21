@@ -39,6 +39,7 @@
 #define ROBO_MSG_CLAUDE_USAGE "claude_usage"
 #define ROBO_MSG_MUSIC "music"
 #define ROBO_MSG_OTA "ota"
+#define ROBO_MSG_MODE "mode"
 
 typedef enum {
     ROBO_STATE_IDLE,
@@ -142,12 +143,13 @@ typedef enum {
     ROBO_FACE_THINKING,
     ROBO_FACE_BORED,
     ROBO_FACE_JAMMING,
+    ROBO_FACE_ANGRY,
     ROBO_FACE__COUNT
 } robo_face_t;
 
 static inline const char *robo_face_name(robo_face_t v)
 {
-    static const char *const names[] = { "neutral", "happy", "love", "sleepy", "sleeping", "worried", "surprised", "sad", "error", "thinking", "bored", "jamming" };
+    static const char *const names[] = { "neutral", "happy", "love", "sleepy", "sleeping", "worried", "surprised", "sad", "error", "thinking", "bored", "jamming", "angry" };
     return (unsigned)v < ROBO_FACE__COUNT ? names[v] : "?";
 }
 
@@ -180,6 +182,27 @@ static inline int robo_ota_phase_from_name(const char *s)
 {
     for (int i = 0; i < ROBO_OTA__COUNT; i++) {
         if (strcmp(s, robo_ota_phase_name((robo_ota_phase_t)i)) == 0) return i;
+    }
+    return -1;
+}
+
+typedef enum {
+    ROBO_MODE_NORMAL,
+    ROBO_MODE_HACKER,
+    ROBO_MODE__COUNT
+} robo_mode_t;
+
+static inline const char *robo_mode_name(robo_mode_t v)
+{
+    static const char *const names[] = { "normal", "hacker" };
+    return (unsigned)v < ROBO_MODE__COUNT ? names[v] : "?";
+}
+
+/* Retorna -1 se o nome não existir. */
+static inline int robo_mode_from_name(const char *s)
+{
+    for (int i = 0; i < ROBO_MODE__COUNT; i++) {
+        if (strcmp(s, robo_mode_name((robo_mode_t)i)) == 0) return i;
     }
     return -1;
 }
