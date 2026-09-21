@@ -4,6 +4,7 @@ import { Chat } from './components/Chat';
 import { Login } from './components/Login';
 import { MeetingView } from './components/Meeting';
 import { RobotFace } from './components/RobotFace';
+import { Guest } from './components/Guest';
 import { VoiceConversation } from './components/VoiceConversation';
 import { ago } from './lib/format';
 import { enablePush, pushState, refreshPush, testPush, type PushState } from './lib/push';
@@ -266,8 +267,13 @@ function Main({ token, onLogout }: { token: string; onLogout(): void }) {
   );
 }
 
+/** ?convite=... — quem chegou pelo link só grava reunião, não entra no robô.
+    Lido uma vez, fora do componente: assim os hooks abaixo rodam sempre na mesma ordem. */
+const CONVITE = typeof location !== 'undefined' ? new URL(location.href).searchParams.get('convite') : null;
+
 export function App() {
-  const [token, setToken] = useState<string | null>(loadToken);
+  const [token, setToken] = useState<string | null>(() => (CONVITE ? null : loadToken()));
+  if (CONVITE) return <Guest token={CONVITE} />;
 
   if (!token) {
     return (

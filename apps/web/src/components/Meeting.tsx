@@ -3,6 +3,7 @@ import { ago } from '../lib/format';
 import {
   MeetingRecorder,
   agendar,
+  convidar,
   listMeetings,
   meetingStatus,
   sendSegment,
@@ -122,9 +123,21 @@ function AtaCard({ ata, titulo, token }: { ata: Ata; titulo: string; token: stri
   );
 }
 
-export function MeetingView({ token, autoStart, onAutoStarted }: { token: string; autoStart?: boolean; onAutoStarted?(): void }) {
+export function MeetingView({
+  token,
+  autoStart,
+  onAutoStarted,
+  guest,
+}: {
+  token: string;
+  autoStart?: boolean;
+  onAutoStarted?(): void;
+  /** Modo convidado: grava e entrega, sem ver a ata nem as reuniões anteriores. */
+  guest?: boolean;
+}) {
   const [phase, setPhase] = useState<Phase>('checking');
   const [fonte, setFonte] = useState<FonteAudio>('mic');
+  const [convite, setConvite] = useState('');
   const [titulo, setTitulo] = useState('');
   const [elapsed, setElapsed] = useState(0);
   const [sent, setSent] = useState(0);
@@ -146,9 +159,11 @@ export function MeetingView({ token, autoStart, onAutoStarted }: { token: string
     meetingStatus(token)
       .then((s) => alive && setPhase(s.ready ? 'idle' : 'unavailable'))
       .catch(() => alive && setPhase('unavailable'));
-    listMeetings(token)
-      .then((m) => alive && setPast(m))
-      .catch(() => {});
+    if (!guest) {
+      listMeetings(token)
+        .then((m) => alive && setPast(m))
+        .catch(() => {});
+    }
     return () => {
       alive = false;
     };
@@ -212,9 +227,11 @@ export function MeetingView({ token, autoStart, onAutoStarted }: { token: string
       const m = await stopMeeting(token, meetingId.current!);
       setResult(m);
       setPhase('done');
-      listMeetings(token)
-        .then(setPast)
-        .catch(() => {});
+      if (!guest) {
+        listMeetings(token)
+          .then(setPast)
+          .catch(() => {});
+      }
     } catch (e) {
       setError(`Falha ao gerar a ata: ${(e as Error).message}`);
       setPhase('idle');
@@ -296,6 +313,26 @@ export function MeetingView({ token, autoStart, onAutoStarted }: { token: string
               ? 'Escolha a aba do Meet/Zoom e marque "compartilhar áudio da guia" — ele ouve todo mundo da chamada.'
               : 'Deixe o celular perto de quem fala. A ata sai quando você encerrar.'}
           </p>
+          {!guest && (
+            <div className="meeting__convite">
+              <button
+                type="button"
+                className="mini-btn"
+                onClick={() => {
+                  void convidar(token, titulo)
+                    .then((c) => {
+                      setConvite(c.url);
+                      void navigator.clipboard?.writeText(c.url);
+                    })
+                    .catch((e: Error) => setError(`Não consegui criar o link: ${e.message}`));
+                }}
+              >
+                Não vou poder ir: gerar link
+              </button>
+              {convite && <p className="hint">Link copiado — vale 12 horas. Quem abrir grava e a ata vem para você.</p>}
+              {convite && <code className="meeting__link">{convite}</code>}
+            </div>
+          )}
         </div>
       )}
 
@@ -328,7 +365,16 @@ export function MeetingView({ token, autoStart, onAutoStarted }: { token: string
         </div>
       )}
 
-      {phase === 'done' && result?.ata && (
+      {phase === 'done' && guest && (
+        <div className="meeting__done">
+          <p className="ata__resumo">Pronto, entreguei a ata. Pode fechar esta página.</p>
+          <button type="button" className="rec-btn" onClick={() => setPhase('idle')}>
+            Gravar outra
+          </button>
+        </div>
+      )}
+
+      {phase === 'done' && !guest && result?.ata && (
         <div className="meeting__done">
           <AtaCard ata={result.ata} titulo={result.titulo} token={token} />
           <button type="button" className="rec-btn" onClick={() => setPhase('idle')}>
@@ -337,7 +383,7 @@ export function MeetingView({ token, autoStart, onAutoStarted }: { token: string
         </div>
       )}
 
-      {(phase === 'idle' || phase === 'done') && past.length > 0 && (
+      {!guest && (phase === 'idle' || phase === 'done') && past.length > 0 && (
         <div className="meeting__past">
           <h4>Reuniões anteriores</h4>
           {past.map((m) => (

@@ -20,6 +20,8 @@ import { DeviceGateway } from './device/device.gateway.js';
 import { FirmwareController } from './firmware/firmware.controller.js';
 import { FirmwareService } from './firmware/firmware.service.js';
 import { LlmService } from './llm/llm.service.js';
+import { InviteService } from './meeting/invite.service.js';
+import { MeetingAccessGuard } from './meeting/meeting-access.guard.js';
 import { MeetingController } from './meeting/meeting.controller.js';
 import { MeetingService } from './meeting/meeting.service.js';
 import { MemoryController } from './memory/memory.controller.js';
@@ -57,6 +59,8 @@ import { WsRouter } from './ws/ws-router.service.js';
     ClaudeUsageService,
     ClaudeUsageAlertService,
     MeetingService,
+    InviteService,
+    MeetingAccessGuard,
     MemoryService,
     SpotifyService,
     FirmwareService,

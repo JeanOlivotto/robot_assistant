@@ -879,3 +879,35 @@ button {
   background: var(--accent);
   border-color: var(--accent);
 }
+
+/* Convite para alguém gravar no seu lugar. */
+.meeting__convite {
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+}
+.meeting__link {
+  display: block;
+  margin-top: 6px;
+  padding: 8px 10px;
+  font-size: 12px;
+  color: var(--dim);
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  overflow-wrap: anywhere;
+}
+/* Tela de quem chegou pelo link. */
+.guest__box {
+  width: 100%;
+  padding: 16px;
+  margin-bottom: 12px;
+  text-align: left;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+.guest__box h2 {
+  margin: 0 0 8px;
+  font-size: 18px;
+}

@@ -46,6 +46,14 @@ export const sendSegment = (token: string, id: string, blob: Blob) =>
 export const stopMeeting = (token: string, id: string) => api<Meeting>(token, `/${id}/stop`, { method: 'POST' });
 export const listMeetings = (token: string) => api<Meeting[]>(token, '/list');
 
+/** Cria o link para outra pessoa gravar uma reunião no seu lugar (vale 12 h). */
+export const convidar = (token: string, titulo: string) =>
+  api<{ token: string; url: string; expiresAt: number }>(token, '/invite', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ titulo }),
+  });
+
 /** Agenda direto uma ação da ata (o dono já escolheu o dia e a hora na tela). */
 export async function agendar(token: string, title: string, start: Date, minutes = 60): Promise<void> {
   const res = await fetch('/api/calendar/event', {
