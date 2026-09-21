@@ -8,6 +8,7 @@ import { ChatService } from '../chat/chat.service.js';
 import { APP_CONFIG, type AppConfig } from '../config/app-config.js';
 import { rootPath } from '../config/paths.js';
 import { RobotStateService } from '../robot/robot-state.service.js';
+import { TaskService } from '../tasks/task.service.js';
 
 const TICK_MS = 60_000;
 const HOUR = 3600_000;
@@ -53,6 +54,7 @@ export class ProactiveService implements OnModuleInit, OnModuleDestroy {
     private readonly brain: BrainService,
     private readonly alerts: AlertService,
     private readonly robot: RobotStateService,
+    private readonly tasks: TaskService,
   ) {
     this.file = rootPath(`${cfg.DATA_DIR}/proactive.json`);
     this.clock = new Intl.DateTimeFormat('en-CA', {
@@ -139,11 +141,18 @@ export class ProactiveService implements OnModuleInit, OnModuleDestroy {
     const started = now;
     try {
       const lastUser = this.chat.lastUserAt();
+      // Só entram as que ele não cobrou nas últimas 20 h — senão vira cobrança diária da mesma coisa.
+      const pendentes = this.tasks.worthNudging(20).slice(0, 5);
       const call = await this.brain.judge(this.chat.history(10), {
         idleHours: (now - this.chat.lastActivityAt()) / HOUR,
         lastSpontaneous: this.mem.lastSpokenText,
         spokenToday: this.mem.spokenCount,
         talkedToday: lastUser > 0 && this.sameDay(lastUser, now),
+        pending: pendentes.map((t) => ({
+          texto: t.texto,
+          pessoa: t.pessoa,
+          diasAberta: Math.floor((now - t.createdAt) / (24 * HOUR)),
+        })),
       });
       if (!call) return;
       if (!call.speak) {
@@ -157,6 +166,8 @@ export class ProactiveService implements OnModuleInit, OnModuleDestroy {
       this.mem.lastSpokenAt = Date.now();
       this.mem.lastSpokenText = call.text;
       this.chat.robotSay(call.text, call.face, 'proactive', { expectsReply: true });
+      // As pendências que ele citou ficam em carência, para não cobrar a mesma amanhã de novo.
+      if (call.nudged.length) this.tasks.nudged(call.nudged.map((n) => pendentes[n - 1]!.id).filter(Boolean));
       this.log.log(`Puxou conversa (${this.mem.spokenCount}/${SPEAK_PER_DAY}): ${call.text} — ${call.reason}`);
     } finally {
       this.busy = false;

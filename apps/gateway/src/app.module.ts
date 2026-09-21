@@ -32,13 +32,15 @@ import { ProactiveService } from './proactive/proactive.service.js';
 import { PushController } from './push/push.controller.js';
 import { PushService } from './push/push.service.js';
 import { RobotStateService } from './robot/robot-state.service.js';
+import { TaskController } from './tasks/task.controller.js';
+import { TaskService } from './tasks/task.service.js';
 import { SttService } from './stt/stt.service.js';
 import { TtsController } from './tts/tts.controller.js';
 import { TtsService } from './tts/tts.service.js';
 import { WsRouter } from './ws/ws-router.service.js';
 
 @Module({
-  controllers: [DebugController, AppAuthController, VoiceController, PushController, TtsController, ClaudeUsageController, MeetingController, SpotifyController, FirmwareController, MemoryController, CalendarController],
+  controllers: [DebugController, AppAuthController, VoiceController, PushController, TtsController, ClaudeUsageController, MeetingController, SpotifyController, FirmwareController, MemoryController, CalendarController, TaskController],
   providers: [
     { provide: APP_CONFIG, useFactory: () => loadConfig() },
     WsRouter,
@@ -62,6 +64,7 @@ import { WsRouter } from './ws/ws-router.service.js';
     InviteService,
     MeetingAccessGuard,
     MemoryService,
+    TaskService,
     SpotifyService,
     FirmwareService,
     TokenGuard,

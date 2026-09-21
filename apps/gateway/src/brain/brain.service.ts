@@ -35,6 +35,8 @@ export interface JudgeContext {
   spokenToday: number;
   /** Já trocaram alguma palavra hoje? */
   talkedToday: boolean;
+  /** O que ficou de ser feito e ainda não foi — o que ele pode cobrar. */
+  pending: { texto: string; pessoa?: string; diasAberta: number }[];
 }
 
 export interface Judgement {
@@ -43,6 +45,8 @@ export interface Judgement {
   face: Face;
   /** Por que decidiu assim — vai para o log, nunca para o dono. */
   reason: string;
+  /** Pendências que ele citou (posição na lista que recebeu, começando em 1). */
+  nudged: number[];
 }
 
 const HISTORY = 16;
@@ -184,6 +188,16 @@ export class BrainService {
       `- hoje você já puxou conversa ${vezes}`,
       ctx.lastSpontaneous ? `- a última coisa que você disse por conta própria foi: "${ctx.lastSpontaneous}"` : '',
       `- agenda de hoje:\n${agenda || '(agenda não configurada)'}`,
+      ctx.pending.length
+        ? `- pendências abertas (ele ficou de fazer e ainda não fez):\n${ctx.pending
+            .map(
+              (t, i) =>
+                `  ${i + 1}. ${t.texto}${t.pessoa ? ` (com ${t.pessoa})` : ''} — aberta há ${
+                  t.diasAberta < 1 ? 'menos de um dia' : `${t.diasAberta} dia(s)`
+                }`,
+            )
+            .join('\n')}`
+        : '- nenhuma pendência aberta',
     ]
       .filter(Boolean)
       .join('\n');
@@ -202,7 +216,9 @@ export class BrainService {
               'Fale se você tem algo que justifique a interrupção: um compromisso chegando, um assunto que ficou ' +
               'no ar, algo que você reparou. Fique quieto se for só para encher linguiça, se já disse isso hoje ' +
               'ou se ele parece ocupado. Ficar quieto é resposta boa e deve ser a mais comum.\n' +
-              'Responda SOMENTE com JSON: {"falar": true|false, "texto": "...", "motivo": "..."}. ' +
+              'Cobrar uma pendência é bom motivo para falar, mas uma de cada vez e sem soar cobrador de dívida.\n' +
+              'Responda SOMENTE com JSON: {"falar": true|false, "texto": "...", "motivo": "...", "pendencias": [n]}, ' +
+              'onde "pendencias" traz o número das que você citou no texto (vazio se não citou nenhuma). ' +
               'O texto é você falando, com a sua expressão entre colchetes no começo. ' +
               'Com "falar": false, deixe "texto" vazio.',
           },
@@ -214,11 +230,14 @@ export class BrainService {
       const out = parseJudgement(msg.content ?? '');
       if (!out) return null;
       if (!out.falar || !out.texto?.trim()) {
-        return { speak: false, text: '', face: 'neutral', reason: out.motivo || 'preferiu ficar quieto' };
+        return { speak: false, text: '', face: 'neutral', reason: out.motivo || 'preferiu ficar quieto', nudged: [] };
       }
       const { text, face } = splitEmotion(out.texto);
       if (!text) return null;
-      return { speak: true, text, face, reason: out.motivo || '' };
+      const nudged = Array.isArray(out.pendencias)
+        ? out.pendencias.filter((n): n is number => typeof n === 'number' && Number.isInteger(n) && n >= 1 && n <= ctx.pending.length)
+        : [];
+      return { speak: true, text, face, reason: out.motivo || '', nudged };
     } catch (err) {
       this.log.warn(`judge() falhou: ${(err as Error).message}`);
       return null;
@@ -440,7 +459,7 @@ function toLlmHistory(history: ChatMessage[], tz: string): ChatCompletionMessage
 
 
 /** Lê o JSON do juízo, tolerando cercas de markdown e texto em volta. */
-function parseJudgement(raw: string): { falar?: boolean; texto?: string; motivo?: string } | null {
+function parseJudgement(raw: string): { falar?: boolean; texto?: string; motivo?: string; pendencias?: unknown[] } | null {
   const clean = raw
     .replace(/<think>[\s\S]*?<\/think>/gi, '')
     .replace(/```json/gi, '')
@@ -449,7 +468,7 @@ function parseJudgement(raw: string): { falar?: boolean; texto?: string; motivo?
   const end = clean.lastIndexOf('}');
   if (start < 0 || end <= start) return null;
   try {
-    return JSON.parse(clean.slice(start, end + 1)) as { falar?: boolean; texto?: string; motivo?: string };
+    return JSON.parse(clean.slice(start, end + 1)) as { falar?: boolean; texto?: string; motivo?: string; pendencias?: unknown[] };
   } catch {
     return null;
   }

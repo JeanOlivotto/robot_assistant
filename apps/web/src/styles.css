@@ -911,3 +911,83 @@ button {
   margin: 0 0 8px;
   font-size: 18px;
 }
+
+/* Pendências: o que ficou de fazer e não tem hora marcada. */
+.tasks {
+  width: 100%;
+  text-align: left;
+}
+.tasks__novo {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+.tasks__novo input {
+  flex: 1;
+  min-width: 0;
+  padding: 10px 12px;
+  font: inherit;
+  color: inherit;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+}
+.tasks__lista {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.tasks__item {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 11px 0;
+  border-top: 1px solid var(--line);
+}
+.tasks__item:first-child {
+  border-top: none;
+}
+.tasks__check {
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  margin-top: 2px;
+  background: none;
+  border: 2px solid var(--dim);
+  border-radius: 50%;
+  cursor: pointer;
+}
+.tasks__check:hover {
+  border-color: var(--accent);
+}
+.tasks__texto {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+.tasks__meta {
+  font-size: 12px;
+  color: var(--dim);
+}
+.tasks__drop {
+  flex-shrink: 0;
+  padding: 0 4px;
+  font-size: 15px;
+  color: var(--dim);
+  background: none;
+  border: none;
+  cursor: pointer;
+}
+.tasks__titulo {
+  margin: 20px 0 4px;
+  font-size: 13px;
+  color: var(--dim);
+}
+.tasks__lista--feitas .tasks__texto {
+  color: var(--dim);
+  text-decoration: line-through;
+}

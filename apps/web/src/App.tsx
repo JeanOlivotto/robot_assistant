@@ -5,6 +5,7 @@ import { Login } from './components/Login';
 import { MeetingView } from './components/Meeting';
 import { RobotFace } from './components/RobotFace';
 import { Guest } from './components/Guest';
+import { Tasks } from './components/Tasks';
 import { VoiceConversation } from './components/VoiceConversation';
 import { ago } from './lib/format';
 import { enablePush, pushState, refreshPush, testPush, type PushState } from './lib/push';
@@ -41,12 +42,12 @@ function saveToken(token: string | null): void {
   }
 }
 
-type Tab = 'chat' | 'agenda' | 'reuniao';
+type Tab = 'chat' | 'agenda' | 'pendencias' | 'reuniao';
 
 /** Atalho da Siri pode abrir o app já numa aba: ?tab=reuniao (ou #reuniao). */
 function initialTab(): Tab {
   const raw = (new URL(location.href).searchParams.get('tab') || location.hash.replace('#', '')).toLowerCase();
-  return raw === 'reuniao' || raw === 'agenda' ? raw : 'chat';
+  return raw === 'reuniao' || raw === 'agenda' || raw === 'pendencias' ? raw : 'chat';
 }
 
 /** Re-renderiza de tempos em tempos para o "há X min" andar. */
@@ -227,6 +228,14 @@ function Main({ token, onLogout }: { token: string; onLogout(): void }) {
         <button role="tab" aria-selected={tab === 'agenda'} className={tab === 'agenda' ? 'on' : ''} onClick={() => setTab('agenda')}>
           Agenda{robo.agenda.length ? ` · ${robo.agenda.filter((i) => i.end > now).length}` : ''}
         </button>
+        <button
+          role="tab"
+          aria-selected={tab === 'pendencias'}
+          className={tab === 'pendencias' ? 'on' : ''}
+          onClick={() => setTab('pendencias')}
+        >
+          Pendências
+        </button>
         <button role="tab" aria-selected={tab === 'reuniao'} className={tab === 'reuniao' ? 'on' : ''} onClick={() => setTab('reuniao')}>
           Reunião
         </button>
@@ -250,6 +259,7 @@ function Main({ token, onLogout }: { token: string; onLogout(): void }) {
         />
       )}
       {tab === 'agenda' && <Agenda items={robo.agenda} />}
+      {tab === 'pendencias' && <Tasks token={token} />}
       {tab === 'reuniao' && <MeetingView token={token} autoStart={autoMeeting} onAutoStarted={() => setAutoMeeting(false)} />}
 
       {convo && (

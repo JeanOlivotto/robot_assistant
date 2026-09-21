@@ -6,6 +6,7 @@ import { APP_CONFIG, type AppConfig } from '../config/app-config.js';
 import { rootPath } from '../config/paths.js';
 import { LlmService } from '../llm/llm.service.js';
 import { PushService } from '../push/push.service.js';
+import { TaskService } from '../tasks/task.service.js';
 import { SttError, SttService } from '../stt/stt.service.js';
 
 /** Uma ação/pendência da reunião; responsável quando dá para identificar. */
@@ -47,6 +48,7 @@ export class MeetingService {
     private readonly stt: SttService,
     private readonly llm: LlmService,
     private readonly push: PushService,
+    private readonly tasks: TaskService,
   ) {
     this.dir = rootPath(`${cfg.DATA_DIR}/meetings`);
   }
@@ -101,6 +103,8 @@ export class MeetingService {
     }
     this.save(m);
     this.active.delete(m.id);
+    // As ações da ata viram pendências: é o que o robô vai cobrar depois.
+    for (const a of m.ata.acoes) this.tasks.add(a.texto, { pessoa: a.responsavel, origem: 'ata', meetingId: m.id });
     this.log.log(`Ata pronta (${m.id}): ${m.ata.decisoes.length} decisão(ões), ${m.ata.acoes.length} ação(ões)`);
     void this.push.notify({
       title: 'Ata pronta',

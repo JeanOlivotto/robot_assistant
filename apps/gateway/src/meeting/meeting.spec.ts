@@ -6,6 +6,7 @@ import type { AppConfig } from '../config/app-config.js';
 import type { LlmService } from '../llm/llm.service.js';
 import type { PushService } from '../push/push.service.js';
 import { SttError, type SttService } from '../stt/stt.service.js';
+import { TaskService } from '../tasks/task.service.js';
 import { MeetingService } from './meeting.service.js';
 
 function make(llmReply: string, stt?: Partial<SttService>) {
@@ -17,7 +18,9 @@ function make(llmReply: string, stt?: Partial<SttService>) {
   } as unknown as SttService;
   const llm = { enabled: true, complete: vi.fn().mockResolvedValue({ content: llmReply }) } as unknown as LlmService;
   const push = { notify: vi.fn().mockResolvedValue(1) } as unknown as PushService;
-  return { svc: new MeetingService(cfg, sttSvc, llm, push), push };
+  // As ações da ata viram pendências: o serviço de verdade, num diretório temporário.
+  const tasks = new TaskService(cfg);
+  return { svc: new MeetingService(cfg, sttSvc, llm, push, tasks), push, tasks };
 }
 
 const CLEAN = JSON.stringify({
@@ -27,6 +30,19 @@ const CLEAN = JSON.stringify({
 });
 
 describe('MeetingService', () => {
+  it('as ações da ata viram pendências para o robô cobrar', async () => {
+    const { svc, tasks } = make(CLEAN);
+    const m = svc.start('Reunião');
+    await svc.addSegment(m.id, Buffer.from('audio'));
+    await svc.stop(m.id);
+
+    const abertas = tasks.open();
+    expect(abertas.map((t) => t.texto)).toEqual(['Preparar release', 'Avisar clientes']);
+    expect(abertas[0]!.pessoa).toBe('Fábio');
+    expect(abertas[0]!.origem).toBe('ata');
+    expect(abertas[0]!.meetingId).toBe(m.id);
+  });
+
   it('fluxo completo: transcreve, gera ata e notifica', async () => {
     const { svc, push } = make(CLEAN);
     const m = svc.start('Planejamento');
