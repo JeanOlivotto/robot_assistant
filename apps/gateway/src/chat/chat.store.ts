@@ -55,6 +55,16 @@ export class ChatStore implements OnModuleInit, OnModuleDestroy {
     this.saveTimer = setTimeout(() => this.flush(), 500);
   }
 
+  /** Apaga tudo: o dono pediu para começar uma conversa do zero. */
+  clear(): number {
+    const had = this.messages.length;
+    this.messages = [];
+    clearTimeout(this.saveTimer);
+    this.flush();
+    this.log.log(`Histórico apagado (${had} mensagens)`);
+    return had;
+  }
+
   private flush(): void {
     this.saveTimer = undefined;
     try {

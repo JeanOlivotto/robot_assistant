@@ -156,9 +156,10 @@ export class BrainService {
         {
           role: 'user',
           content:
-            '[instrução interna do sistema] Escreva UM pensamento em voz alta, bem curtinho (no máximo 6 palavras), ' +
-            'para aparecer num balão na sua telinha agora. Pode ser sobre a hora do dia, o que falta na agenda ' +
-            `ou algo fofo/engraçado de bichinho. Sem emoji, sem aspas. Resto da agenda hoje:\n${describeAgenda(agenda, this.cfg.TZ_NAME)}`,
+            '[instrução interna do sistema] Escreva UM pensamento seu, em voz alta, bem curto (no máximo 6 ' +
+            'palavras), para aparecer num balão na sua telinha agora. Uma observação sobre a hora, sobre o que ' +
+            'ainda falta no dia dele ou sobre o que você está achando disso. Seco, nada de fofura. ' +
+            `Sem emoji, sem aspas. Resto da agenda hoje:\n${describeAgenda(agenda, this.cfg.TZ_NAME)}`,
         },
       ]);
       const out = splitEmotion(msg.content ?? '');
@@ -194,8 +195,8 @@ export class BrainService {
           role: 'user',
           content:
             `[instrução interna do sistema — não é ${owner} falando] Faz um tempo que vocês não falam sobre "${m.texto}". ` +
-            'Puxe esse assunto de volta com carinho, numa frase curta, tipo "nossa, faz tempo que não falamos sobre..." ' +
-            'e pergunte como está. Sem inventar detalhes que você não sabe.',
+            'Puxe o assunto de volta numa frase curta, do jeito de quem reparou na ausência, e pergunte em que pé está. ' +
+            'Sem drama e sem inventar detalhes que você não sabe.',
         },
       ]);
       const out = splitEmotion(msg.content ?? '');
@@ -293,31 +294,32 @@ export class BrainService {
       case 'morning':
         return {
           instruction:
-            `Escreva a mensagem de bom dia${hi}. Compromissos de hoje:\n${describeAgenda(todayList, this.cfg.TZ_NAME)}\n` +
-            'Cite os compromissos de um jeito natural; se não houver nenhum, comente de um jeito divertido. Termine puxando conversa.',
+            `Abra o dia${hi}. Compromissos de hoje:\n${describeAgenda(todayList, this.cfg.TZ_NAME)}\n` +
+            'Diga o que o dia reserva sem soar boletim, e comente o que achar do formato dele: apertado, folgado, ' +
+            'dois compromissos que vão se esbarrar. Se a agenda estiver vazia, diga o que faria com ela.',
           fallback: {
-            text: todayList.length
-              ? `Bom dia${hi}! ☀️ Hoje você tem: ${titles(todayList)}.`
-              : `Bom dia${hi}! ☀️ Agenda livre hoje — vamos aproveitar?`,
-            face: 'happy' as Face,
+            text: todayList.length ? `Bom dia${hi}. Hoje: ${titles(todayList)}.` : `Bom dia${hi}. Agenda vazia hoje — é sua.`,
+            face: 'neutral' as Face,
           },
         };
       case 'evening':
         return {
           instruction:
-            `Faça um resumo curto do fim do dia. Hoje teve:\n${describeAgenda(todayList, this.cfg.TZ_NAME)}\n` +
-            `Amanhã tem:\n${describeAgenda(tomorrowList, this.cfg.TZ_NAME)}\nNão faça pergunta no final.`,
+            `Feche o dia em uma ou duas frases. Hoje teve:\n${describeAgenda(todayList, this.cfg.TZ_NAME)}\n` +
+            `Amanhã tem:\n${describeAgenda(tomorrowList, this.cfg.TZ_NAME)}\n` +
+            'Diga o que ficou do dia e o que amanhã pede. Nada de pergunta no final.',
           fallback: {
-            text: tomorrowList.length ? `Fim do dia! Amanhã tem: ${titles(tomorrowList)}.` : 'Fim do dia! Amanhã está livre. 😌',
+            text: tomorrowList.length ? `Fim do dia. Amanhã: ${titles(tomorrowList)}.` : 'Fim do dia. Amanhã está limpo.',
             face: 'sleepy' as Face,
           },
         };
       case 'attention':
         return {
           instruction:
-            `Faz umas ${Math.max(1, Math.round(hoursIdle))} horas que ${owner || 'o dono'} não fala com você. ` +
-            'Mande uma mensagem curtinha pedindo atenção — fofa, sem ser chata (ex.: perguntar como está o dia).',
-          fallback: { text: 'Ei... sumiu? Tô aqui entediado 🥺', face: 'bored' as Face },
+            `Faz umas ${Math.max(1, Math.round(hoursIdle))} horas que ${owner || 'o dono'} não aparece. ` +
+            'Mande uma frase curta puxando conversa: comente a ausência de quem reparou, não de quem está carente. ' +
+            'Nada de "senti sua falta" nem de pedir atenção.',
+          fallback: { text: 'Sumiu. Tá corrido ou só não deu?', face: 'bored' as Face },
         };
     }
   }

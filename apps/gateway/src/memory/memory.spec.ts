@@ -20,6 +20,19 @@ describe('MemoryService', () => {
     expect(m.all()[0]!.mentions).toBe(2);
   });
 
+  it('clear esquece tudo e sobrevive a recarregar do disco', () => {
+    const c = cfg();
+    const m = new MemoryService(c, llm(''));
+    m.note('projeto do robô');
+    m.note('academia às terças');
+    expect(m.all()).toHaveLength(2);
+
+    expect(m.clear()).toBe(2);
+    expect(m.all()).toEqual([]);
+    // Um serviço novo lê o mesmo arquivo: o esquecimento tem que ter ido para o disco.
+    expect(new MemoryService(c, llm('')).all()).toEqual([]);
+  });
+
   it('stale devolve o assunto mais antigo além do limite', () => {
     const m = new MemoryService(cfg(), llm(''));
     m.note('academia');

@@ -21,6 +21,7 @@ import { FirmwareService } from './firmware/firmware.service.js';
 import { LlmService } from './llm/llm.service.js';
 import { MeetingController } from './meeting/meeting.controller.js';
 import { MeetingService } from './meeting/meeting.service.js';
+import { MemoryController } from './memory/memory.controller.js';
 import { MemoryService } from './memory/memory.service.js';
 import { SpotifyController } from './spotify/spotify.controller.js';
 import { SpotifyService } from './spotify/spotify.service.js';
@@ -34,7 +35,7 @@ import { TtsService } from './tts/tts.service.js';
 import { WsRouter } from './ws/ws-router.service.js';
 
 @Module({
-  controllers: [DebugController, AppAuthController, VoiceController, PushController, TtsController, ClaudeUsageController, MeetingController, SpotifyController, FirmwareController],
+  controllers: [DebugController, AppAuthController, VoiceController, PushController, TtsController, ClaudeUsageController, MeetingController, SpotifyController, FirmwareController, MemoryController],
   providers: [
     { provide: APP_CONFIG, useFactory: () => loadConfig() },
     WsRouter,

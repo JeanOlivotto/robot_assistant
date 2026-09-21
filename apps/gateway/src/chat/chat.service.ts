@@ -136,6 +136,13 @@ export class ChatService implements OnModuleInit, OnModuleDestroy {
     return msg;
   }
 
+  /** Zera a conversa e o que a telinha do robô está mostrando. */
+  clearHistory(): number {
+    const had = this.store.clear();
+    this.setState({ thinking: false, waitingSince: 0, preview: '' });
+    return had;
+  }
+
   private enqueue<T>(job: () => Promise<T>): Promise<T> {
     const run = this.queue.then(job, job);
     this.queue = run.then(
@@ -176,7 +183,7 @@ export class ChatService implements OnModuleInit, OnModuleDestroy {
     } catch (err) {
       this.log.error(`Cérebro falhou: ${(err as Error).message}`);
       this.setState({ thinking: false });
-      return this.robotSay('Ops, minha cabeça deu um nó... tenta de novo daqui a pouco?', 'sad', 'reply', { replyVia: via });
+      return this.robotSay('Minha cabeça travou agora. Repete daqui a pouco.', 'sad', 'reply', { replyVia: via });
     }
   }
 
@@ -188,7 +195,7 @@ export class ChatService implements OnModuleInit, OnModuleDestroy {
     if (!ok) {
       this.updateProposal(msg, { status: 'cancelled' });
       this.settleWaiting();
-      return this.robotSay('Beleza, não marquei.', 'neutral', 'reply');
+      return this.robotSay('Certo, não marquei.', 'neutral', 'reply');
     }
 
     this.setState({ thinking: true });
@@ -197,7 +204,7 @@ export class ChatService implements OnModuleInit, OnModuleDestroy {
       this.updateProposal(msg, { status: 'confirmed' });
       this.setState({ thinking: false });
       this.settleWaiting();
-      return this.robotSay(`Marcado! ✅ ${p.title}, ${this.timeFmt.format(p.start)}.`, 'happy', 'reply');
+      return this.robotSay(`Marcado: ${p.title}, ${this.timeFmt.format(p.start)}.`, 'happy', 'reply');
     } catch (err) {
       const error = (err as Error).message;
       this.log.error(`Falha ao criar evento: ${error}`);

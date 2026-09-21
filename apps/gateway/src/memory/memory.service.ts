@@ -73,6 +73,15 @@ export class MemoryService {
     }
   }
 
+  /** Esquece tudo o que sabia do dono. */
+  clear(): number {
+    const had = this.items.length;
+    this.items = [];
+    this.save();
+    this.log.log(`Memória apagada (${had} assunto(s))`);
+    return had;
+  }
+
   note(texto: string): void {
     const clean = texto.trim().slice(0, 120);
     if (!clean) return;
