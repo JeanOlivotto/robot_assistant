@@ -62,7 +62,19 @@ jobs:
           mkdir -p ~/.ssh && chmod 700 ~/.ssh
           printf '%s\n' "$CHAVE" > ~/.ssh/deploy
           chmod 600 ~/.ssh/deploy
-          ssh-keyscan -H "$HOST" >> ~/.ssh/known_hosts 2>/dev/null
+          # O keyscan falha de vez em quando (a VPS demora a responder) e, com `bash -e`,
+          # derrubava o deploy inteiro antes de tentar qualquer coisa. Tenta algumas vezes.
+          for tentativa in 1 2 3; do
+            if ssh-keyscan -T 15 -H "$HOST" >> ~/.ssh/known_hosts 2>/dev/null; then
+              echo "chave do host obtida na tentativa $tentativa"
+              break
+            fi
+            echo "keyscan falhou (tentativa $tentativa), esperando..."
+            sleep 10
+          done
+          # Sem a chave, o ssh abaixo ainda funciona: ele aceita e grava na primeira conexão.
+          test -s ~/.ssh/known_hosts || echo "seguindo sem known_hosts"
+
 
       - name: Enviar o código
         env:
@@ -72,11 +84,11 @@ jobs:
           # O /health mostra este commit — dá para conferir o que está no ar.
           echo "${GITHUB_SHA::7}" > REVISION
           rsync -az --delete --exclude-from=deploy/rsync-exclude \
-            -e "ssh -i ~/.ssh/deploy -o BatchMode=yes" \
+            -e "ssh -i ~/.ssh/deploy -o BatchMode=yes -o StrictHostKeyChecking=accept-new" \
             ./ "$USUARIO@$HOST:/opt/robo/"
 
       - name: Rodar o deploy no servidor
         env:
           HOST: ${{ secrets.VPS_HOST }}
           USUARIO: ${{ secrets.VPS_USER }}
-        run: ssh -i ~/.ssh/deploy -o BatchMode=yes "$USUARIO@$HOST" 'bash /opt/robo/deploy/deploy.sh'
+        run: ssh -i ~/.ssh/deploy -o BatchMode=yes -o StrictHostKeyChecking=accept-new "$USUARIO@$HOST" 'bash /opt/robo/deploy/deploy.sh'
