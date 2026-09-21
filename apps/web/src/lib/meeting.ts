@@ -46,6 +46,16 @@ export const sendSegment = (token: string, id: string, blob: Blob) =>
 export const stopMeeting = (token: string, id: string) => api<Meeting>(token, `/${id}/stop`, { method: 'POST' });
 export const listMeetings = (token: string) => api<Meeting[]>(token, '/list');
 
+/** Agenda direto uma ação da ata (o dono já escolheu o dia e a hora na tela). */
+export async function agendar(token: string, title: string, start: Date, minutes = 60): Promise<void> {
+  const res = await fetch('/api/calendar/event', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ title, start: start.getTime(), minutes }),
+  });
+  if (!res.ok) throw new Error((await res.text().catch(() => '')) || `HTTP ${res.status}`);
+}
+
 /** Grava a reunião em segmentos completos, entregando cada Blob pronto para envio. */
 export class MeetingRecorder {
   static get supported(): boolean {

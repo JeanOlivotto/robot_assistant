@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { AlertService } from './alerts/alert.service.js';
 import { BrainService } from './brain/brain.service.js';
+import { CalendarController } from './calendar/calendar.controller.js';
 import { CalendarService } from './calendar/calendar.service.js';
 import { ClaudeUsageAlertService } from './claude/claude-usage-alert.service.js';
 import { ClaudeUsageController } from './claude/claude-usage.controller.js';
@@ -35,7 +36,7 @@ import { TtsService } from './tts/tts.service.js';
 import { WsRouter } from './ws/ws-router.service.js';
 
 @Module({
-  controllers: [DebugController, AppAuthController, VoiceController, PushController, TtsController, ClaudeUsageController, MeetingController, SpotifyController, FirmwareController, MemoryController],
+  controllers: [DebugController, AppAuthController, VoiceController, PushController, TtsController, ClaudeUsageController, MeetingController, SpotifyController, FirmwareController, MemoryController, CalendarController],
   providers: [
     { provide: APP_CONFIG, useFactory: () => loadConfig() },
     WsRouter,

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { ago } from '../lib/format';
 import {
   MeetingRecorder,
+  agendar,
   listMeetings,
   meetingStatus,
   sendSegment,
@@ -19,7 +20,60 @@ function mmss(sec: number): string {
   return `${m}:${String(s).padStart(2, '0')}`;
 }
 
-function AtaCard({ ata, titulo }: { ata: Ata; titulo: string }) {
+/** "amanhã às 9h" no formato que o <input type="datetime-local"> entende. */
+function amanhaCedo(): string {
+  const d = new Date();
+  d.setDate(d.getDate() + 1);
+  d.setHours(9, 0, 0, 0);
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+/** Uma linha da ata (ação ou decisão) com o botão de jogar para a agenda. */
+function ItemAta({ texto, responsavel, token }: { texto: string; responsavel?: string; token: string }) {
+  const [abrindo, setAbrindo] = useState(false);
+  const [quando, setQuando] = useState(amanhaCedo);
+  const [estado, setEstado] = useState<'' | 'enviando' | 'ok' | string>('');
+
+  const confirmar = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setEstado('enviando');
+    try {
+      await agendar(token, texto, new Date(quando));
+      setEstado('ok');
+      setAbrindo(false);
+    } catch (err) {
+      setEstado((err as Error).message);
+    }
+  };
+
+  return (
+    <li className="item-ata">
+      <div className="item-ata__linha">
+        <span className="item-ata__texto">{texto}</span>
+        {estado === 'ok' ? (
+          <span className="item-ata__ok">na agenda</span>
+        ) : (
+          <button type="button" className="mini-btn item-ata__btn" onClick={() => setAbrindo(!abrindo)}>
+            {abrindo ? 'Fechar' : 'Agendar'}
+          </button>
+        )}
+      </div>
+      {responsavel && <span className="item-ata__resp">{responsavel}</span>}
+      {abrindo && (
+        <form className="item-ata__quando" onSubmit={(e) => void confirmar(e)}>
+          <input type="datetime-local" value={quando} onChange={(e) => setQuando(e.target.value)} required />
+          <button type="submit" className="rec-btn" disabled={estado === 'enviando'}>
+            {estado === 'enviando' ? 'Agendando…' : 'Confirmar'}
+          </button>
+        </form>
+      )}
+      {estado && estado !== 'ok' && estado !== 'enviando' && <span className="item-ata__erro">{estado}</span>}
+    </li>
+  );
+}
+
+function AtaCard({ ata, titulo, token }: { ata: Ata; titulo: string; token: string }) {
   const copy = () => {
     const linhas = [
       `Ata — ${titulo}`,
@@ -32,6 +86,7 @@ function AtaCard({ ata, titulo }: { ata: Ata; titulo: string }) {
     ];
     void navigator.clipboard?.writeText(linhas.join('\n'));
   };
+
   return (
     <div className="ata">
       <div className="ata__head">
@@ -44,9 +99,9 @@ function AtaCard({ ata, titulo }: { ata: Ata; titulo: string }) {
       {ata.decisoes.length > 0 && (
         <>
           <h4>Decisões</h4>
-          <ul>
+          <ul className="ata__lista">
             {ata.decisoes.map((d, i) => (
-              <li key={i}>{d}</li>
+              <ItemAta key={i} texto={d} token={token} />
             ))}
           </ul>
         </>
@@ -54,12 +109,9 @@ function AtaCard({ ata, titulo }: { ata: Ata; titulo: string }) {
       {ata.acoes.length > 0 && (
         <>
           <h4>Ações</h4>
-          <ul>
+          <ul className="ata__lista">
             {ata.acoes.map((a, i) => (
-              <li key={i}>
-                {a.texto}
-                {a.responsavel && <span className="ata__resp"> — {a.responsavel}</span>}
-              </li>
+              <ItemAta key={i} texto={a.texto} responsavel={a.responsavel} token={token} />
             ))}
           </ul>
         </>
@@ -252,7 +304,7 @@ export function MeetingView({ token, autoStart, onAutoStarted }: { token: string
 
       {phase === 'done' && result?.ata && (
         <div className="meeting__done">
-          <AtaCard ata={result.ata} titulo={result.titulo} />
+          <AtaCard ata={result.ata} titulo={result.titulo} token={token} />
           <button type="button" className="rec-btn" onClick={() => setPhase('idle')}>
             Nova reunião
           </button>
@@ -268,7 +320,7 @@ export function MeetingView({ token, autoStart, onAutoStarted }: { token: string
                 <span>{m.titulo}</span>
                 <span className="hint">{ago(m.startedAt, Date.now())}</span>
               </button>
-              {open === m.id && m.ata && <AtaCard ata={m.ata} titulo={m.titulo} />}
+              {open === m.id && m.ata && <AtaCard ata={m.ata} titulo={m.titulo} token={token} />}
             </div>
           ))}
         </div>
