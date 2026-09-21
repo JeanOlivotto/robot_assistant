@@ -18,6 +18,7 @@
 
 #define FRAME_MS        40 /* 25 fps — o núcleo é único, 60 fps não (seção 13) */
 #define LONG_PRESS_MS   1000
+#define DOUBLE_CLICK_MS 400 /* dois toques no KEY1 dentro disso = uso do Claude */
 #define AGENDA_VIEW_MS  10000
 #define CLAUDE_VIEW_MS  12000
 #define DEMO_MS         4000
@@ -85,6 +86,7 @@ static uint32_t s_next_joy, s_joy_until;
 static uint32_t s_offline_since;
 static uint32_t s_agenda_peek_until;
 static btn_state_t s_btn[HAL_BTN_COUNT];
+static uint32_t s_key1_clicked; /* quando foi o último toque curto no KEY1 (0 = nenhum) */
 
 /* ── utilidades ──────────────────────────────────────────────────────── */
 
@@ -243,8 +245,17 @@ static void on_button(hal_btn_t b, robo_btn_ev_t ev, uint32_t now)
         return;
     }
     switch (b) {
-    case HAL_BTN_KEY1: /* agenda */
-        set_view(s_view == VIEW_AGENDA ? VIEW_FACE : VIEW_AGENDA, now);
+    case HAL_BTN_KEY1:
+        /* Um toque abre a agenda; dois toques seguidos trocam para o uso do Claude.
+           A agenda abre já no primeiro toque (nada de esperar para ver se vem o segundo):
+           quem deu dois cliques vê a agenda por um instante e a tela troca. */
+        if (s_key1_clicked && now - s_key1_clicked <= DOUBLE_CLICK_MS) {
+            s_key1_clicked = 0;
+            set_view(VIEW_CLAUDE, now);
+        } else {
+            s_key1_clicked = now;
+            set_view(s_view == VIEW_AGENDA ? VIEW_FACE : VIEW_AGENDA, now);
+        }
         break;
     case HAL_BTN_KEY2: /* modo repouso: dormir */
         set_view(VIEW_FACE, now);
