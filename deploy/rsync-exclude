@@ -1,9 +1,12 @@
 # O que o Actions NÃO manda para /opt/robo (e, por estar excluído, também não apaga lá).
+#
+# Atenção: padrão sem "/" na frente casa em QUALQUER nível da árvore. O que é só da raiz
+# vai ancorado — senão "firmware/" levaria junto apps/gateway/src/firmware/ (já aconteceu).
 .git/
 .env
 secrets/
-data/
 node_modules/
 dist/
-firmware/
-firmware-backup/
+/data/
+/firmware/
+/firmware-backup/
