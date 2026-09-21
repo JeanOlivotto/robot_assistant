@@ -27,3 +27,4 @@ Thumbs.db
 
 # Commit em produção (escrito pelo Actions na VPS)
 REVISION
+apps/braco/braco.config.json

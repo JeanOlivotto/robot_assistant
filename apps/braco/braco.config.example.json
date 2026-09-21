@@ -1,0 +1,34 @@
+{
+  "//": "Copie para braco.config.json (fica fora do git) e ajuste. O robô só faz o que está aqui.",
+
+  "servidor": "wss://srv1966497.hstgr.cloud/braco",
+  "token": "igual ao BRACO_TOKEN do .env do servidor",
+
+  "//permitirComandoLivre": "true deixa o robô rodar comando escrito na hora — sempre com a sua aprovação no chat",
+  "permitirComandoLivre": true,
+
+  "//acoes": "O que a sua máquina sabe fazer. {param} é substituído pelo argumento, já escapado.",
+  "acoes": [
+    {
+      "nome": "abrir_projeto",
+      "descricao": "Abre um projeto no editor",
+      "params": ["projeto"],
+      "comando": "code ~/Projects/Jean/{projeto}"
+    },
+    {
+      "nome": "bloquear_tela",
+      "descricao": "Bloqueia a tela do computador",
+      "comando": "loginctl lock-session"
+    },
+    {
+      "nome": "status_do_deploy",
+      "descricao": "Mostra o resultado do último deploy do robô",
+      "comando": "cd ~/Projects/Jean/robot_assistant && gh run list --limit 3"
+    },
+    {
+      "nome": "espaco_em_disco",
+      "descricao": "Quanto espaço livre tem a máquina",
+      "comando": "df -h /"
+    }
+  ]
+}

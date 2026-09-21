@@ -3,6 +3,7 @@ import { Inject, Injectable, Logger, type OnModuleDestroy, type OnModuleInit } f
 import { BehaviorSubject, Subject } from 'rxjs';
 import { LIMITS, type ChatMessage, type Face, type MessageVia, type Mode, type Proposal } from '@robo/protocol';
 import { BrainService } from '../brain/brain.service.js';
+import { BracoService } from '../braco/braco.service.js';
 import { CalendarService } from '../calendar/calendar.service.js';
 import { deviceText } from '../calendar/device-text.js';
 import { APP_CONFIG, type AppConfig } from '../config/app-config.js';
@@ -63,6 +64,7 @@ export class ChatService implements OnModuleInit, OnModuleDestroy {
     private readonly store: ChatStore,
     private readonly brain: BrainService,
     private readonly calendar: CalendarService,
+    private readonly braco: BracoService,
   ) {
     this.timeFmt = new Intl.DateTimeFormat('pt-BR', {
       weekday: 'short',
@@ -183,14 +185,17 @@ export class ChatService implements OnModuleInit, OnModuleDestroy {
       let proposal: Proposal | undefined;
       if (reply.proposal) {
         this.cancelPending('substituída por outra proposta');
-        proposal = {
-          id: randomUUID(),
-          kind: 'event',
-          title: reply.proposal.title,
-          start: reply.proposal.start.getTime(),
-          end: reply.proposal.end.getTime(),
-          status: 'pending',
-        };
+        const d = reply.proposal;
+        proposal = d.comando
+          ? { id: randomUUID(), kind: 'command', title: d.title, comando: d.comando, status: 'pending' }
+          : {
+              id: randomUUID(),
+              kind: 'event',
+              title: d.title,
+              start: d.start!.getTime(),
+              end: d.end!.getTime(),
+              status: 'pending',
+            };
       }
       this.setState({ thinking: false });
       return this.robotSay(reply.text, reply.face, 'reply', { proposal, expectsReply: !!proposal, replyVia: via });
@@ -209,16 +214,18 @@ export class ChatService implements OnModuleInit, OnModuleDestroy {
     if (!ok) {
       this.updateProposal(msg, { status: 'cancelled' });
       this.settleWaiting();
-      return this.robotSay('Certo, não marquei.', 'neutral', 'reply');
+      return this.robotSay(p.kind === 'command' ? 'Certo, não faço.' : 'Certo, não marquei.', 'neutral', 'reply');
     }
+
+    if (p.kind === 'command') return this.runApproved(msg, p);
 
     this.setState({ thinking: true });
     try {
-      await this.calendar.createEvent(p.title, new Date(p.start), new Date(p.end));
+      await this.calendar.createEvent(p.title, new Date(p.start!), new Date(p.end!));
       this.updateProposal(msg, { status: 'confirmed' });
       this.setState({ thinking: false });
       this.settleWaiting();
-      return this.robotSay(`Marcado: ${p.title}, ${this.timeFmt.format(p.start)}.`, 'happy', 'reply');
+      return this.robotSay(`Marcado: ${p.title}, ${this.timeFmt.format(p.start!)}.`, 'happy', 'reply');
     } catch (err) {
       const error = (err as Error).message;
       this.log.error(`Falha ao criar evento: ${error}`);
@@ -238,6 +245,24 @@ export class ChatService implements OnModuleInit, OnModuleDestroy {
     if (!since) return all;
     const fresh = all.filter((m) => m.ts >= since);
     return fresh.length ? fresh : all.slice(-1);
+  }
+
+  /**
+   * O dono aprovou no botão: aí sim o comando sai daqui para a máquina dele, e a saída
+   * volta no chat. Sem esse "sim" nada roda — é o que separa um assistente de uma porta aberta.
+   */
+  private async runApproved(msg: ChatMessage, p: Proposal): Promise<ChatMessage | undefined> {
+    this.setState({ thinking: true });
+    const r = await this.braco.rodarComando(p.comando ?? '');
+    this.setState({ thinking: false });
+    this.updateProposal(msg, { status: r.ok ? 'confirmed' : 'failed', error: r.erro });
+    this.settleWaiting();
+    this.log.log(`Comando aprovado (${r.ok ? 'ok' : 'falhou'}): ${p.comando}`);
+
+    if (!r.ok) return this.robotSay(`Não rolou: ${r.erro ?? 'a máquina recusou'}`, 'sad', 'reply');
+    const saida = r.saida.trim();
+    const curta = saida.length > 400 ? `${saida.slice(0, 400)}…` : saida;
+    return this.robotSay(curta ? `Feito.\n\n${curta}` : 'Feito.', 'happy', 'reply');
   }
 
   private cancelPending(reason: string): void {

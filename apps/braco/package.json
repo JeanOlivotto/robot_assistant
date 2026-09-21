@@ -1,0 +1,14 @@
+{
+  "name": "@robo/braco",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "O braço do robô: roda na máquina do dono e executa o que ele pedir.",
+  "scripts": {
+    "start": "node src/main.js",
+    "build": "node --check src/main.js"
+  },
+  "dependencies": {
+    "ws": "^8.21.3"
+  }
+}

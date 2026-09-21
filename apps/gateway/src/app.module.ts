@@ -1,5 +1,7 @@
 import { Module } from '@nestjs/common';
 import { AlertService } from './alerts/alert.service.js';
+import { BracoGateway } from './braco/braco.gateway.js';
+import { BracoService } from './braco/braco.service.js';
 import { BrainService } from './brain/brain.service.js';
 import { CalendarController } from './calendar/calendar.controller.js';
 import { CalendarService } from './calendar/calendar.service.js';
@@ -44,6 +46,8 @@ import { WsRouter } from './ws/ws-router.service.js';
   providers: [
     { provide: APP_CONFIG, useFactory: () => loadConfig() },
     WsRouter,
+    BracoService,
+    BracoGateway,
     CalendarService,
     AlertService,
     LlmService,

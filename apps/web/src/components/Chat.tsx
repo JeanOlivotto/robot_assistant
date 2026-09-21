@@ -22,9 +22,14 @@ function ProposalCard({ p, onConfirm }: { p: Proposal; onConfirm(ok: boolean): v
   return (
     <div className={`proposal proposal--${p.status}`}>
       <div className="proposal-title">{p.title}</div>
-      <div className="proposal-when">
-        {dayLabel(p.start)} · {hhmm(p.start)} – {hhmm(p.end)}
-      </div>
+      {p.kind === 'command' ? (
+        /* Proposta de comando: a linha exata aparece aqui — você aprova o que está vendo. */
+        <code className="proposal-comando">{p.comando}</code>
+      ) : (
+        <div className="proposal-when">
+          {dayLabel(p.start!)} · {hhmm(p.start!)} – {hhmm(p.end!)}
+        </div>
+      )}
       {pending ? (
         <div className="proposal-actions">
           <button
@@ -36,7 +41,7 @@ function ProposalCard({ p, onConfirm }: { p: Proposal; onConfirm(ok: boolean): v
               onConfirm(true);
             }}
           >
-            {sent === true ? 'Marcando…' : 'Confirmar'}
+            {sent === true ? (p.kind === 'command' ? 'Rodando…' : 'Marcando…') : p.kind === 'command' ? 'Pode rodar' : 'Confirmar'}
           </button>
           <button
             type="button"

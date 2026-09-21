@@ -9,13 +9,19 @@ const epochMs = z.number().int().nonnegative();
 
 export const PROPOSAL_STATUS = ['pending', 'confirmed', 'cancelled', 'expired', 'failed'] as const;
 
-/** Algo que o robô quer escrever e precisa do "sim" do dono antes (regra do doc, seção 10). */
+/**
+ * Algo que o robô quer fazer e precisa do "sim" do dono antes (regra do doc, seção 10):
+ * escrever na agenda, ou rodar algo na máquina dele.
+ */
 export const Proposal = z.object({
   id: z.string(),
-  kind: z.literal('event'),
+  kind: z.enum(['event', 'command']),
   title: z.string(),
-  start: epochMs,
-  end: epochMs,
+  /** Só em 'event'. */
+  start: epochMs.optional(),
+  end: epochMs.optional(),
+  /** Só em 'command': a linha que vai rodar, exatamente como foi proposta. */
+  comando: z.string().optional(),
   status: z.enum(PROPOSAL_STATUS),
   error: z.string().optional(),
 });

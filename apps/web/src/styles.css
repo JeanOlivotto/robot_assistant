@@ -1092,3 +1092,18 @@ button {
   flex-shrink: 0;
   gap: 6px;
 }
+
+/* Comando proposto pelo robô: você lê a linha exata antes de aprovar. */
+.proposal-comando {
+  display: block;
+  margin: 6px 0 2px;
+  padding: 9px 11px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  overflow-wrap: anywhere;
+}

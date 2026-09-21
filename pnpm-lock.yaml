@@ -166,6 +166,12 @@ importers:
 
   .: {}
 
+  apps/braco:
+    dependencies:
+      ws:
+        specifier: ^8.21.3
+        version: 8.21.3
+
   apps/gateway:
     dependencies:
       '@date-fns/tz':
