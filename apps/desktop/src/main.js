@@ -5,9 +5,10 @@
  *     de trabalho; cresce para mostrar o balão quando ele fala;
  *   - o PAINEL: o app inteiro (chat, agenda, pendências, reunião) numa janela, aberto pela bolha.
  * O Electron só faz o que o navegador não faz: janela flutuante, bandeja, atalho global
- * (Super+Shift+R — o Super+R do sxhkd gira a área de trabalho), iniciar com o sistema.
+ * (Super+K — o Super+R do sxhkd gira a área de trabalho), e a carinha que segue o monitor em uso,
+ * andando de um para o outro.
  */
-import { execFile } from 'node:child_process';
+import { execFile, spawn } from 'node:child_process';
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -17,7 +18,11 @@ import { BrowserWindow, Menu, Tray, app, globalShortcut, ipcMain, screen, sessio
 const AQUI = dirname(fileURLToPath(import.meta.url));
 const BASE = (process.env.ROBO_URL || 'https://srv1966497.hstgr.cloud').replace(/\/+$/, '');
 const ORIGEM = new URL(BASE).origin;
-const ATALHO = process.env.ROBO_ATALHO || 'Super+Shift+R';
+const ATALHO = process.env.ROBO_ATALHO || 'Super+K';
+/** Velocidade da caminhada entre monitores (px/s) e os limites de duração. */
+const PASSO_PX_S = 1300;
+const ANDAR_MIN_MS = 700;
+const ANDAR_MAX_MS = 2200;
 const ICONE = join(AQUI, '../assets/icone-128.png');
 const ICONE_BANDEJA = join(AQUI, '../assets/icone-22.png');
 
@@ -38,6 +43,9 @@ let bolha = null;
 let canto = null;
 /** Quando o próprio app posicionou a bolha por último (para não confundir com você arrastando). */
 let posicionadoEm = 0;
+/** Onde a carinha fica em relação ao canto de baixo à direita do monitor: vale para todos eles. */
+let margem = { dx: MARGEM, dy: MARGEM };
+let andando = null; // a caminhada em curso (setInterval)
 let painel = null;
 let bandeja = null;
 let modoBolha = 'carinha';
@@ -68,12 +76,26 @@ function salvarEstado(parcial) {
 
 /* ── bolha ───────────────────────────────────────────────────────────── */
 
+/** A carinha no monitor dado, na posição relativa de sempre (margem ao canto de baixo à direita). */
+function cantoNo(area) {
+  const x = area.x + area.width - Math.min(Math.max(margem.dx, 0), area.width - CARINHA.w);
+  const y = area.y + area.height - Math.min(Math.max(margem.dy, 0), area.height - CARINHA.h);
+  return { x, y };
+}
+
+/** Guarda a posição relativa ao monitor onde a carinha está (arrastou para outro canto: vale para todos). */
+function lembrarMargem() {
+  const c = cantoAtual();
+  const area = screen.getDisplayNearestPoint(c).workArea;
+  margem = { dx: area.x + area.width - c.x, dy: area.y + area.height - c.y };
+  salvarEstado({ margem });
+}
+
 /** O canto de baixo à direita da janela da bolha — onde a carinha mora. */
 function cantoInicial() {
-  const salvo = lerEstado().canto;
-  const area = screen.getPrimaryDisplay().workArea;
-  if (salvo && screen.getAllDisplays().some((d) => dentro(salvo, d.workArea))) return salvo;
-  return { x: area.x + area.width - MARGEM, y: area.y + area.height - MARGEM };
+  const salvo = lerEstado().margem;
+  if (salvo && Number.isFinite(salvo.dx) && Number.isFinite(salvo.dy)) margem = salvo;
+  return cantoNo(screen.getPrimaryDisplay().workArea);
 }
 
 function dentro(p, a) {
@@ -129,14 +151,15 @@ function criarBolha() {
     // Moveu com Super+arrastar (o jeito do bspwm): a carinha passa a morar lá. Movimento logo
     // depois de o app posicionar é o bspwm levando a janela para o monitor em foco: desfaz.
     bolha.on('moved', () => {
-      if (Date.now() - posicionadoEm < 2000) {
-        setTimeout(() => aplicarModo(modoBolha), 50);
+      if (andando || Date.now() - posicionadoEm < 2000) {
+        if (!andando) setTimeout(() => aplicarModo(modoBolha), 50);
         return;
       }
       const b = bolha.getBounds();
       canto = { x: b.x + b.width, y: b.y + b.height };
-      salvarEstado({ canto });
+      lembrarMargem();
     });
+    seguirMonitor();
   });
   bolha.on('closed', () => (bolha = null));
 }
@@ -245,6 +268,76 @@ async function ajustarNoBspwm(win, { sticky = false, semBorda = false }) {
     await bspc(['node', id, '-l', 'above']);
   }
   if (semBorda) await bspc(['config', '-n', id, 'border_width', '0']);
+}
+
+/* ── seguir o monitor em uso, andando ────────────────────────────────── */
+
+/** Anda da posição atual até `alvo`, com a carinha pulando e virada para onde vai. */
+function andarAte(alvo) {
+  if (!bolha) return;
+  clearInterval(andando);
+  const de = cantoAtual();
+  const dist = Math.hypot(alvo.x - de.x, alvo.y - de.y);
+  if (dist < 4) return;
+  const dur = Math.min(ANDAR_MAX_MS, Math.max(ANDAR_MIN_MS, (dist / PASSO_PX_S) * 1000));
+  const t0 = Date.now();
+  bolha.webContents.send('andando', alvo.x < de.x ? 'esquerda' : 'direita');
+  andando = setInterval(() => {
+    const p = Math.min(1, (Date.now() - t0) / dur);
+    const e = p < 0.5 ? 2 * p * p : 1 - (-2 * p + 2) ** 2 / 2; // acelera e freia
+    canto = { x: Math.round(de.x + (alvo.x - de.x) * e), y: Math.round(de.y + (alvo.y - de.y) * e) };
+    aplicarModo(modoBolha);
+    if (p >= 1) {
+      clearInterval(andando);
+      andando = null;
+      bolha?.webContents.send('andando', null);
+    }
+  }, 16);
+}
+
+/** O monitor (área útil) que o bspwm diz estar em foco. */
+function monitorFocado() {
+  return new Promise((resolve) => {
+    execFile('bspc', ['query', '-T', '-m', 'focused'], (err, out) => {
+      if (err) return resolve(null);
+      try {
+        const r = JSON.parse(out).rectangle;
+        const d = screen.getAllDisplays().find((x) => x.bounds.x === r.x && x.bounds.y === r.y) ?? screen.getDisplayNearestPoint({ x: r.x + 1, y: r.y + 1 });
+        resolve(d.workArea);
+      } catch {
+        resolve(null);
+      }
+    });
+  });
+}
+
+/**
+ * Acompanha o monitor em uso: o bspwm avisa cada troca de área de trabalho em foco (inclusive
+ * quando o mouse passa para o outro monitor) e a carinha vai andando até lá.
+ */
+function seguirMonitor() {
+  let ultimo = '';
+  let espera = null;
+  const conferir = async () => {
+    const area = await monitorFocado();
+    if (!area || !bolha) return;
+    const chave = `${area.x},${area.y}`;
+    if (chave === ultimo) return;
+    ultimo = chave;
+    if (visivel) andarAte(cantoNo(area));
+    else {
+      canto = cantoNo(area); // escondido: aparece já no monitor certo
+      aplicarModo(modoBolha);
+    }
+  };
+  const sub = spawn('bspc', ['subscribe', 'desktop_focus'], { stdio: ['ignore', 'pipe', 'ignore'] });
+  sub.stdout.on('data', () => {
+    clearTimeout(espera);
+    espera = setTimeout(conferir, 250); // várias trocas seguidas: anda uma vez só
+  });
+  sub.on('error', () => {}); // sem bspwm: fica parada onde está
+  app.on('will-quit', () => sub.kill());
+  void conferir();
 }
 
 /* ── bandeja ─────────────────────────────────────────────────────────── */
@@ -359,7 +452,7 @@ ipcMain.on('bolha:mover', (_e, dx, dy) => {
   canto = { x: Math.round(c.x + dx), y: Math.round(c.y + dy) };
   aplicarModo(modoBolha);
 });
-ipcMain.on('bolha:soltar', () => bolha && salvarEstado({ canto: cantoAtual() }));
+ipcMain.on('bolha:soltar', () => bolha && lembrarMargem());
 ipcMain.on('painel', (_e, acao) => {
   if (acao === 'fechar' || (acao === 'alternar' && painelAberto)) fecharPainel();
   else abrirPainel();

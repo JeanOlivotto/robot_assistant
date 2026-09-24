@@ -1657,3 +1657,43 @@ html.desktop-bolha #root {
   from { opacity: 0; transform: translateY(6px); }
   to { opacity: 1; transform: none; }
 }
+
+/* A carinha andando para o monitor em uso: pula, inclina para onde vai e dá passinhos. */
+.carinha {
+  position: relative;
+}
+.carinha--andando {
+  animation: carinha-pulo 0.32s ease-in-out infinite;
+}
+.carinha--direita {
+  --inclina: 7deg;
+}
+.carinha--esquerda {
+  --inclina: -7deg;
+}
+.carinha__pes {
+  position: absolute;
+  bottom: -5px;
+  left: 50%;
+  display: flex;
+  gap: 14px;
+  transform: translateX(-50%);
+}
+.carinha__pes i {
+  width: 12px;
+  height: 6px;
+  border-radius: 6px;
+  background: var(--accent);
+  animation: carinha-passo 0.32s ease-in-out infinite;
+}
+.carinha__pes i:nth-child(2) {
+  animation-delay: -0.16s;
+}
+@keyframes carinha-pulo {
+  0%, 100% { transform: translateY(0) rotate(var(--inclina, 0deg)); }
+  50% { transform: translateY(-5px) rotate(var(--inclina, 0deg)); }
+}
+@keyframes carinha-passo {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-3px); opacity: 0.6; }
+}

@@ -34,6 +34,7 @@ function lerToken(): string | null {
  */
 export function DesktopBubble() {
   const [token, setToken] = useState(lerToken);
+  const andando = useAndando();
 
   // O login acontece no painel (a outra janela): quando ele grava a senha, a bolha acorda.
   useEffect(() => {
@@ -47,11 +48,20 @@ export function DesktopBubble() {
     };
   }, [token]);
 
-  if (!token) return <Carinha face={null} onClick={() => desktop?.painel('abrir')} dica="Clique para entrar" />;
-  return <BolhaLogada token={token} />;
+  if (!token) return <Carinha face={null} andando={andando} onClick={() => desktop?.painel('abrir')} dica="Clique para entrar" />;
+  return <BolhaLogada token={token} andando={andando} />;
 }
 
-function BolhaLogada({ token }: { token: string }) {
+/** O Electron avisa quando a carinha está andando para o monitor em uso, e para que lado. */
+function useAndando(): 'esquerda' | 'direita' | null {
+  const [lado, setLado] = useState<'esquerda' | 'direita' | null>(null);
+  useEffect(() => {
+    desktop?.aoAndar?.(setLado);
+  }, []);
+  return lado;
+}
+
+function BolhaLogada({ token, andando }: { token: string; andando: 'esquerda' | 'direita' | null }) {
   const robo = useRobo(token);
   const [balao, setBalao] = useState<ChatMessage | null>(null);
   const [resposta, setResposta] = useState('');
@@ -166,7 +176,8 @@ function BolhaLogada({ token }: { token: string }) {
         </div>
       )}
       <Carinha
-        face={robo.conn === 'open' ? face : null}
+        andando={andando}
+        face={robo.conn === 'open' ? (andando ? 'happy' : face) : null}
         onClick={() => (balao ? desktop?.painel('alternar') : setBalao(ultimaDoRobo(robo.messages) ?? null))}
         onDoubleClick={() => desktop?.painel('alternar')}
         dica={balao ? 'Clique para abrir o painel' : 'Clique para ver a última mensagem'}
@@ -183,11 +194,13 @@ function ultimaDoRobo(msgs: ChatMessage[]): ChatMessage | undefined {
 /** O rosto redondo. Arrasta com o botão esquerdo; clique (sem arrastar) chama onClick. */
 function Carinha({
   face,
+  andando,
   onClick,
   onDoubleClick,
   dica,
 }: {
   face: ChatMessage['face'] | null;
+  andando: 'esquerda' | 'direita' | null;
   onClick(): void;
   onDoubleClick?(): void;
   dica: string;
@@ -221,7 +234,7 @@ function Carinha({
   return (
     <button
       type="button"
-      className="carinha"
+      className={`carinha ${andando ? `carinha--andando carinha--${andando}` : ''}`}
       title={dica}
       aria-label={dica}
       onPointerDown={down}
@@ -230,6 +243,12 @@ function Carinha({
       onDoubleClick={onDoubleClick}
     >
       <RobotFace face={face ?? null} size={70} />
+      {andando && (
+        <span className="carinha__pes" aria-hidden="true">
+          <i />
+          <i />
+        </span>
+      )}
     </button>
   );
 }

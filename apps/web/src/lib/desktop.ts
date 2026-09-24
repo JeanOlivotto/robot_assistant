@@ -22,6 +22,8 @@ interface RoboDesktopBridge {
   /** O Electron avisa (menu da bandeja) que a voz foi ligada/desligada. */
   aoMudarVoz(cb: (ligada: boolean) => void): void;
   vozMudou(ligada: boolean): void;
+  /** Andando para outro monitor (acompanha o monitor em uso), ou parou (null). */
+  aoAndar?(cb: (lado: 'esquerda' | 'direita' | null) => void): void;
 }
 
 export const desktop: RoboDesktopBridge | null =

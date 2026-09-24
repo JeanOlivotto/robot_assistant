@@ -11,4 +11,6 @@ contextBridge.exposeInMainWorld('roboDesktop', {
   painel: (acao) => ipcRenderer.send('painel', acao),
   vozMudou: (ligada) => ipcRenderer.send('voz', ligada),
   aoMudarVoz: (cb) => ipcRenderer.on('voz', (_e, ligada) => cb(!!ligada)),
+  /** A carinha está andando para outro monitor ('esquerda' | 'direita'), ou parou (null). */
+  aoAndar: (cb) => ipcRenderer.on('andando', (_e, lado) => cb(lado === 'esquerda' || lado === 'direita' ? lado : null)),
 });
