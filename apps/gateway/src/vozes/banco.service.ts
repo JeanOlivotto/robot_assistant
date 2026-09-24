@@ -121,6 +121,12 @@ export class BancoVozesService {
     return v;
   }
 
+  /** "Esquece a minha voz" — pelo nome. */
+  removerPorNome(nome: string): boolean {
+    const v = this.vozes.find((x) => norm(x.nome) === norm(nome));
+    return v ? this.remover(v.id) : false;
+  }
+
   remover(id: string): boolean {
     const antes = this.vozes.length;
     this.vozes = this.vozes.filter((v) => v.id !== id);

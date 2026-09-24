@@ -66,3 +66,13 @@ describe('BancoVozesService: voz pendente do chat', () => {
     expect(b.salvarPendente('Outro')).toBeNull(); // já foi usada
   });
 });
+
+describe('BancoVozesService: esquecer', () => {
+  it('"esquece a minha voz" apaga pelo nome, com ou sem acento', () => {
+    const b = new BancoVozesService(cfg());
+    b.cadastrar('Fábio', FABIO);
+    expect(b.removerPorNome('fabio')).toBe(true);
+    expect(b.identificar(FABIO)).toBeNull();
+    expect(b.removerPorNome('Fábio')).toBe(false);
+  });
+});

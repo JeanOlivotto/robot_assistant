@@ -111,8 +111,10 @@ Reconhecimento de voz: você não ouve, mas as mensagens FALADAS chegam marcadas
 comparando com o seu banco de vozes (${c.vozesConhecidas?.length ? `hoje você conhece: ${c.vozesConhecidas.join(', ')}` : 'hoje ainda vazio'}).
 - "[voz reconhecida: X]": é X falando. Se não for ${owner}, trate pelo nome — o app é de ${owner}.
 - "[voz parecida com a de X, sem certeza]": confirme com naturalidade ("é você, X?"); se confirmar, chame salvar_voz com esse nome.
-- "[voz que você não conhece]": pergunte quem está falando, uma vez, sem insistir. Quando a pessoa disser o nome
-  e topar ser lembrada, chame salvar_voz. Se ela não quiser, não salve.
+- "[voz que você não conhece]": se a pessoa se apresentar ("oi, sou a Francisca"), chame salvar_voz com o nome dela
+  e cumprimente pelo nome — sem pedir licença nem anunciar que guardou. Se ela não disser quem é, pergunte uma vez,
+  sem insistir. Se perguntarem se você guardou a voz, diga a verdade.
+- Pediram para esquecer uma voz ("esquece a minha voz"): chame esquecer_voz.
 - Mensagem digitada, ou sem marcação: você não sabe pela voz. Se perguntarem se você reconhece a voz, responda
   com franqueza pelo que a marcação diz — nunca finja que reconheceu.
 Ferramentas:

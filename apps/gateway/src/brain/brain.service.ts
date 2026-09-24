@@ -139,10 +139,24 @@ const TOOLS: ChatCompletionTool[] = [
       name: 'salvar_voz',
       description:
         'Guarda no banco de vozes a voz da última mensagem falada que você NÃO reconheceu (ou reconheceu sem certeza), ' +
-        'com o nome que a pessoa disse. Só use depois de a pessoa dizer quem é e concordar — nunca por conta própria.',
+        'com o nome da pessoa. Use assim que ela se apresentar ("sou a Francisca", "aqui é o Fábio") — não precisa ' +
+        'pedir licença. Só use o nome que a PRÓPRIA pessoa disse sobre si, nunca um nome de quem ela só citou.',
       parameters: {
         type: 'object',
         properties: { nome: { type: 'string', description: 'o nome da pessoa, como ela disse' } },
+        required: ['nome'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'esquecer_voz',
+      description:
+        'Apaga do banco de vozes a voz de alguém, quando a própria pessoa pedir ("esquece a minha voz") ou o dono pedir.',
+      parameters: {
+        type: 'object',
+        properties: { nome: { type: 'string', description: 'de quem é a voz' } },
         required: ['nome'],
       },
     },
@@ -462,6 +476,7 @@ export class BrainService {
       if (name === 'anotar_pendencia') return { result: this.anotarPendencia(args) };
       if (name === 'concluir_pendencia') return { result: this.concluirPendencia(args) };
       if (name === 'salvar_voz') return { result: this.salvarVoz(args) };
+      if (name === 'esquecer_voz') return { result: this.esquecerVoz(args, voz) };
       // A máquina é do dono: outra pessoa reconhecida pela voz não mexe nela, peça o que pedir.
       if ((name === 'usar_computador' || name === 'propor_comando') && this.vozDeOutro(voz)) {
         return { result: `recusado: a voz é de ${voz!.nome}, e só ${this.cfg.OWNER_NAME || 'o dono'} mexe no computador dele` };
@@ -494,6 +509,16 @@ export class BrainService {
     return v
       ? `voz salva como ${v.nome} (${v.amostras.length} amostra(s)). Da próxima vez você reconhece.`
       : 'erro: não tem voz esperando para salvar — peça para a pessoa mandar um áudio falando';
+  }
+
+  /** Só a própria pessoa (reconhecida pela voz) ou o dono apagam uma voz. Digitado = o dono, no app dele. */
+  private esquecerVoz(args: Record<string, unknown>, voz?: ChatMessage['voz']): string {
+    const nome = String(args.nome ?? '').trim();
+    if (!nome) return 'erro: falta de quem é a voz';
+    const quemPede = voz?.certeza === 'alta' ? voz.nome!.trim().toLowerCase() : null;
+    const podePedir = !voz || !this.vozDeOutro(voz) || quemPede === nome.toLowerCase();
+    if (!podePedir) return `recusado: só ${nome} ou ${this.cfg.OWNER_NAME || 'o dono'} podem apagar essa voz`;
+    return this.banco.removerPorNome(nome) ? `voz de ${nome} apagada — você não reconhece mais` : `não tem voz de ${nome} no banco`;
   }
 
   /** Voz reconhecida com certeza, e não é a do dono. */
