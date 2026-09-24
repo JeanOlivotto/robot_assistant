@@ -1206,3 +1206,129 @@ button {
   object-fit: contain;
   border-radius: 8px;
 }
+
+/* ── Ata: leitura no celular ───────────────────────────────────── */
+.ata__meta {
+  margin: 4px 0 0;
+  font-size: 13px;
+  color: var(--dim);
+}
+.ata__bullets {
+  margin: 0;
+  padding-left: 18px;
+  line-height: 1.5;
+}
+.ata__bullets li {
+  margin: 5px 0;
+}
+.ata__tarefas {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+.tarefa {
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: var(--surface-2);
+}
+.tarefa__texto {
+  margin: 0;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+.tarefa__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  margin: 6px 0 0;
+  font-size: 13px;
+  color: var(--dim);
+}
+.tarefa__acoes {
+  display: flex;
+  gap: 18px;
+  margin-top: 8px;
+}
+.tarefa__ok {
+  font-size: 13px;
+  color: var(--ok);
+}
+.link-btn {
+  padding: 4px 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--accent);
+  cursor: pointer;
+}
+.link-btn:disabled {
+  color: var(--dim);
+}
+.ata__completa-btn {
+  display: block;
+  width: 100%;
+  margin-top: 18px;
+  padding: 11px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: none;
+  font: inherit;
+  font-size: 15px;
+  color: var(--text);
+  cursor: pointer;
+}
+.transcricao {
+  margin-top: 12px;
+  display: grid;
+  gap: 12px;
+}
+.transcricao--corrida {
+  display: block;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  color: var(--text);
+}
+.fala p {
+  margin: 2px 0 0;
+  line-height: 1.5;
+}
+.fala__quem {
+  font-size: 13px;
+  font-weight: 700;
+}
+.fala__hora {
+  font-weight: 400;
+  color: var(--dim);
+  margin-left: 4px;
+}
+.fala__quem--1 { color: #5ae6f0; }
+.fala__quem--2 { color: #ffb45a; }
+.fala__quem--3 { color: #b48cff; }
+.fala__quem--4 { color: #7ddc6e; }
+.fala__quem--5 { color: #ff7aa8; }
+.fala__quem--6 { color: #f0dc5a; }
+.meeting__link-linha {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.meeting__link-linha .meeting__link {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.meeting__link-linha .mini-btn {
+  flex: none;
+}
+.meeting__link-linha {
+  margin-top: 6px;
+}
+.meeting__link-linha .meeting__link {
+  margin-top: 0;
+}

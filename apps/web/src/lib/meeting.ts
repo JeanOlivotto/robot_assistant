@@ -8,21 +8,38 @@ const SEGMENT_MS = 25_000;
 export interface AtaAcao {
   texto: string;
   responsavel?: string;
+  prazo?: string;
 }
 export interface Ata {
   resumo: string;
+  pontos?: string[];
   decisoes: string[];
   acoes: AtaAcao[];
+}
+/** Um trecho contínuo de uma pessoa só — a reunião completa, separada por voz. */
+export interface Fala {
+  pessoa: number;
+  inicio: number;
+  fim: number;
+  texto: string;
 }
 export interface Meeting {
   id: string;
   titulo: string;
   startedAt: number;
   endedAt?: number;
+  /** processando = a ata ainda está saindo (o robô avisa no chat quando ficar pronta). */
+  status?: 'gravando' | 'processando' | 'pronta';
   segments: number;
   seconds: number;
   chars: number;
+  pessoas?: number;
   ata?: Ata;
+}
+/** A reunião inteira, com a transcrição — só quando você pede para ver. */
+export interface MeetingFull extends Meeting {
+  transcript: string;
+  falas?: Fala[];
 }
 
 async function api<T>(token: string, path: string, init?: RequestInit): Promise<T> {
@@ -45,6 +62,7 @@ export const sendSegment = (token: string, id: string, blob: Blob) =>
   });
 export const stopMeeting = (token: string, id: string) => api<Meeting>(token, `/${id}/stop`, { method: 'POST' });
 export const listMeetings = (token: string) => api<Meeting[]>(token, '/list');
+export const getMeeting = (token: string, id: string) => api<MeetingFull>(token, `/${id}`);
 export const apagarMeeting = (token: string, id: string) => api<{ ok: true }>(token, `/${id}`, { method: 'DELETE' });
 
 /** Cria o link para outra pessoa gravar uma reunião no seu lugar (vale 12 h). */

@@ -22,6 +22,8 @@ services:
       DATA_DIR: data
       GOOGLE_SA_KEY_FILE: secrets/google-sa.json
       GIT_SHA: ${GIT_SHA:-manual}
+      # Separação de vozes das reuniões (container abaixo). Fora do ar = ata sem os nomes das vozes.
+      VOZES_URL: http://vozes:8090
     ports:
       # Só no loopback: quem fala com a internet é o nginx. A VPS não tem firewall.
       - '127.0.0.1:8080:8080'
@@ -35,6 +37,23 @@ services:
       options:
         max-size: '10m'
         max-file: '3'
+
+  # Quem falou quando nas reuniões (apps/vozes). Sem porta publicada: só o gateway alcança,
+  # pela rede interna do compose. Container próprio porque é pesado (≈450 MB processando) e
+  # precisa de Debian — se travar, o chat e o robô seguem no ar.
+  vozes:
+    build:
+      context: apps/vozes
+    image: robo-vozes:latest
+    container_name: robo-vozes
+    restart: unless-stopped
+    mem_limit: 1500m
+    cpus: 2
+    logging:
+      driver: json-file
+      options:
+        max-size: '5m'
+        max-file: '2'
 
 volumes:
   robo-data:

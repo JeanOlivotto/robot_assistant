@@ -23,7 +23,7 @@ const InviteBody = z.object({ titulo: z.string().max(120).default('') });
 
 /** Uma reunião sem a transcrição inteira, para as listagens não ficarem pesadas. */
 function slim(m: Meeting) {
-  const { transcript, ...rest } = m;
+  const { transcript, partes, falas, ...rest } = m;
   return { ...rest, chars: transcript.length };
 }
 
@@ -89,10 +89,11 @@ export class MeetingController {
   @HttpCode(200)
   async stop(@Param('id') id: string, @Req() req: GuestRequest) {
     try {
-      const m = await this.meetings.stop(id);
+      // Responde na hora: a ata sai em segundo plano e o robô avisa no chat quando ficar pronta.
+      const m = this.meetings.finish(id);
       // O convidado grava, você lê: a ata dele não volta pela resposta.
       if (req.guestToken) return { id: m.id, titulo: m.titulo, entregue: true };
-      return m;
+      return slim(m);
     } catch (err) {
       throw toHttp(err);
     }

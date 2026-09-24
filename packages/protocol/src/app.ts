@@ -26,7 +26,7 @@ export const Proposal = z.object({
   error: z.string().optional(),
 });
 
-export const MESSAGE_KINDS = ['reply', 'proactive', 'reminder'] as const;
+export const MESSAGE_KINDS = ['reply', 'proactive', 'reminder', 'meeting'] as const;
 
 /** Por onde a mensagem do dono chegou. */
 export const MESSAGE_VIA = ['text', 'voice', 'siri'] as const;

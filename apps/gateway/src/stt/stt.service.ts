@@ -16,6 +16,20 @@ const SAMPLE_RATE = 16000;
 const CHUNK_BYTES = SAMPLE_RATE * 2 * 28;
 export const MAX_VOICE_SECONDS = 120;
 
+/** Frase com horário (segundos a partir do começo do áudio). */
+export interface TranscriptSegment {
+  start: number;
+  end: number;
+  text: string;
+}
+
+export interface Transcript {
+  text: string;
+  seconds: number;
+  /** Só quando o provedor devolve (Groq, verbose_json). */
+  segments?: TranscriptSegment[];
+}
+
 interface RecognizeResponse {
   results: { alternatives: { transcript: string }[] }[];
 }
@@ -84,7 +98,7 @@ export class SttService {
     return this.client !== null || this.groq !== null;
   }
 
-  async transcribe(audio: Buffer): Promise<{ text: string; seconds: number }> {
+  async transcribe(audio: Buffer): Promise<Transcript> {
     if (this.groq) return this.transcribeGroq(audio);
     if (!this.client) throw new SttError('transcrição desligada no servidor', 503);
     const pcm = await this.toPcm(audio);
@@ -123,7 +137,7 @@ export class SttService {
   }
 
   /** Groq: converte para FLAC 16 kHz mono e manda de uma vez só (bem mais rápido que a NVIDIA). */
-  private async transcribeGroq(audio: Buffer): Promise<{ text: string; seconds: number }> {
+  private async transcribeGroq(audio: Buffer): Promise<Transcript> {
     const g = this.groq!;
     const flac = await this.ffmpeg(audio, ['-ac', '1', '-ar', String(SAMPLE_RATE), '-f', 'flac']);
 
@@ -149,12 +163,16 @@ export class SttService {
       const detail = (await res.text().catch(() => '')).slice(0, 160);
       throw new SttError(`transcrição falhou (${res.status}): ${detail}`, res.status === 429 ? 429 : 502);
     }
-    const data = (await res.json()) as { text?: string; duration?: number };
+    const data = (await res.json()) as { text?: string; duration?: number; segments?: { start: number; end: number; text: string }[] };
     const text = (data.text ?? '').replace(/\s+/g, ' ').trim();
     const seconds = data.duration ?? 0;
     this.log.log(`Transcrito ${seconds ? `${seconds.toFixed(1)} s de ` : ''}áudio em ${Date.now() - started} ms (Groq)`);
     if (!text) throw new SttError('não entendi nada nesse áudio', 422);
-    return { text, seconds };
+    // Frases com horário: é o que casa a transcrição com "quem falou quando" na reunião.
+    const segments = (data.segments ?? [])
+      .map((s) => ({ start: s.start, end: s.end, text: s.text.replace(/\s+/g, ' ').trim() }))
+      .filter((s) => s.text);
+    return { text, seconds, segments };
   }
 
   /** Roda o ffmpeg com a saída pedida e devolve os bytes. Arquivos temporários (MP4 não faz stream). */
@@ -180,7 +198,7 @@ export class SttService {
   }
 
   /** Qualquer áudio (AAC do iPhone, Opus do Chrome, WAV) → PCM 16 kHz mono 16 bits. */
-  private async toPcm(audio: Buffer): Promise<Buffer> {
+  async toPcm(audio: Buffer): Promise<Buffer> {
     const wav = pcmFromWav(audio);
     if (wav) return wav;
 

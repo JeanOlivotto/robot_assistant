@@ -92,6 +92,9 @@ const Schema = z.object({
   SPOTIFY_REDIRECT_URI: z.string().default('https://srv1966497.hstgr.cloud/api/spotify/callback'),
   SPOTIFY_POLL_SEC: z.coerce.number().int().min(3).max(60).default(5),
 
+  /** Serviço de vozes (apps/vozes), que separa quem falou quando na reunião. Vazio = desligado. */
+  VOZES_URL: z.string().default(''),
+
   /** Senha do braço (o agente que roda na máquina do dono). Vazio = braço desligado. */
   BRACO_TOKEN: z.string().default(''),
 

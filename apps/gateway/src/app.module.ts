@@ -3,6 +3,7 @@ import { AlertService } from './alerts/alert.service.js';
 import { PhotoController } from './photos/photo.controller.js';
 import { PhotoService } from './photos/photo.service.js';
 import { VisionService } from './vision/vision.service.js';
+import { VozesService } from './vozes/vozes.service.js';
 import { PresenceService } from './presence/presence.service.js';
 import { BracoGateway } from './braco/braco.gateway.js';
 import { BracoService } from './braco/braco.service.js';
@@ -75,6 +76,7 @@ import { WsRouter } from './ws/ws-router.service.js';
     TaskService,
     PhotoService,
     VisionService,
+    VozesService,
     PresenceService,
     SpotifyService,
     FirmwareService,

@@ -1,58 +1,92 @@
 import { randomUUID } from 'node:crypto';
 import { mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { Inject, Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger, type OnModuleInit } from '@nestjs/common';
+import { ChatService } from '../chat/chat.service.js';
 import { APP_CONFIG, type AppConfig } from '../config/app-config.js';
 import { rootPath } from '../config/paths.js';
 import { LlmService } from '../llm/llm.service.js';
-import { PushService } from '../push/push.service.js';
 import { TaskService } from '../tasks/task.service.js';
-import { SttError, SttService } from '../stt/stt.service.js';
+import { SttError, SttService, type TranscriptSegment } from '../stt/stt.service.js';
+import { VozesService, type Turno } from '../vozes/vozes.service.js';
 
-/** Uma ação/pendência da reunião; responsável quando dá para identificar. */
+/** Uma tarefa da reunião; responsável e prazo quando dá para identificar. */
 export interface AtaAcao {
   texto: string;
   responsavel?: string;
+  prazo?: string;
 }
 export interface Ata {
   resumo: string;
+  /** Os assuntos que importaram, além do que foi decidido. */
+  pontos?: string[];
   decisoes: string[];
   acoes: AtaAcao[];
+}
+/** Um trecho contínuo de uma pessoa só — a "reunião completa", separada por voz. */
+export interface Fala {
+  pessoa: number;
+  inicio: number;
+  fim: number;
+  texto: string;
 }
 export interface Meeting {
   id: string;
   titulo: string;
   startedAt: number;
   endedAt?: number;
+  /** gravando → processando (vozes + ata) → pronta. Atas antigas não têm o campo: estão prontas. */
+  status?: 'gravando' | 'processando' | 'pronta';
   segments: number;
   transcript: string;
   seconds: number;
+  /** Trechos de áudio recebidos, inclusive os em silêncio (contam no relógio da reunião). */
+  trechos?: number;
+  /** Frases com horário, por trecho de áudio — casam com "quem falou quando". */
+  partes?: { i: number; frases: TranscriptSegment[] }[];
+  falas?: Fala[];
+  pessoas?: number;
   ata?: Ata;
 }
 
 /** Quanto do transcript mandamos ao LLM (o modelo tem contexto grande; isto é só um teto de segurança). */
 const TRANSCRIPT_LIMIT = 200_000;
 /* O gpt-oss raciocina antes de escrever e isso conta no limite: com 1500 a ata de reunião longa saía cortada. */
-const ATA_MAX_TOKENS = 6000;
+const ATA_MAX_TOKENS = 8000;
+const SAMPLE_RATE = 16000;
 
 /**
- * Modo reunião: grava em pedaços pelo app, transcreve cada um (Groq) e, ao parar,
- * o LLM monta a ata (resumo, decisões, ações). Avisa "Ata pronta" no celular.
+ * Modo reunião: grava em pedaços pelo app, transcreve cada um (Groq) e guarda o áudio. Ao encerrar,
+ * o serviço de vozes separa quem falou quando, o LLM monta a ata, e o robô avisa no chat — nos dois
+ * momentos: quando a reunião acaba e quando a ata fica pronta. O áudio é apagado no fim.
  */
 @Injectable()
-export class MeetingService {
+export class MeetingService implements OnModuleInit {
   private readonly log = new Logger(MeetingService.name);
   private readonly dir: string;
   private readonly active = new Map<string, Meeting>();
+  /** Atas sendo montadas agora (a separação de vozes de 1 h leva minutos). */
+  private readonly working = new Map<string, Promise<Meeting>>();
 
   constructor(
     @Inject(APP_CONFIG) private readonly cfg: AppConfig,
     private readonly stt: SttService,
     private readonly llm: LlmService,
-    private readonly push: PushService,
     private readonly tasks: TaskService,
+    private readonly vozes: VozesService,
+    private readonly chat: ChatService,
   ) {
     this.dir = rootPath(`${cfg.DATA_DIR}/meetings`);
+  }
+
+  /** O servidor reiniciou (deploy) no meio de uma ata: retoma de onde parou. */
+  onModuleInit(): void {
+    for (const m of this.all()) {
+      if (m.status === 'processando') {
+        this.log.log(`Retomando a ata de "${m.titulo}" (${m.id})`);
+        this.process(m);
+      }
+    }
   }
 
   get ready(): boolean {
@@ -64,9 +98,12 @@ export class MeetingService {
       id: randomUUID(),
       titulo: (titulo ?? '').trim() || 'Reunião',
       startedAt: Date.now(),
+      status: 'gravando',
       segments: 0,
       transcript: '',
       seconds: 0,
+      trechos: 0,
+      partes: [],
     };
     this.active.set(m.id, m);
     this.save(m);
@@ -78,63 +115,71 @@ export class MeetingService {
     const m = this.active.get(id) ?? this.load(id);
     if (!m) throw new MeetingError('reunião não encontrada', 404);
     if (m.endedAt) throw new MeetingError('reunião já encerrada', 409);
-    // Trecho em silêncio é normal numa reunião: não derruba a gravação, só não acrescenta nada.
-    let text = '';
-    let seconds = 0;
+
+    // O áudio fica até a ata sair: é dele que o serviço de vozes tira quem falou quando.
+    const i = m.trechos ?? 0;
+    m.trechos = i + 1;
+    this.saveAudio(m.id, i, audio);
+
+    // Trecho em silêncio é normal numa reunião: não derruba a gravação, só não acrescenta texto.
     try {
-      ({ text, seconds } = await this.stt.transcribe(audio));
+      const { text, seconds, segments } = await this.stt.transcribe(audio);
+      if (text) {
+        m.transcript = m.transcript ? `${m.transcript} ${text}` : text;
+        m.segments += 1;
+        m.seconds += seconds;
+        (m.partes ??= []).push({ i, frases: segments?.length ? segments : [{ start: 0, end: seconds, text }] });
+      }
     } catch (err) {
       if (!(err instanceof SttError && err.status === 422)) throw err;
     }
-    if (text) {
-      m.transcript = m.transcript ? `${m.transcript} ${text}` : text;
-      m.segments += 1;
-      m.seconds += seconds;
-      this.active.set(m.id, m);
-      // Grava a cada trecho: um deploy no meio da reunião não pode levar a transcrição junto.
-      this.save(m);
-    }
+    this.active.set(m.id, m);
+    // Grava a cada trecho: um deploy no meio da reunião não pode levar a transcrição junto.
+    this.save(m);
     return { seconds: m.seconds, chars: m.transcript.length };
   }
 
-  async stop(id: string): Promise<Meeting> {
+  /**
+   * Encerra na hora e monta a ata em segundo plano (separar as vozes de uma reunião longa leva
+   * minutos — o app não fica esperando). O robô avisa no chat quando a ata ficar pronta.
+   */
+  finish(id: string): Meeting {
     const m = this.active.get(id) ?? this.load(id);
     if (!m) throw new MeetingError('reunião não encontrada', 404);
-    // Clicou duas vezes, ou o app tentou de novo: a ata já existe, não refaz nem cria pendência repetida.
-    if (m.endedAt && m.ata) return m;
-    m.endedAt = Date.now();
-    this.save(m);
-    if (!m.transcript.trim()) {
-      m.ata = { resumo: 'A reunião não teve fala suficiente para uma ata.', decisoes: [], acoes: [] };
-    } else {
-      try {
-        m.ata = await this.buildAta(m);
-      } catch (err) {
-        // A transcrição fica guardada mesmo sem ata — perder a reunião inteira por causa do LLM não dá.
-        this.log.error(`Falha ao gerar a ata (${m.id}): ${(err as Error).message}`);
-        m.ata = { resumo: `Não consegui gerar a ata agora (${(err as Error).message}). A transcrição ficou guardada.`, decisoes: [], acoes: [] };
-      }
-    }
-    this.save(m);
+    // Clicou duas vezes, ou o app tentou de novo: não refaz a ata nem cria pendência repetida.
+    if (m.endedAt && (m.ata || this.working.has(m.id))) return m;
+    m.endedAt ??= Date.now();
+    m.status = 'processando';
     this.active.delete(m.id);
-    // As ações da ata viram pendências: é o que o robô vai cobrar depois.
-    for (const a of m.ata.acoes) this.tasks.add(a.texto, { pessoa: a.responsavel, origem: 'ata', meetingId: m.id });
-    this.log.log(`Ata pronta (${m.id}): ${m.ata.decisoes.length} decisão(ões), ${m.ata.acoes.length} ação(ões)`);
-    void this.push.notify({
-      title: 'Ata pronta',
-      body: `${m.titulo}: ${m.ata.decisoes.length} decisão(ões) e ${m.ata.acoes.length} ação(ões).`,
-      tag: `ata-${m.id}`,
-      url: '/',
-    });
+    this.save(m);
+    const min = Math.max(1, Math.round((m.endedAt - m.startedAt) / 60_000));
+    this.chat.robotSay(
+      `Reunião "${m.titulo}" encerrada (${min} min). Estou montando a ata — te aviso quando ficar pronta.`,
+      'thinking',
+      'meeting',
+    );
+    this.process(m);
     return m;
+  }
+
+  /** Encerra e espera a ata ficar pronta. */
+  async stop(id: string): Promise<Meeting> {
+    const m = this.finish(id);
+    return this.working.get(m.id) ?? m;
   }
 
   get(id: string): Meeting | null {
     return this.active.get(id) ?? this.load(id);
   }
 
-  /** Reuniões já encerradas, mais recentes primeiro. */
+  /** Reuniões encerradas (prontas ou com a ata saindo), mais recentes primeiro. */
   list(): Meeting[] {
+    return this.all()
+      .filter((m) => !!m.endedAt)
+      .sort((a, b) => b.startedAt - a.startedAt);
+  }
+
+  private all(): Meeting[] {
     let files: string[] = [];
     try {
       files = readdirSync(this.dir).filter((f) => f.endsWith('.json'));
@@ -149,18 +194,115 @@ export class MeetingService {
           return null;
         }
       })
-      .filter((m): m is Meeting => m !== null && !!m.endedAt)
-      .sort((a, b) => b.startedAt - a.startedAt);
+      .filter((m): m is Meeting => m !== null);
+  }
+
+  private process(m: Meeting): void {
+    if (this.working.has(m.id)) return;
+    const job = this.buildEverything(m).finally(() => this.working.delete(m.id));
+    this.working.set(m.id, job);
+  }
+
+  private async buildEverything(m: Meeting): Promise<Meeting> {
+    if (m.transcript.trim()) {
+      const falas = await this.falasComVozes(m).catch((err: Error) => {
+        this.log.warn(`Não deu para separar as vozes (${m.id}): ${err.message}`);
+        return null;
+      });
+      if (falas?.length) {
+        m.falas = falas;
+        m.pessoas = new Set(falas.map((f) => f.pessoa)).size;
+      }
+      try {
+        m.ata = await this.buildAta(m);
+      } catch (err) {
+        // A transcrição fica guardada mesmo sem ata — perder a reunião inteira por causa do LLM não dá.
+        this.log.error(`Falha ao gerar a ata (${m.id}): ${(err as Error).message}`);
+        m.ata = { resumo: `Não consegui gerar a ata agora (${(err as Error).message}). A transcrição ficou guardada.`, decisoes: [], acoes: [] };
+      }
+    } else {
+      m.ata = { resumo: 'A reunião não teve fala suficiente para uma ata.', decisoes: [], acoes: [] };
+    }
+    m.status = 'pronta';
+    this.save(m);
+    this.dropAudio(m.id);
+
+    // As tarefas da ata viram pendências: é o que o robô vai cobrar depois.
+    for (const a of m.ata.acoes) this.tasks.add(a.texto, { pessoa: a.responsavel, origem: 'ata', meetingId: m.id });
+    const ata = m.ata;
+    const partes = [
+      ata.decisoes.length ? `${ata.decisoes.length} decisão(ões)` : '',
+      ata.acoes.length ? `${ata.acoes.length} tarefa(s)` : '',
+      m.pessoas ? `${m.pessoas} voz(es)` : '',
+    ].filter(Boolean);
+    this.chat.robotSay(
+      `A ata de "${m.titulo}" ficou pronta${partes.length ? ` — ${partes.join(', ')}` : ''}. Está na aba Reunião.`,
+      'happy',
+      'meeting',
+    );
+    this.log.log(`Ata pronta (${m.id}): ${ata.decisoes.length} decisão(ões), ${ata.acoes.length} ação(ões), ${m.pessoas ?? 0} voz(es)`);
+    return m;
+  }
+
+  /**
+   * Casa a transcrição com os turnos de fala: o áudio de todos os trechos vira um só, o serviço
+   * de vozes diz quem falou quando, e cada frase vai para quem mais falou naquele intervalo.
+   */
+  private async falasComVozes(m: Meeting): Promise<Fala[] | null> {
+    if (!this.vozes.enabled || !m.partes?.length || !m.trechos) return null;
+    const pcms: Buffer[] = [];
+    const offset: number[] = [];
+    let total = 0;
+    for (let i = 0; i < m.trechos; i++) {
+      offset[i] = total / (SAMPLE_RATE * 2);
+      const audio = this.loadAudio(m.id, i);
+      if (!audio) continue;
+      const pcm = await this.stt.toPcm(audio).catch(() => Buffer.alloc(0));
+      pcms.push(pcm);
+      total += pcm.length;
+    }
+    if (!total) return null;
+    const r = await this.vozes.diarizar(Buffer.concat(pcms, total));
+    if (!r?.turnos.length) return null;
+
+    const falas: Fala[] = [];
+    for (const parte of m.partes) {
+      for (const f of parte.frases) {
+        const inicio = offset[parte.i]! + f.start;
+        const fim = offset[parte.i]! + f.end;
+        const pessoa = quemFalou(r.turnos, inicio, fim);
+        const ultima = falas.at(-1);
+        if (ultima && ultima.pessoa === pessoa && inicio - ultima.fim < 3) {
+          ultima.texto = `${ultima.texto} ${f.text}`;
+          ultima.fim = fim;
+        } else {
+          falas.push({ pessoa, inicio: +inicio.toFixed(1), fim: +fim.toFixed(1), texto: f.text });
+        }
+      }
+    }
+    return falas;
   }
 
   private async buildAta(m: Meeting): Promise<Ata> {
-    const transcript = m.transcript.slice(0, TRANSCRIPT_LIMIT);
+    const comVozes = !!m.falas?.length;
+    const transcript = (comVozes ? m.falas!.map((f) => `Pessoa ${f.pessoa}: ${f.texto}`).join('\n') : m.transcript).slice(
+      0,
+      TRANSCRIPT_LIMIT,
+    );
     const system =
       'Você é um secretário que escreve a ata de uma reunião a partir da transcrição (português do Brasil). ' +
       'Responda SOMENTE com JSON válido, sem cercas de código, neste formato: ' +
-      '{"resumo": string, "decisoes": string[], "acoes": [{"texto": string, "responsavel"?: string}]}. ' +
-      'resumo: 2 a 5 frases dos pontos principais. decisoes: o que ficou decidido (frases curtas; [] se nada claro). ' +
-      'acoes: tarefas/pendências, cada uma com "responsavel" só se a pessoa for citada. Não invente nada que não esteja na transcrição.';
+      '{"resumo": string, "pontos": string[], "decisoes": string[], "acoes": [{"texto": string, "responsavel"?: string, "prazo"?: string}]}. ' +
+      'resumo: 3 a 6 frases contando o que a reunião foi, o que se discutiu e onde chegou — quem não estava deve entender. ' +
+      'pontos: os assuntos e informações importantes que apareceram (números, problemas, riscos, contexto), frases curtas. ' +
+      'decisoes: só o que ficou DECIDIDO ([] se nada claro). ' +
+      'acoes: as tarefas combinadas — "responsavel" só se der para saber quem, "prazo" só se for dito (ex.: "sexta", "até dia 30"). ' +
+      (comVozes
+        ? 'A transcrição vem separada por voz ("Pessoa 1", "Pessoa 2"…), na ordem em que cada uma falou pela primeira vez. ' +
+          'Se alguém for chamado pelo nome e der para saber qual Pessoa é, use o nome; senão, use "Pessoa N". A separação ' +
+          'por voz pode errar em trechos curtos — prefira o sentido da conversa quando os dois brigarem. '
+        : '') +
+      'Não invente nada que não esteja na transcrição.';
     const msg = await this.llm.complete(
       [
         { role: 'system', content: system },
@@ -177,17 +319,23 @@ export class MeetingService {
     const clean = raw.replace(/```json/gi, '').replace(/```/g, '').trim();
     const start = clean.indexOf('{');
     const end = clean.lastIndexOf('}');
+    const strings = (v: unknown) => (Array.isArray(v) ? v.filter((d): d is string => typeof d === 'string' && !!d.trim()) : []);
     if (start >= 0 && end > start) {
       try {
         const obj = JSON.parse(clean.slice(start, end + 1)) as Partial<Ata>;
         return {
           resumo: typeof obj.resumo === 'string' ? obj.resumo.trim() : clean.slice(0, 600),
-          decisoes: Array.isArray(obj.decisoes) ? obj.decisoes.filter((d): d is string => typeof d === 'string') : [],
+          pontos: strings(obj.pontos),
+          decisoes: strings(obj.decisoes),
           acoes: Array.isArray(obj.acoes)
             ? obj.acoes
                 .map((a) => (a && typeof (a as AtaAcao).texto === 'string' ? (a as AtaAcao) : null))
                 .filter((a): a is AtaAcao => a !== null)
-                .map((a) => ({ texto: a.texto.trim(), ...(a.responsavel ? { responsavel: String(a.responsavel).trim() } : {}) }))
+                .map((a) => ({
+                  texto: a.texto.trim(),
+                  ...(a.responsavel ? { responsavel: String(a.responsavel).trim() } : {}),
+                  ...(a.prazo ? { prazo: String(a.prazo).trim() } : {}),
+                }))
             : [],
         };
       } catch {
@@ -198,11 +346,12 @@ export class MeetingService {
     return { resumo: clean.slice(0, 1500), decisoes: [], acoes: [] };
   }
 
-  /** Joga a reunião fora de vez: some da lista e o arquivo vai junto. */
+  /** Joga a reunião fora de vez: some da lista e o arquivo vai junto (e o áudio, se ainda houver). */
   remove(id: string): boolean {
     const m = this.active.get(id) ?? this.load(id);
     if (!m) return false;
     this.active.delete(id);
+    this.dropAudio(id);
     try {
       rmSync(join(this.dir, `${safeId(id)}.json`));
     } catch (err) {
@@ -211,6 +360,31 @@ export class MeetingService {
     }
     this.log.log(`Reunião apagada: ${m.titulo}`);
     return true;
+  }
+
+  private audioDir(id: string): string {
+    return join(this.dir, `${safeId(id)}.audio`);
+  }
+
+  private saveAudio(id: string, i: number, audio: Buffer): void {
+    try {
+      mkdirSync(this.audioDir(id), { recursive: true });
+      writeFileSync(join(this.audioDir(id), `${String(i).padStart(4, '0')}.bin`), audio);
+    } catch (err) {
+      this.log.warn(`Não guardei o áudio do trecho ${i}: ${(err as Error).message}`);
+    }
+  }
+
+  private loadAudio(id: string, i: number): Buffer | null {
+    try {
+      return readFileSync(join(this.audioDir(id), `${String(i).padStart(4, '0')}.bin`));
+    } catch {
+      return null;
+    }
+  }
+
+  private dropAudio(id: string): void {
+    rmSync(this.audioDir(id), { recursive: true, force: true });
   }
 
   private load(id: string): Meeting | null {
@@ -229,6 +403,30 @@ export class MeetingService {
       this.log.error(`Falha ao salvar a ata: ${(err as Error).message}`);
     }
   }
+}
+
+/** Quem mais falou dentro de [inicio, fim]; sem sobreposição nenhuma, o turno mais próximo. */
+export function quemFalou(turnos: Turno[], inicio: number, fim: number): number {
+  let melhor = 0;
+  let sobra = 0;
+  for (const t of turnos) {
+    const o = Math.min(fim, t.fim) - Math.max(inicio, t.inicio);
+    if (o > sobra) {
+      sobra = o;
+      melhor = t.pessoa;
+    }
+  }
+  if (melhor) return melhor;
+  const meio = (inicio + fim) / 2;
+  let perto = Infinity;
+  for (const t of turnos) {
+    const d = meio < t.inicio ? t.inicio - meio : meio > t.fim ? meio - t.fim : 0;
+    if (d < perto) {
+      perto = d;
+      melhor = t.pessoa;
+    }
+  }
+  return melhor;
 }
 
 export class MeetingError extends Error {

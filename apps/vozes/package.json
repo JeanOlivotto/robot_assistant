@@ -1,0 +1,14 @@
+{
+  "name": "@robo/vozes",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Vozes do robô: separa quem falou quando numa reunião (diarização), tudo em CPU e sem serviço pago.",
+  "scripts": {
+    "start": "node src/main.js",
+    "build": "node --check src/main.js"
+  },
+  "dependencies": {
+    "sherpa-onnx-node": "1.13.8"
+  }
+}

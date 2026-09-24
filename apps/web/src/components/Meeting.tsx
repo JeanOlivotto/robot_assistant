@@ -6,14 +6,17 @@ import {
   agendar,
   apagarMeeting,
   convidar,
+  getMeeting,
   listMeetings,
   meetingStatus,
   sendSegment,
   startMeeting,
   stopMeeting,
   type Ata,
+  type AtaAcao,
   type FonteAudio,
   type Meeting,
+  type MeetingFull,
 } from '../lib/meeting';
 
 type Phase = 'checking' | 'unavailable' | 'idle' | 'recording' | 'finalizing' | 'done';
@@ -33,8 +36,8 @@ function amanhaCedo(): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
-/** Uma linha da ata (ação ou decisão) com o botão de jogar para a agenda. */
-function ItemAta({ texto, responsavel, token }: { texto: string; responsavel?: string; token: string }) {
+/** Uma tarefa da ata: o texto ocupa a largura toda; quem, prazo e os botões ficam embaixo. */
+function Tarefa({ acao, token }: { acao: AtaAcao; token: string }) {
   const [abrindo, setAbrindo] = useState(false);
   const [quando, setQuando] = useState(amanhaCedo);
   const [estado, setEstado] = useState<'' | 'enviando' | 'ok' | 'lembrado' | string>('');
@@ -43,7 +46,7 @@ function ItemAta({ texto, responsavel, token }: { texto: string; responsavel?: s
     e.preventDefault();
     setEstado('enviando');
     try {
-      await agendar(token, texto, new Date(quando));
+      await agendar(token, acao.texto, new Date(quando));
       setEstado('ok');
       setAbrindo(false);
     } catch (err) {
@@ -52,35 +55,41 @@ function ItemAta({ texto, responsavel, token }: { texto: string; responsavel?: s
   };
 
   return (
-    <li className="item-ata">
-      <div className="item-ata__linha">
-        <span className="item-ata__texto">{texto}</span>
+    <li className="tarefa">
+      <p className="tarefa__texto">{acao.texto}</p>
+      {(acao.responsavel || acao.prazo) && (
+        <p className="tarefa__meta">
+          {acao.responsavel && <span>👤 {acao.responsavel}</span>}
+          {acao.prazo && <span>📅 {acao.prazo}</span>}
+        </p>
+      )}
+      <div className="tarefa__acoes">
         {estado === 'ok' ? (
-          <span className="item-ata__ok">na agenda</span>
+          <span className="tarefa__ok">✓ na agenda</span>
         ) : estado === 'lembrado' ? (
-          <span className="item-ata__ok">nas pendências</span>
+          <span className="tarefa__ok">✓ nas pendências</span>
         ) : (
-          <span className="item-ata__acoes">
+          <>
             <button
               type="button"
-              className="mini-btn item-ata__btn"
+              className="link-btn"
               title="Sem hora marcada: ele cobra você depois"
+              disabled={estado === 'enviando'}
               onClick={() => {
                 setEstado('enviando');
-                addTask(token, texto)
+                addTask(token, acao.texto)
                   .then(() => setEstado('lembrado'))
                   .catch((e: Error) => setEstado(e.message));
               }}
             >
               Lembrar
             </button>
-            <button type="button" className="mini-btn item-ata__btn" onClick={() => setAbrindo(!abrindo)}>
+            <button type="button" className="link-btn" onClick={() => setAbrindo(!abrindo)}>
               {abrindo ? 'Fechar' : 'Agendar'}
             </button>
-          </span>
+          </>
         )}
       </div>
-      {responsavel && <span className="item-ata__resp">{responsavel}</span>}
       {abrindo && (
         <form className="item-ata__quando" onSubmit={(e) => void confirmar(e)}>
           <input type="datetime-local" value={quando} onChange={(e) => setQuando(e.target.value)} required />
@@ -94,27 +103,70 @@ function ItemAta({ texto, responsavel, token }: { texto: string; responsavel?: s
   );
 }
 
+function mmssDe(seg: number): string {
+  return mmss(Math.max(0, Math.round(seg)));
+}
+
+/** A reunião inteira, como foi falada — separada por voz quando o servidor conseguiu separar. */
+function ReuniaoCompleta({ token, id }: { token: string; id: string }) {
+  const [m, setM] = useState<MeetingFull | null>(null);
+  const [erro, setErro] = useState('');
+  useEffect(() => {
+    getMeeting(token, id)
+      .then(setM)
+      .catch((e: Error) => setErro(e.message));
+  }, [token, id]);
+
+  if (erro) return <p className="item-ata__erro">Não consegui abrir: {erro}</p>;
+  if (!m) return <p className="hint">Carregando a transcrição…</p>;
+  if (m.falas?.length) {
+    return (
+      <div className="transcricao">
+        {m.falas.map((f, i) => (
+          <div key={i} className="fala">
+            <span className={`fala__quem fala__quem--${((f.pessoa - 1) % 6) + 1}`}>
+              Pessoa {f.pessoa} <span className="fala__hora">{mmssDe(f.inicio)}</span>
+            </span>
+            <p>{f.texto}</p>
+          </div>
+        ))}
+      </div>
+    );
+  }
+  return <p className="transcricao transcricao--corrida">{m.transcript || 'Sem transcrição.'}</p>;
+}
+
 function AtaCard({
   ata,
   titulo,
   token,
+  id,
+  pessoas,
   semCabecalho,
 }: {
   ata: Ata;
   titulo: string;
   token: string;
+  id: string;
+  pessoas?: number;
   /** Em tela cheia o título já está na barra de cima. */
   semCabecalho?: boolean;
 }) {
+  const [completa, setCompleta] = useState(false);
+  const pontos = ata.pontos ?? [];
+
   const copy = () => {
+    const tarefa = (a: AtaAcao) =>
+      `- ${a.texto}${[a.responsavel, a.prazo].filter(Boolean).length ? ` (${[a.responsavel, a.prazo].filter(Boolean).join(', ')})` : ''}`;
     const linhas = [
       `Ata — ${titulo}`,
       '',
       'Resumo:',
       ata.resumo,
       '',
+      ...(pontos.length ? ['Pontos importantes:', ...pontos.map((p) => `- ${p}`), ''] : []),
       ...(ata.decisoes.length ? ['Decisões:', ...ata.decisoes.map((d) => `- ${d}`), ''] : []),
-      ...(ata.acoes.length ? ['Ações:', ...ata.acoes.map((a) => `- ${a.texto}${a.responsavel ? ` (${a.responsavel})` : ''}`)] : []),
+      ...(ata.acoes.length ? ['Tarefas:', ...ata.acoes.map(tarefa)] : []),
     ];
     void navigator.clipboard?.writeText(linhas.join('\n'));
   };
@@ -127,28 +179,47 @@ function AtaCard({
           Copiar
         </button>
       </div>
+      {pessoas ? <p className="ata__meta">{pessoas} voz(es) identificada(s)</p> : null}
+
+      <h4>Resumo</h4>
       <p className="ata__resumo">{ata.resumo}</p>
+
+      {pontos.length > 0 && (
+        <>
+          <h4>Pontos importantes</h4>
+          <ul className="ata__bullets">
+            {pontos.map((p, i) => (
+              <li key={i}>{p}</li>
+            ))}
+          </ul>
+        </>
+      )}
       {ata.decisoes.length > 0 && (
         <>
           <h4>Decisões</h4>
-          <ul className="ata__lista">
+          <ul className="ata__bullets">
             {ata.decisoes.map((d, i) => (
-              <ItemAta key={i} texto={d} token={token} />
+              <li key={i}>{d}</li>
             ))}
           </ul>
         </>
       )}
       {ata.acoes.length > 0 && (
         <>
-          <h4>Ações</h4>
-          <ul className="ata__lista">
+          <h4>Tarefas</h4>
+          <ul className="ata__tarefas">
             {ata.acoes.map((a, i) => (
-              <ItemAta key={i} texto={a.texto} responsavel={a.responsavel} token={token} />
+              <Tarefa key={i} acao={a} token={token} />
             ))}
           </ul>
         </>
       )}
-      {ata.decisoes.length === 0 && ata.acoes.length === 0 && <p className="hint">Sem decisões ou ações claras nesta reunião.</p>}
+      {ata.decisoes.length === 0 && ata.acoes.length === 0 && <p className="hint">Sem decisões ou tarefas claras nesta reunião.</p>}
+
+      <button type="button" className="ata__completa-btn" onClick={() => setCompleta(!completa)}>
+        {completa ? 'Esconder a reunião completa' : 'Ver a reunião completa'}
+      </button>
+      {completa && <ReuniaoCompleta token={token} id={id} />}
     </div>
   );
 }
@@ -170,6 +241,7 @@ export function MeetingView({
      microfone gravando a sala. Quem está no computador ainda pode trocar para a sala no botão. */
   const [fonte, setFonte] = useState<FonteAudio>(MeetingRecorder.podeGravarAba ? 'aba' : 'mic');
   const [convite, setConvite] = useState('');
+  const [copiado, setCopiado] = useState(false);
   /** Ata aberta em tela cheia — em telas pequenas a ata fica espremida no meio da lista. */
   const [cheia, setCheia] = useState<Meeting | null>(null);
 
@@ -226,6 +298,24 @@ export function MeetingView({
       alive = false;
     };
   }, [token]);
+
+  /* A ata sai em segundo plano: enquanto esta tela estiver aberta, confere até ela ficar pronta. */
+  const aguardando = phase === 'done' && !guest && result && !result.ata ? result.id : null;
+  useEffect(() => {
+    if (!aguardando) return;
+    const id = setInterval(() => {
+      getMeeting(token, aguardando)
+        .then((m) => {
+          if (!m.ata) return;
+          setResult(m);
+          listMeetings(token)
+            .then(setPast)
+            .catch(() => {});
+        })
+        .catch(() => {});
+    }, 4000);
+    return () => clearInterval(id);
+  }, [aguardando, token]);
 
   useEffect(() => {
     if (phase !== 'recording') return;
@@ -417,8 +507,27 @@ export function MeetingView({
               >
                 Não vou poder ir: gerar link
               </button>
-              {convite && <p className="hint">Link copiado — vale 12 horas. Quem abrir grava e a ata vem para você.</p>}
-              {convite && <code className="meeting__link">{convite}</code>}
+              {convite && <p className="hint">Vale 12 horas. Quem abrir grava e a ata vem para você.</p>}
+              {convite && (
+                <div className="meeting__link-linha">
+                  <code className="meeting__link">{convite}</code>
+                  <button
+                    type="button"
+                    className="mini-btn"
+                    onClick={() => {
+                      void navigator.clipboard
+                        ?.writeText(convite)
+                        .then(() => {
+                          setCopiado(true);
+                          setTimeout(() => setCopiado(false), 2000);
+                        })
+                        .catch(() => setError('Não consegui copiar — segure o link e copie à mão.'));
+                    }}
+                  >
+                    {copiado ? 'Copiado ✓' : 'Copiar link'}
+                  </button>
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -462,6 +571,19 @@ export function MeetingView({
         </div>
       )}
 
+      {phase === 'done' && !guest && result && !result.ata && (
+        <div className="meeting__live">
+          <div className="spinner" />
+          <p className="hint">
+            Reunião encerrada. Estou separando as vozes e montando a ata — pode sair desta tela, eu aviso no chat
+            quando ficar pronta.
+          </p>
+          <button type="button" className="rec-btn" onClick={() => setPhase('idle')}>
+            Nova reunião
+          </button>
+        </div>
+      )}
+
       {phase === 'done' && !guest && result?.ata && (
         <div className="meeting__done">
           <div className="meeting__item-acoes">
@@ -469,7 +591,7 @@ export function MeetingView({
               Abrir em tela cheia
             </button>
           </div>
-          <AtaCard ata={result.ata} titulo={result.titulo} token={token} />
+          <AtaCard ata={result.ata} titulo={result.titulo} token={token} id={result.id} pessoas={result.pessoas} />
           <button type="button" className="rec-btn" onClick={() => setPhase('idle')}>
             Nova reunião
           </button>
@@ -485,7 +607,7 @@ export function MeetingView({
             <span className="ata-cheia__titulo">{cheia.titulo}</span>
           </div>
           <div className="ata-cheia__conteudo">
-            <AtaCard ata={cheia.ata} titulo={cheia.titulo} token={token} semCabecalho />
+            <AtaCard ata={cheia.ata} titulo={cheia.titulo} token={token} id={cheia.id} pessoas={cheia.pessoas} semCabecalho />
           </div>
         </div>
       )}
@@ -497,7 +619,7 @@ export function MeetingView({
             <div key={m.id} className="meeting__item">
               <button type="button" className="meeting__item-head" onClick={() => setOpen(open === m.id ? null : m.id)}>
                 <span>{m.titulo}</span>
-                <span className="hint">{ago(m.startedAt, Date.now())}</span>
+                <span className="hint">{m.ata ? ago(m.startedAt, Date.now()) : 'gerando a ata…'}</span>
               </button>
               {open === m.id && m.ata && (
                 <>
@@ -521,7 +643,7 @@ export function MeetingView({
                       Apagar
                     </button>
                   </div>
-                  <AtaCard ata={m.ata} titulo={m.titulo} token={token} />
+                  <AtaCard ata={m.ata} titulo={m.titulo} token={token} id={m.id} pessoas={m.pessoas} />
                 </>
               )}
             </div>

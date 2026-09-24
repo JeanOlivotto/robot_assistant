@@ -7,6 +7,7 @@ import { MAX_VOICE_MS, VoiceRecorder } from '../lib/recorder';
 const KIND_TAG: Partial<Record<NonNullable<ChatMessage['kind']>, string>> = {
   proactive: 'mandou sozinho',
   reminder: 'lembrete',
+  meeting: 'reunião',
 };
 
 const STATUS_TEXT: Record<Proposal['status'], string> = {
