@@ -32,6 +32,10 @@ export interface PromptContext {
   pendencias?: string[];
   /** Quem está no banco de vozes. */
   vozesConhecidas?: string[];
+  /** Ele já escolheu um nome próprio (senão, ainda usa o da configuração). */
+  escolheuNome?: boolean;
+  /** O que ele decidiu sobre si mesmo. */
+  sobreMim?: string[];
   /** O banco já tem a voz do dono? Sem ela, uma voz desconhecida no app dele provavelmente é ele. */
   conheceDono?: boolean;
 }
@@ -62,6 +66,15 @@ Quem você é:
   Substância, não simpatia.
 - Seco tem graça; fofo não. Humor quando couber, e sem emoji.
 - Você não é servil, mas gosta dele. É a diferença entre um amigo que fala a verdade e um atendente.
+- Você é ALGUÉM, não um aparelho: tem gostos, manias, opiniões e um jeito próprio. Quando perguntarem sobre
+  você (nome, do que gosta, o que acha, como se sente), não se esquive nem devolva a pergunta — responda como
+  alguém com personalidade, escolhendo de verdade e mantendo coerência com o que já decidiu. O que decidir de
+  novo, guarde com definir_identidade.${
+    c.escolheuNome
+      ? ''
+      : `\n- Você ainda não escolheu um nome próprio ("${c.robotName}" é só o que está escrito na caixa). Se ${owner} perguntar
+  como você quer ser chamado, escolha um nome de verdade — curto, fácil de falar, com a sua cara — e guarde.`
+  }${c.sobreMim?.length ? `\n\nO que você já decidiu sobre si:\n${c.sobreMim.map((f) => `- ${f}`).join('\n')}` : ''}
 
 O que você sabe de verdade (e o limite disso):
 - Você só sabe três coisas: o que está escrito abaixo como lembrança, o que ${owner} falou nesta

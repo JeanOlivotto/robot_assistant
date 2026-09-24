@@ -6,6 +6,7 @@ import webpush, { type PushSubscription } from 'web-push';
 import { AppGateway } from '../chat/app.gateway.js';
 import { ChatService } from '../chat/chat.service.js';
 import { APP_CONFIG, type AppConfig } from '../config/app-config.js';
+import { IdentidadeService } from '../identidade/identidade.service.js';
 import { rootPath } from '../config/paths.js';
 
 interface StoredSubscription extends PushSubscription {
@@ -36,6 +37,7 @@ export class PushService implements OnModuleInit, OnModuleDestroy {
     @Inject(APP_CONFIG) private readonly cfg: AppConfig,
     private readonly chat: ChatService,
     private readonly app: AppGateway,
+    private readonly identidade: IdentidadeService,
   ) {
     this.file = rootPath(`${cfg.DATA_DIR}/push.json`);
   }
@@ -66,7 +68,7 @@ export class PushService implements OnModuleInit, OnModuleDestroy {
       // Resposta: só se ninguém está olhando o app, e nunca para a Siri (ela já falou em voz alta).
       if (kind === 'reply' && (replyVia === 'siri' || this.app.anyVisible)) return;
       void this.notify({
-        title: kind === 'reminder' ? 'Lembrete' : kind === 'meeting' ? 'Reunião' : this.cfg.ROBOT_NAME,
+        title: kind === 'reminder' ? 'Lembrete' : kind === 'meeting' ? 'Reunião' : this.identidade.nome, // o nome que ele escolheu
         body: message.text,
         tag: kind === 'reminder' ? `lembrete-${message.id}` : kind === 'meeting' ? `reuniao-${message.id}` : 'conversa',
         url: '/',

@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { AlertService } from './alerts/alert.service.js';
+import { IdentidadeService } from './identidade/identidade.service.js';
 import { PhotoController } from './photos/photo.controller.js';
 import { PhotoService } from './photos/photo.service.js';
 import { VisionService } from './vision/vision.service.js';
@@ -77,6 +78,7 @@ import { WsRouter } from './ws/ws-router.service.js';
     MeetingAccessGuard,
     MemoryService,
     TaskService,
+    IdentidadeService,
     PhotoService,
     VisionService,
     VozesService,

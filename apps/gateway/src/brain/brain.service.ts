@@ -10,6 +10,7 @@ import { APP_CONFIG, type AppConfig } from '../config/app-config.js';
 import { LlmService } from '../llm/llm.service.js';
 import { MemoryService } from '../memory/memory.service.js';
 import { TaskService } from '../tasks/task.service.js';
+import { IdentidadeService } from '../identidade/identidade.service.js';
 import { BancoVozesService } from '../vozes/banco.service.js';
 import { describeAgenda, splitEmotion, systemPrompt } from './prompts.js';
 import { DIAS, resolveDay, resolveWhen } from './resolve-date.js';
@@ -65,6 +66,9 @@ const HISTORY = 16;
  * você ter") ou vazia ("..."), e era isso que "travava" a ligação.
  */
 const SPOKEN_MAX_TOKENS = 1200;
+/* Mesmo motivo no chat escrito: com 800 (o padrão), depois de uma ferramenta ele às vezes gastava
+   tudo raciocinando e a resposta saía "...". */
+const TEXT_MAX_TOKENS = 1600;
 /** O juízo é uma decisão curta, não um texto longo. */
 /* O gpt-oss gasta parte disso raciocinando antes de escrever: com 260 o JSON saía cortado e ele calava. */
 const JUDGE_MAX_TOKENS = 1200;
@@ -155,6 +159,26 @@ const TOOLS: ChatCompletionTool[] = [
   {
     type: 'function',
     function: {
+      name: 'definir_identidade',
+      description:
+        'Guarda quem VOCÊ é, do seu jeito: o nome que você escolheu para si, e o que decidir sobre você (gostos, ' +
+        'jeito, opiniões, manias). Use quando te perguntarem sobre você e você decidir algo — para não ser outra ' +
+        'pessoa na próxima conversa. Pode mandar só um dos dois.',
+      parameters: {
+        type: 'object',
+        properties: {
+          nome: { type: 'string', description: 'o seu nome, se escolheu um (curto, fácil de falar)' },
+          sobre_mim: {
+            type: 'string',
+            description: 'uma coisa sobre você, no formato "assunto: o que você decidiu" (ex.: "música: rock dos anos 90")',
+          },
+        },
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
       name: 'renomear_voz',
       description: 'Corrige o nome de uma voz que ficou salva errado ("meu nome não é Gui, é Jean").',
       parameters: {
@@ -238,6 +262,7 @@ export class BrainService {
     private readonly braco: BracoService,
     private readonly tasks: TaskService,
     private readonly banco: BancoVozesService,
+    private readonly identidade: IdentidadeService,
   ) {
     this.dayFmt = new Intl.DateTimeFormat('pt-BR', {
       weekday: 'long',
@@ -263,13 +288,26 @@ export class BrainService {
     ];
 
     let proposal: ProposalDraft | undefined;
-    for (let step = 0; step < MAX_STEPS; step++) {
-      const msg = await this.llm.complete(messages, TOOLS, opts.spoken ? { maxTokens: SPOKEN_MAX_TOKENS, quick: true } : undefined);
+    let usouFerramenta = false;
+    let insistiu = false;
+    for (let step = 0; step < MAX_STEPS + 1; step++) {
+      const msg = await this.llm.complete(
+        messages,
+        TOOLS,
+        opts.spoken ? { maxTokens: SPOKEN_MAX_TOKENS, quick: true } : { maxTokens: TEXT_MAX_TOKENS },
+      );
       const calls = (msg.tool_calls ?? []).filter((c) => c.type === 'function');
       if (!calls.length) {
         const { text, face } = splitEmotion(msg.content ?? '');
+        // Usou a ferramenta e ficou mudo: pede uma vez, com todas as letras, que ele responda.
+        if (!text && usouFerramenta && !insistiu) {
+          insistiu = true;
+          messages.push({ role: 'user', content: '[instrução interna do sistema] Agora responda para ele, em uma ou duas frases.' });
+          continue;
+        }
         return { text: text || '...', face, proposal };
       }
+      usouFerramenta = true;
       messages.push({ role: 'assistant', content: msg.content ?? '', tool_calls: calls });
       for (const call of calls) {
         const out = await this.runTool(call.function.name, call.function.arguments, now, history.at(-1)?.voz, history);
@@ -435,7 +473,9 @@ export class BrainService {
 
   private promptContext(now: Date) {
     return {
-      robotName: this.cfg.ROBOT_NAME,
+      robotName: this.identidade.nome,
+      escolheuNome: this.identidade.escolheuNome,
+      sobreMim: this.identidade.sobre,
       ownerName: this.cfg.OWNER_NAME,
       tz: this.cfg.TZ_NAME,
       now,
@@ -496,6 +536,7 @@ export class BrainService {
       if (name === 'propor_evento') return await this.proporEvento(args, now);
       if (name === 'anotar_pendencia') return { result: this.anotarPendencia(args) };
       if (name === 'concluir_pendencia') return { result: this.concluirPendencia(args) };
+      if (name === 'definir_identidade') return { result: this.definirIdentidade(args) };
       if (name === 'salvar_voz') return { result: this.salvarVoz(args, history) };
       if (name === 'renomear_voz') return { result: this.renomearVoz(args, voz) };
       if (name === 'esquecer_voz') return { result: this.esquecerVoz(args, voz) };
@@ -553,6 +594,18 @@ export class BrainService {
     const podePedir = !voz || !this.vozDeOutro(voz) || quemPede === nome.toLowerCase();
     if (!podePedir) return `recusado: só ${nome} ou ${this.cfg.OWNER_NAME || 'o dono'} podem apagar essa voz`;
     return this.banco.removerPorNome(nome) ? `voz de ${nome} apagada — você não reconhece mais` : `não tem voz de ${nome} no banco`;
+  }
+
+  private definirIdentidade(args: Record<string, unknown>): string {
+    const feito: string[] = [];
+    const nome = String(args.nome ?? '').trim();
+    if (nome) feito.push(`agora você se chama ${this.identidade.definirNome(nome)}`);
+    const sobre = String(args.sobre_mim ?? '').trim();
+    if (sobre) {
+      this.identidade.lembrarDeMim(sobre);
+      feito.push('guardado sobre você');
+    }
+    return feito.length ? feito.join('; ') : 'erro: mande nome ou sobre_mim';
   }
 
   private renomearVoz(args: Record<string, unknown>, voz?: ChatMessage['voz']): string {
