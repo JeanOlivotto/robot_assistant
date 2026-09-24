@@ -5,7 +5,6 @@ import { preparePhoto, sendPhoto, usePhotoUrl, type ReadyPhoto } from '../lib/ph
 import { MAX_VOICE_MS, VoiceRecorder } from '../lib/recorder';
 
 const KIND_TAG: Partial<Record<NonNullable<ChatMessage['kind']>, string>> = {
-  proactive: 'mandou sozinho',
   reminder: 'lembrete',
   meeting: 'reunião',
 };

@@ -15,7 +15,6 @@ const BALAO_POR_LETRA_MS = 45;
 const ARRASTO_PX = 4;
 
 const TAG: Partial<Record<NonNullable<ChatMessage['kind']>, string>> = {
-  proactive: 'mandou sozinho',
   reminder: 'lembrete',
   meeting: 'reunião',
 };
