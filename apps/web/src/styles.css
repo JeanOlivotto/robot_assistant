@@ -1590,11 +1590,27 @@ html.desktop-bolha #root {
   max-width: 340px;
   margin-right: 26px;
   padding: 10px 12px;
-  border-radius: 16px 16px 4px 16px;
+  border-radius: 16px;
   background: var(--surface);
   border: 1px solid var(--line);
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
   animation: call-in 0.2s ease-out;
+}
+/* Ponta do balão apontando para a carinha: sem o mouse, parece que ele só falou. */
+.balao::after {
+  content: '';
+  position: absolute;
+  right: -7px;
+  bottom: 10px;
+  width: 14px;
+  height: 14px;
+  background: var(--surface);
+  border-right: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  transform: rotate(-45deg);
+}
+.balao [hidden] {
+  display: none !important;
 }
 .balao__topo {
   display: flex;
@@ -1627,7 +1643,7 @@ html.desktop-bolha #root {
   color: var(--text);
 }
 .balao__texto {
-  margin: 4px 0 8px;
+  margin: 2px 0 0;
   max-height: 120px;
   overflow-y: auto;
   font-size: 14px;
@@ -1642,6 +1658,9 @@ html.desktop-bolha #root {
 .balao__texto--pensando {
   color: var(--dim);
   font-style: italic;
+}
+.balao__resposta {
+  margin-top: 8px;
 }
 .balao__resposta input {
   width: 100%;

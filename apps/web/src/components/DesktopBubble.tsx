@@ -169,6 +169,11 @@ function BolhaLogada({ token, andando }: { token: string; andando: 'esquerda' | 
     }
   };
 
+  /* Quando ele fala, é só o balão de fala. O "Responder" e os botões aparecem com o mouse em
+     cima, quando você abriu o balão para conversar, ou enquanto você está digitando. */
+  const [digitando, setDigitando] = useState(false);
+  const controles = emCima || !!balao?.porClique || digitando || !!resposta.trim();
+
   const r = robo.robot;
   const face = r?.online ? r.face : r?.thinking || esperando ? 'thinking' : 'neutral';
   const texto = esperando ? 'pensando…' : balao?.msg?.text ?? 'Oi! Fale comigo.';
@@ -177,10 +182,10 @@ function BolhaLogada({ token, andando }: { token: string; andando: 'esquerda' | 
   return (
     <div className="bolha" onMouseEnter={() => setEmCima(true)} onMouseLeave={() => setEmCima(false)}>
       {(balao || esperando) && (
-        <div className="balao">
-          <div className="balao__topo">
+        <div className={`balao ${controles ? 'balao--aberto' : ''}`}>
+          <div className="balao__topo" hidden={!tag && !controles}>
             {tag ? <span className="balao__tag">{tag}</span> : <span />}
-            <span className="balao__botoes">
+            <span className="balao__botoes" hidden={!controles}>
               <button type="button" onClick={() => desktop?.painel('abrir')} title="Abrir o painel (chat, agenda, reunião)">
                 ⤢
               </button>
@@ -195,10 +200,12 @@ function BolhaLogada({ token, andando }: { token: string; andando: 'esquerda' | 
           <p className={`balao__texto ${esperando ? 'balao__texto--pensando' : ''} ${!balao?.msg && !esperando ? 'balao__texto--convite' : ''}`}>
             {texto}
           </p>
-          <form className="balao__resposta" onSubmit={responder}>
+          <form className="balao__resposta" onSubmit={responder} hidden={!controles}>
             <input
               ref={inputRef}
               value={resposta}
+              onFocus={() => setDigitando(true)}
+              onBlur={() => setDigitando(false)}
               onChange={(e) => setResposta(e.target.value)}
               onKeyDown={(e) => e.key === 'Escape' && setBalao(null)}
               placeholder={balao?.msg ? 'Responder…' : 'Escreva aqui…'}
