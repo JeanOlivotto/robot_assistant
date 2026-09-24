@@ -11,3 +11,9 @@ CONFIG_COMPILER_OPTIMIZATION_PERF=y
 # OTA pelo Wi-Fi: a imagem recém-instalada sobe em teste e só é confirmada quando o robô
 # consegue falar com o servidor (core/ota.c). Se não conseguir, o bootloader volta para a anterior.
 CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y
+
+# TLS com buffers sob demanda: o de 16 KB de entrada só existe enquanto chega dado, e o
+# certificado da CA sai da memória depois do handshake. Sem PSRAM, é o que deixa o Bluetooth caber.
+CONFIG_MBEDTLS_DYNAMIC_BUFFER=y
+CONFIG_MBEDTLS_DYNAMIC_FREE_CONFIG_DATA=y
+CONFIG_MBEDTLS_DYNAMIC_FREE_CA_CERT=y

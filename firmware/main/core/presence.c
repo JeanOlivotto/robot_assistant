@@ -42,6 +42,7 @@ static int s_n;
 static int s_total; /* anúncios Apple ouvidos na janela, repetidos inclusive */
 static portMUX_TYPE s_lock = portMUX_INITIALIZER_UNLOCKED;
 static uint8_t s_own_addr_type;
+static volatile bool s_running;
 
 static void scan(void);
 
@@ -135,6 +136,7 @@ static void report_task(void *arg)
     static char buf[96 + MAX_REPORT * 40];
     for (;;) {
         vTaskDelay(pdMS_TO_TICKS(REPORT_MS));
+        if (!s_running) continue;
 
         portENTER_CRITICAL(&s_lock);
         const int n = s_n;
@@ -170,6 +172,8 @@ static void report_task(void *arg)
 
 void presence_start(void)
 {
+    static bool reporting;
+    if (s_running) return;
     const esp_err_t err = nimble_port_init();
     if (err != ESP_OK) {
         ESP_LOGE(TAG, "Bluetooth não subiu (%s) — segue sem presença", esp_err_to_name(err));
@@ -177,5 +181,19 @@ void presence_start(void)
     }
     ble_hs_cfg.sync_cb = on_sync;
     nimble_port_freertos_init(host_task);
-    xTaskCreate(report_task, "ble_report", 3072, NULL, 2, NULL);
+    s_running = true;
+    if (!reporting) reporting = xTaskCreate(report_task, "ble_report", 3072, NULL, 2, NULL) == pdPASS;
+}
+
+void presence_stop(void)
+{
+    if (!s_running) return;
+    s_running = false;
+    ble_gap_disc_cancel();
+    if (nimble_port_stop() == 0) nimble_port_deinit();
+    portENTER_CRITICAL(&s_lock);
+    s_n = 0;
+    s_total = 0;
+    portEXIT_CRITICAL(&s_lock);
+    ESP_LOGI(TAG, "Bluetooth desligado (heap livre %lu)", (unsigned long)esp_get_free_heap_size());
 }

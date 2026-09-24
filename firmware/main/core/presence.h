@@ -3,3 +3,6 @@
 #pragma once
 
 void presence_start(void);
+/* Desliga o Bluetooth e devolve a memória dele — o download do OTA precisa de uma segunda
+ * conexão TLS, e com os dois ligados não cabe. presence_start() religa. */
+void presence_stop(void);

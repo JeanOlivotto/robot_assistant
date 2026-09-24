@@ -12,6 +12,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "mbedtls/sha256.h"
+#include "presence.h"
 #include "protocol.h"
 #include "ws_client.h"
 
@@ -19,6 +20,7 @@ static const char *TAG = "ota";
 
 #define CHUNK 4096
 /* Erro na mesma versão: espera antes de tentar de novo (cada reconexão traz a oferta de volta). */
+#define DOWNLOAD_TRIES    3 /* a rede pisca: o download recomeça do zero até três vezes */
 #define RETRY_COOLDOWN_US (30 * 60 * 1000000LL)
 /* Imagem nova que não fala com o servidor neste tempo volta para a anterior. */
 #define PROVE_TIMEOUT_US  (5 * 60 * 1000000LL)
@@ -70,6 +72,7 @@ static void fail(const char *detail)
     vTaskDelay(pdMS_TO_TICKS(4000)); /* deixa o aviso na tela antes de voltar ao rosto */
     clear_screen_state();
     s_busy = false;
+    presence_start(); /* não vai reiniciar: o Bluetooth volta */
 }
 
 static void hex32(const uint8_t *digest, char *out)
@@ -82,18 +85,16 @@ static void hex32(const uint8_t *digest, char *out)
     out[64] = '\0';
 }
 
-static void ota_task(void *arg)
+/* Problemas de rede valem outra tentativa; arquivo corrompido ou flash com defeito, não. */
+static bool worth_retry(const char *problem)
 {
-    ESP_LOGI(TAG, "atualizando para %s (%d bytes)", s_job.version, s_job.size);
-    report(ROBO_OTA_START, 0, NULL);
+    return problem && (strstr(problem, "conexão") || strstr(problem, "abrir") || strstr(problem, "recusou") ||
+                       strstr(problem, "incompleto") || strstr(problem, "memória"));
+}
 
-    const esp_partition_t *target = esp_ota_get_next_update_partition(NULL);
-    if (!target) {
-        fail("sem partição livre");
-        vTaskDelete(NULL);
-        return;
-    }
-
+/* Uma tentativa inteira: baixa, grava, confere o sha256 e aponta o boot. NULL = deu certo. */
+static const char *download_once(const esp_partition_t *target)
+{
     const esp_http_client_config_t http = {
         .url = s_job.url,
         .crt_bundle_attach = esp_crt_bundle_attach, /* https: mesmo bundle do WebSocket */
@@ -102,18 +103,13 @@ static void ota_task(void *arg)
         .buffer_size = 2048,
     };
     esp_http_client_handle_t client = esp_http_client_init(&http);
-    if (!client) {
-        fail("sem memória para baixar");
-        vTaskDelete(NULL);
-        return;
-    }
+    if (!client) return "sem memória para baixar";
 
     esp_ota_handle_t writer = 0;
     bool writing = false;
     mbedtls_sha256_context sha;
     mbedtls_sha256_init(&sha);
     const char *problem = NULL;
-
     do {
         if (esp_http_client_open(client, 0) != ESP_OK) {
             problem = "não consegui abrir o download";
@@ -190,6 +186,30 @@ static void ota_task(void *arg)
     esp_http_client_close(client);
     esp_http_client_cleanup(client);
 
+    return problem;
+}
+
+static void ota_task(void *arg)
+{
+    ESP_LOGI(TAG, "atualizando para %s (%d bytes)", s_job.version, s_job.size);
+    report(ROBO_OTA_START, 0, NULL);
+    /* O Bluetooth sai de cena: o download é uma segunda conexão TLS e, com ele ligado, não cabe. */
+    presence_stop();
+
+    const esp_partition_t *target = esp_ota_get_next_update_partition(NULL);
+    if (!target) {
+        fail("sem partição livre");
+        vTaskDelete(NULL);
+        return;
+    }
+
+    const char *problem = NULL;
+    for (int attempt = 1; attempt <= DOWNLOAD_TRIES; attempt++) {
+        problem = download_once(target);
+        if (!problem || !worth_retry(problem) || attempt == DOWNLOAD_TRIES) break;
+        ESP_LOGW(TAG, "tentativa %d falhou (%s) — de novo em %d s", attempt, problem, attempt * 5);
+        vTaskDelay(pdMS_TO_TICKS(attempt * 5000));
+    }
     if (problem) {
         fail(problem);
         vTaskDelete(NULL);
