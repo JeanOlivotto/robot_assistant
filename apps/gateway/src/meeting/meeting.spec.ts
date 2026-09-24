@@ -23,6 +23,20 @@ function make(llmReply: string, stt?: Partial<SttService>) {
   return { svc: new MeetingService(cfg, sttSvc, llm, push, tasks), push, tasks };
 }
 
+/** Como make(), mas devolve também o config e as dependências — para simular um reinício. */
+function makeFull(llmReply: string) {
+  const cfg = { DATA_DIR: mkdtempSync(join(tmpdir(), 'robo-meet-')) } as unknown as AppConfig;
+  const stt = {
+    enabled: true,
+    transcribe: vi.fn().mockResolvedValue({ text: 'oi pessoal, decidimos lançar sexta', seconds: 5 }),
+  } as unknown as SttService;
+  const llm = { enabled: true, complete: vi.fn().mockResolvedValue({ content: llmReply }) } as unknown as LlmService;
+  const push = { notify: vi.fn().mockResolvedValue(1) } as unknown as PushService;
+  const tasks = new TaskService(cfg);
+  const deps = { stt, llm, push, tasks };
+  return { svc: new MeetingService(cfg, stt, llm, push, tasks), cfg, deps };
+}
+
 const CLEAN = JSON.stringify({
   resumo: 'Time alinhou o lançamento.',
   decisoes: ['Lançar na sexta'],
@@ -93,5 +107,39 @@ describe('MeetingService', () => {
     await expect(svc.addSegment(m.id, Buffer.from('silencio'))).resolves.toEqual({ seconds: 0, chars: 0 });
     const done = await svc.stop(m.id);
     expect(done.ata?.resumo).toContain('não teve fala');
+  });
+
+  it('um reinício no meio da reunião não perde o que já foi transcrito', async () => {
+    const { svc, cfg, deps } = makeFull(CLEAN);
+    const m = svc.start('Reunião longa');
+    await svc.addSegment(m.id, Buffer.from('audio'));
+
+    // Deploy: o serviço sobe de novo, com a memória vazia, lendo o mesmo diretório.
+    const depois = new MeetingService(cfg, deps.stt, deps.llm, deps.push, deps.tasks);
+    expect(depois.list()).toEqual([]); // em andamento não aparece na lista de atas
+    await depois.addSegment(m.id, Buffer.from('audio'));
+    const fim = await depois.stop(m.id);
+    expect(fim.segments).toBe(2);
+    expect(fim.ata?.decisoes).toEqual(['Lançar na sexta']);
+  });
+
+  it('encerrar duas vezes não refaz a ata nem avisa de novo', async () => {
+    const { svc, deps } = makeFull(CLEAN);
+    const m = svc.start('Reunião');
+    await svc.addSegment(m.id, Buffer.from('audio'));
+    await svc.stop(m.id);
+    await svc.stop(m.id);
+    expect(deps.llm.complete).toHaveBeenCalledTimes(1);
+    expect(deps.push.notify).toHaveBeenCalledTimes(1);
+  });
+
+  it('se o LLM cair, a transcrição fica guardada', async () => {
+    const { svc, deps } = makeFull(CLEAN);
+    (deps.llm.complete as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new Error('groq fora'));
+    const m = svc.start('Reunião');
+    await svc.addSegment(m.id, Buffer.from('audio'));
+    const fim = await svc.stop(m.id);
+    expect(fim.ata?.resumo).toContain('groq fora');
+    expect(svc.get(m.id)?.transcript).toContain('decidimos lançar sexta');
   });
 });

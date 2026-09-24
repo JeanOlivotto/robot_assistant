@@ -15,8 +15,8 @@ const HOUR = 3600_000;
 
 /* Os limites que o robô NÃO decide: ele julga se vale falar, dentro desta cerca. */
 const AWAKE_WINDOW = { from: 7, to: 22 }; // horas locais — fora disso, nem pergunta
-const SPEAK_PER_DAY = 4; // teto de conversas puxadas por ele num dia
-const SPEAK_GAP_MS = 45 * 60_000; // intervalo mínimo entre duas falas espontâneas
+/* Sem teto por dia: quantas vezes ele fala é decisão dele. O intervalo só evita rajada. */
+const SPEAK_GAP_MS = 20 * 60_000; // intervalo mínimo entre duas falas espontâneas
 const JUDGE_GAP_MS = 20 * 60_000; // de quanto em quanto tempo ele para e pensa se vale falar
 const QUIET_AFTER_USER_MS = 5 * 60_000;
 const THOUGHT_WINDOW = { from: 9, to: 21 };
@@ -118,7 +118,7 @@ export class ProactiveService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * A parte que ele NÃO decide: hora, teto do dia e intervalo. Passando na cerca, quem decide
+   * A parte que ele NÃO decide: hora e intervalo. Passando na cerca, quem decide
    * se vale falar (e o que dizer) é ele, em brain.judge().
    */
   private async maybeSpeak(): Promise<void> {
@@ -131,7 +131,6 @@ export class ProactiveService implements OnModuleInit, OnModuleDestroy {
     const hour = Math.floor(minutes / 60);
     const now = Date.now();
     if (hour < AWAKE_WINDOW.from || hour >= AWAKE_WINDOW.to) return; // de madrugada, nem pergunta
-    if (this.mem.spokenCount >= SPEAK_PER_DAY) return;
     if (now - this.mem.lastSpokenAt < SPEAK_GAP_MS) return;
     if (now - this.mem.lastJudgeAt < JUDGE_GAP_MS) return;
 
@@ -169,7 +168,7 @@ export class ProactiveService implements OnModuleInit, OnModuleDestroy {
       this.chat.robotSay(call.text, call.face, 'proactive', { expectsReply: true });
       // As pendências que ele citou ficam em carência, para não cobrar a mesma amanhã de novo.
       if (call.nudged.length) this.tasks.nudged(call.nudged.map((n) => pendentes[n - 1]!.id).filter(Boolean));
-      this.log.log(`Puxou conversa (${this.mem.spokenCount}/${SPEAK_PER_DAY}): ${call.text} — ${call.reason}`);
+      this.log.log(`Puxou conversa (${this.mem.spokenCount}ª hoje): ${call.text} — ${call.reason}`);
     } finally {
       this.busy = false;
       this.save();

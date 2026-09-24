@@ -32,6 +32,8 @@ export interface Meeting {
 
 /** Quanto do transcript mandamos ao LLM (o modelo tem contexto grande; isto é só um teto de segurança). */
 const TRANSCRIPT_LIMIT = 200_000;
+/* O gpt-oss raciocina antes de escrever e isso conta no limite: com 1500 a ata de reunião longa saía cortada. */
+const ATA_MAX_TOKENS = 6000;
 
 /**
  * Modo reunião: grava em pedaços pelo app, transcreve cada um (Groq) e, ao parar,
@@ -67,6 +69,7 @@ export class MeetingService {
       seconds: 0,
     };
     this.active.set(m.id, m);
+    this.save(m);
     this.log.log(`Reunião iniciada (${m.id})`);
     return m;
   }
@@ -88,6 +91,8 @@ export class MeetingService {
       m.segments += 1;
       m.seconds += seconds;
       this.active.set(m.id, m);
+      // Grava a cada trecho: um deploy no meio da reunião não pode levar a transcrição junto.
+      this.save(m);
     }
     return { seconds: m.seconds, chars: m.transcript.length };
   }
@@ -95,11 +100,20 @@ export class MeetingService {
   async stop(id: string): Promise<Meeting> {
     const m = this.active.get(id) ?? this.load(id);
     if (!m) throw new MeetingError('reunião não encontrada', 404);
+    // Clicou duas vezes, ou o app tentou de novo: a ata já existe, não refaz nem cria pendência repetida.
+    if (m.endedAt && m.ata) return m;
     m.endedAt = Date.now();
+    this.save(m);
     if (!m.transcript.trim()) {
       m.ata = { resumo: 'A reunião não teve fala suficiente para uma ata.', decisoes: [], acoes: [] };
     } else {
-      m.ata = await this.buildAta(m);
+      try {
+        m.ata = await this.buildAta(m);
+      } catch (err) {
+        // A transcrição fica guardada mesmo sem ata — perder a reunião inteira por causa do LLM não dá.
+        this.log.error(`Falha ao gerar a ata (${m.id}): ${(err as Error).message}`);
+        m.ata = { resumo: `Não consegui gerar a ata agora (${(err as Error).message}). A transcrição ficou guardada.`, decisoes: [], acoes: [] };
+      }
     }
     this.save(m);
     this.active.delete(m.id);
@@ -135,7 +149,7 @@ export class MeetingService {
           return null;
         }
       })
-      .filter((m): m is Meeting => m !== null)
+      .filter((m): m is Meeting => m !== null && !!m.endedAt)
       .sort((a, b) => b.startedAt - a.startedAt);
   }
 
@@ -153,7 +167,7 @@ export class MeetingService {
         { role: 'user', content: `Transcrição da reunião:\n\n${transcript}` },
       ],
       undefined,
-      { maxTokens: 1500, temperature: 0.3 },
+      { maxTokens: ATA_MAX_TOKENS, temperature: 0.3 },
     );
     return this.parseAta(msg.content ?? '');
   }

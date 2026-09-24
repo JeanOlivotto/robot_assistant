@@ -209,7 +209,7 @@ export function MeetingView({
   const recorder = useRef<MeetingRecorder | null>(null);
   const meetingId = useRef<string | null>(null);
   const queue = useRef<Blob[]>([]);
-  const uploading = useRef(false);
+  const uploading = useRef<Promise<void> | null>(null);
   const startedAt = useRef(0);
 
   useEffect(() => {
@@ -236,20 +236,39 @@ export function MeetingView({
     return () => clearInterval(id);
   }, [phase]);
 
-  const pump = async () => {
-    if (uploading.current) return;
-    uploading.current = true;
-    while (queue.current.length) {
-      const blob = queue.current.shift()!;
-      setPending(queue.current.length);
+  /*
+   * Um envio por vez, e quem chama recebe a MESMA promessa do envio em curso. Antes, o "Encerrar"
+   * voltava na hora se um trecho estava subindo, e o fim da reunião chegava depois da ata pronta.
+   */
+  const pump = (): Promise<void> => {
+    if (uploading.current) return uploading.current;
+    uploading.current = (async () => {
+      while (queue.current.length) {
+        const blob = queue.current.shift()!;
+        setPending(queue.current.length);
+        try {
+          await sendWithRetry(blob);
+          setSent((s) => s + 1);
+        } catch (e) {
+          setError(`Falha ao enviar um trecho: ${(e as Error).message}`);
+        }
+      }
+    })().finally(() => {
+      uploading.current = null;
+    });
+    return uploading.current;
+  };
+
+  /** A rede do celular pisca: tenta de novo antes de dar o trecho por perdido. */
+  const sendWithRetry = async (blob: Blob) => {
+    for (let tentativa = 1; ; tentativa++) {
       try {
-        await sendSegment(token, meetingId.current!, blob);
-        setSent((s) => s + 1);
+        return await sendSegment(token, meetingId.current!, blob);
       } catch (e) {
-        setError(`Falha ao enviar um trecho: ${(e as Error).message}`);
+        if (tentativa >= 3) throw e;
+        await new Promise((r) => setTimeout(r, 2000 * tentativa));
       }
     }
-    uploading.current = false;
   };
 
   const begin = async () => {
@@ -280,7 +299,8 @@ export function MeetingView({
     setPhase('finalizing');
     await recorder.current?.stop(); // resolve só depois de entregar o último trecho
     recorder.current = null;
-    await pump(); // envia o que sobrou na fila
+    // Envia o que sobrou — inclusive o trecho que chegou no finzinho de um envio em curso.
+    while (queue.current.length || uploading.current) await pump();
     try {
       const m = await stopMeeting(token, meetingId.current!);
       setResult(m);
