@@ -13,6 +13,8 @@ contextBridge.exposeInMainWorld('roboDesktop', {
   ocupada: (sim) => ipcRenderer.send('bolha:ocupada', !!sim),
   /** Pede o foco do teclado para a janela (para digitar no balão). */
   focar: () => ipcRenderer.send('bolha:focar'),
+  /** O robô dormiu/acordou: dormindo, a carinha não passeia nem troca de monitor. */
+  dormindo: (sim) => ipcRenderer.send('bolha:dormindo', !!sim),
   /** Reunião: cria a fonte "som do computador" (o que sai no fone) e devolve o nome dela. */
   somDoSistema: () => ipcRenderer.invoke('reuniao:som'),
   soltarSomDoSistema: () => ipcRenderer.send('reuniao:soltar-som'),

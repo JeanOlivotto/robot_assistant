@@ -50,6 +50,8 @@ let andando = null; // a caminhada em curso (setInterval)
 let passear = true; // passeia pela tela sozinho (bandeja liga/desliga)
 let ocupada = false; // balão aberto ou mouse em cima: fica quieta
 let arrastadaEm = 0;
+let dormindo = false; // o robô está dormindo: a carinha não se mexe até alguém acordá-lo
+let conferirMonitor = () => {};
 let painel = null;
 let bandeja = null;
 let modoBolha = 'carinha';
@@ -384,7 +386,7 @@ function andarAte(alvo, ritmo = TROCA) {
 function passearDeVezEmQuando() {
   const proxima = PASSEIO_A_CADA_MS.min + Math.random() * (PASSEIO_A_CADA_MS.max - PASSEIO_A_CADA_MS.min);
   setTimeout(async () => {
-    const quieta = !passear || !visivel || ocupada || andando || modoBolha !== 'carinha';
+    const quieta = !passear || !visivel || ocupada || dormindo || andando || modoBolha !== 'carinha';
     if (!quieta && Date.now() - arrastadaEm > PARADO_DEPOIS_DE_ARRASTAR_MS) {
       const area = await monitorFocado();
       if (area) {
@@ -432,6 +434,11 @@ function seguirMonitor() {
     ultimo = chave;
     // Já está nesse monitor (você a levou até lá, ou clicou nela): não sai do lugar.
     if (dentro(cantoAtual(), area)) return;
+    // Dormindo não anda: fica onde está, e vai para o monitor em uso quando acordar.
+    if (dormindo) {
+      ultimo = '';
+      return;
+    }
     if (visivel) andarAte(cantoNo(area));
     else {
       canto = cantoNo(area); // escondido: aparece já no monitor certo
@@ -444,6 +451,7 @@ function seguirMonitor() {
     espera = setTimeout(conferir, 250); // várias trocas seguidas: anda uma vez só
   });
   sub.on('error', () => {}); // sem bspwm: fica parada onde está
+  conferirMonitor = () => void conferir();
   app.on('will-quit', () => sub.kill());
   void conferir();
 }
@@ -541,6 +549,12 @@ ipcMain.on('bolha:soltar', () => {
   if (!bolha) return;
   arrastadaEm = Date.now(); // você a pôs ali: ela fica um tempo sem passear
   lembrarPosicao();
+});
+ipcMain.on('bolha:dormindo', (_e, sim) => {
+  const antes = dormindo;
+  dormindo = !!sim;
+  if (dormindo && andando) pararDeAndar();
+  if (antes && !dormindo) conferirMonitor(); // acordou: vai até o monitor em uso
 });
 ipcMain.on('bolha:ocupada', (_e, sim) => {
   ocupada = !!sim;

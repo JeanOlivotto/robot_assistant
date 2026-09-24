@@ -167,6 +167,12 @@ function BolhaLogada({ token, andando }: { token: string; andando: 'esquerda' | 
     return () => clearInterval(id);
   }, [balao, esperando, emCima, resposta]);
 
+  // Dormindo (o rosto do robô físico), a carinha não se mexe até alguém acordá-lo.
+  const dormindo = robo.robot?.face === 'sleeping';
+  useEffect(() => {
+    desktop?.dormindo?.(dormindo);
+  }, [dormindo]);
+
   // Com o balão aberto ou o mouse em cima, ela não sai passeando.
   useEffect(() => {
     desktop?.ocupada?.(!!balao || esperando || emCima);
@@ -174,6 +180,8 @@ function BolhaLogada({ token, andando }: { token: string; andando: 'esquerda' | 
 
   /** Clique na carinha: abre o balão para conversar (com a última mensagem, se for recente) ou fecha. */
   const clicar = () => {
+    // Dormindo: o clique acorda (o robô da mesa também) antes de abrir o balão.
+    if (dormindo) void fetch('/api/robot/acordar', { method: 'POST', headers: { Authorization: `Bearer ${token}` } }).catch(() => undefined);
     if (balao) {
       setBalao(null);
       return;

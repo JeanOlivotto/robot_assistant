@@ -38,8 +38,8 @@
 #define SLEEP_BRIGHTNESS 110
 #define SLEEP_FRAME_MS   200 /* dormindo, anima devagar (5 fps) — gasta menos CPU */
 /* Sono sozinho, como um bichinho: sem ninguém mexer nele, boceja e depois dorme. */
-#define IDLE_SLEEP_MS       (5 * 60 * 1000) /* de dia: 5 min sem interação */
-#define IDLE_SLEEP_NIGHT_MS (60 * 1000)     /* de noite: 1 min */
+#define IDLE_SLEEP_MS       (20 * 60 * 1000) /* de dia: 20 min sem interação (5 min era sono demais) */
+#define IDLE_SLEEP_NIGHT_MS (5 * 60 * 1000)  /* de noite: 5 min */
 #define DROWSY_MS           30000           /* 30 s bocejando antes de dormir */
 #define LONG_NAP_MS         (30 * 60 * 1000) /* dormiu mais que isso: acorda com "bom dia" */
 

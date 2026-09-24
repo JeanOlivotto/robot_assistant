@@ -20,6 +20,7 @@ interface RoboDesktopBridge {
   soltar(): void;
   painel(acao: 'alternar' | 'abrir' | 'fechar'): void;
   ocupada?(sim: boolean): void;
+  dormindo?(sim: boolean): void;
   focar?(): void;
   /** Cria a fonte do som do computador (PipeWire) e devolve o rótulo dela, ou null. */
   somDoSistema?(): Promise<string | null>;
