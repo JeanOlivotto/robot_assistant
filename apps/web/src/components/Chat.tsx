@@ -1,6 +1,7 @@
 import { Fragment, useEffect, useLayoutEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 'react';
 import type { ChatMessage, Proposal } from '@robo/protocol';
 import { dayKey, dayLabel, hhmm } from '../lib/format';
+import { preparePhoto, sendPhoto, usePhotoUrl, type ReadyPhoto } from '../lib/photo';
 import { MAX_VOICE_MS, VoiceRecorder } from '../lib/recorder';
 
 const KIND_TAG: Partial<Record<NonNullable<ChatMessage['kind']>, string>> = {
@@ -147,16 +148,37 @@ function Recording({ onDone, onCancel }: { onDone(audio: Blob): void; onCancel()
   );
 }
 
+/** Miniatura da foto na conversa, na proporção certa já antes de carregar (a lista não pula). */
+function PhotoThumb({ token, photo, onOpen }: { token: string; photo: NonNullable<ChatMessage['photo']>; onOpen(url: string): void }) {
+  const url = usePhotoUrl(token, photo.id);
+  return (
+    <button
+      type="button"
+      className="photo-thumb"
+      style={{ aspectRatio: `${photo.w} / ${photo.h}` }}
+      onClick={() => url && onOpen(url)}
+      aria-label="Abrir foto"
+    >
+      {url ? <img src={url} alt="" /> : <span className="photo-thumb__wait">carregando…</span>}
+    </button>
+  );
+}
+
 function Composer({
+  token,
   onSend,
   onSendVoice,
   disabled,
 }: {
+  token: string;
   onSend(text: string): boolean;
   onSendVoice(audio: Blob): Promise<string>;
   disabled: boolean;
 }) {
   const [text, setText] = useState('');
+  const [photo, setPhoto] = useState<ReadyPhoto | null>(null);
+  const [photoState, setPhotoState] = useState<'idle' | 'preparing' | 'sending'>('idle');
+  const fileRef = useRef<HTMLInputElement>(null);
   const [recording, setRecording] = useState(false);
   const [voiceState, setVoiceState] = useState<'idle' | 'sending' | 'error'>('idle');
   const [voiceError, setVoiceError] = useState('');
@@ -169,10 +191,46 @@ function Composer({
     el.style.height = `${Math.min(el.scrollHeight, 140)}px`;
   }, [text]);
 
-  const submit = (e?: FormEvent) => {
+  const dropPhoto = () => {
+    if (photo) URL.revokeObjectURL(photo.url);
+    setPhoto(null);
+  };
+
+  const pickPhoto = async (file: File | undefined) => {
+    if (!file) return;
+    setPhotoState('preparing');
+    try {
+      dropPhoto();
+      setPhoto(await preparePhoto(file));
+    } catch (err) {
+      setVoiceError((err as Error).message);
+      setVoiceState('error');
+    } finally {
+      setPhotoState('idle');
+      if (fileRef.current) fileRef.current.value = ''; // deixa escolher a mesma foto de novo
+    }
+  };
+
+  const submit = async (e?: FormEvent) => {
     e?.preventDefault();
     const t = text.trim();
-    if (!t || disabled) return;
+    if (disabled) return;
+    if (photo) {
+      // Foto com a legenda que estiver escrita: vai junto, numa mensagem só.
+      setPhotoState('sending');
+      try {
+        await sendPhoto(token, photo, t);
+        dropPhoto();
+        setText('');
+      } catch (err) {
+        setVoiceError(`a foto não foi: ${(err as Error).message}`);
+        setVoiceState('error');
+      } finally {
+        setPhotoState('idle');
+      }
+      return;
+    }
+    if (!t) return;
     if (onSend(t)) setText('');
   };
 
@@ -180,7 +238,7 @@ function Composer({
     // Enter envia no computador; no celular o teclado tem o próprio botão.
     if (e.key === 'Enter' && !e.shiftKey && !('ontouchstart' in window)) {
       e.preventDefault();
-      submit();
+      void submit();
     }
   };
 
@@ -198,20 +256,49 @@ function Composer({
 
   if (recording) return <Recording onDone={sendVoice} onCancel={() => setRecording(false)} />;
 
-  const showMic = !text.trim() && VoiceRecorder.supported;
+  const showMic = !text.trim() && !photo && VoiceRecorder.supported;
   return (
     <>
+      {(photo || photoState === 'preparing') && (
+        <div className="photo-draft">
+          {photo ? <img src={photo.url} alt="Foto para enviar" /> : <span className="photo-draft__wait">preparando…</span>}
+          <span className="photo-draft__hint">
+            {photoState === 'sending' ? 'Enviando…' : 'Escreva algo sobre a foto, se quiser, e envie.'}
+          </span>
+          {photo && photoState !== 'sending' && (
+            <button type="button" className="photo-draft__x" onClick={dropPhoto} aria-label="Tirar a foto">
+              ×
+            </button>
+          )}
+        </div>
+      )}
       {voiceState !== 'idle' && (
         <div className={`voice-status voice-status--${voiceState}`} onClick={() => voiceState === 'error' && setVoiceState('idle')}>
           {voiceState === 'sending' ? 'Ouvindo seu áudio…' : `Não deu: ${voiceError} (toque para fechar)`}
         </div>
       )}
-      <form className="composer" onSubmit={submit}>
+      <form className="composer" onSubmit={(e) => void submit(e)}>
+        <input
+          ref={fileRef}
+          type="file"
+          accept="image/*"
+          hidden
+          onChange={(e) => void pickPhoto(e.target.files?.[0])}
+        />
+        <button
+          type="button"
+          className="attach"
+          disabled={disabled || photoState !== 'idle'}
+          onClick={() => fileRef.current?.click()}
+          aria-label="Mandar foto"
+        >
+          <CameraIcon />
+        </button>
         <textarea
           ref={ref}
           rows={1}
           value={text}
-          placeholder={disabled ? 'Sem conexão…' : 'Fale com o robô…'}
+          placeholder={disabled ? 'Sem conexão…' : photo ? 'Legenda (opcional)…' : 'Fale com o robô…'}
           onChange={(e) => setText(e.target.value)}
           onKeyDown={onKey}
           enterKeyHint="send"
@@ -227,7 +314,12 @@ function Composer({
             <MicIcon />
           </button>
         ) : (
-          <button type="submit" className="send" disabled={disabled || !text.trim()} aria-label="Enviar">
+          <button
+            type="submit"
+            className="send"
+            disabled={disabled || photoState !== 'idle' || (!text.trim() && !photo)}
+            aria-label="Enviar"
+          >
             <SendIcon />
           </button>
         )}
@@ -236,7 +328,17 @@ function Composer({
   );
 }
 
+function CameraIcon() {
+  return (
+    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M4 8h3l2-3h6l2 3h3a1 1 0 0 1 1 1v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1z" />
+      <circle cx="12" cy="13" r="3.5" />
+    </svg>
+  );
+}
+
 export function Chat({
+  token,
   messages,
   thinking,
   online,
@@ -244,6 +346,7 @@ export function Chat({
   onSendVoice,
   onConfirm,
 }: {
+  token: string;
   messages: ChatMessage[];
   thinking: boolean;
   online: boolean;
@@ -252,6 +355,7 @@ export function Chat({
   onConfirm(proposalId: string, ok: boolean): void;
 }) {
   const endRef = useRef<HTMLDivElement>(null);
+  const [viewing, setViewing] = useState<string | null>(null);
 
   useEffect(() => {
     endRef.current?.scrollIntoView({ block: 'end' });
@@ -272,7 +376,8 @@ export function Chat({
               <div className={`msg msg--${m.from}`}>
                 <div className="bubble">
                   {tag && <div className="tag">{tag}</div>}
-                  <div className="text">{m.text}</div>
+                  {m.photo && <PhotoThumb token={token} photo={m.photo} onOpen={setViewing} />}
+                  {m.text && <div className="text">{m.text}</div>}
                   {m.proposal && <ProposalCard p={m.proposal} onConfirm={(ok) => onConfirm(m.proposal!.id, ok)} />}
                   <div className="time">
                     {m.via === 'voice' ? '🎤 ' : m.via === 'siri' ? 'Siri · ' : ''}
@@ -294,7 +399,12 @@ export function Chat({
         )}
         <div ref={endRef} />
       </div>
-      <Composer onSend={onSay} onSendVoice={onSendVoice} disabled={!online} />
+      <Composer token={token} onSend={onSay} onSendVoice={onSendVoice} disabled={!online} />
+      {viewing && (
+        <div className="photo-viewer" onClick={() => setViewing(null)} role="dialog" aria-label="Foto (toque para fechar)">
+          <img src={viewing} alt="" />
+        </div>
+      )}
     </div>
   );
 }

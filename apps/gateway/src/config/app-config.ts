@@ -35,6 +35,11 @@ const Schema = z.object({
   LLM_FALLBACK_BASE_URL: z.string().default('https://integrate.api.nvidia.com/v1'),
   LLM_FALLBACK_API_KEY: z.string().default(''),
   LLM_FALLBACK_MODELS: z.string().default('google/gemma-4-31b-it,z-ai/glm-5.3'),
+  /* Visão (fotos do chat): modelos em ordem, no provedor da reserva (NVIDIA) — o Groq não tem
+     modelo de visão nesta conta. Medido em 24/09: Gemma 4 ~9 s e lê texto; Llama 3.2 11B ~12 s. */
+  VISION_BASE_URL: z.string().default(''),
+  VISION_API_KEY: z.string().default(''),
+  VISION_MODELS: z.string().default('google/gemma-4-31b-it,meta/llama-3.2-11b-vision-instruct'),
 
   /* Transcrição: Whisper large-v3 hospedado na NVIDIA (gRPC do Riva).
      Chave vazia = usa LLM_FALLBACK_API_KEY (NVIDIA) ou, por último, LLM_API_KEY. */

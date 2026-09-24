@@ -294,7 +294,7 @@ export class BrainService {
       const msg = await this.llm.complete(
         [
           { role: 'system', content: systemPrompt({ ...this.promptContext(now), todayAgenda: agenda }) },
-          ...toLlmHistory(history.slice(-8), this.cfg.TZ_NAME),
+          ...toLlmHistory(history.slice(-60), this.cfg.TZ_NAME),
           {
             role: 'user',
             content:
@@ -310,6 +310,8 @@ export class BrainService {
               'não tem nada de verdadeiro para dizer (nunca invente fato, compromisso ou pendência). Algumas ' +
               'mensagens espalhadas pelo dia é o normal.\n' +
               'Cobrar pendência: uma de cada vez e sem soar cobrador de dívida.\n' +
+              'Antes de perguntar de um compromisso ou pendência, confira a conversa de hoje acima: se ele já ' +
+              'contou como foi, NÃO pergunte de novo — no máximo comente o que ele disse.\n' +
               'Responda SOMENTE com JSON: {"falar": true|false, "texto": "...", "motivo": "...", "pendencias": [n], "assunto": true|false}, ' +
               'onde "pendencias" traz o número das que você citou no texto (vazio se não citou nenhuma) e "assunto" ' +
               'diz se você puxou o assunto antigo. O texto é você falando, curto, com a sua expressão entre ' +
@@ -595,7 +597,15 @@ function toLlmHistory(history: ChatMessage[], tz: string): ChatCompletionMessage
     timeZone: tz,
   });
   return history.map((m): ChatCompletionMessageParam => {
-    if (m.from === 'user') return { role: 'user', content: m.text };
+    if (m.from === 'user') {
+      if (!m.photo) return { role: 'user', content: m.text };
+      // O cérebro só lê texto: a foto entra pela descrição que o modelo de visão fez.
+      const foto = m.photo.desc
+        ? `[${m.text ? 'junto, ' : ''}ele mandou uma foto. O que aparece nela: ${m.photo.desc}]`
+        : '[ele mandou uma foto, mas você não conseguiu ver — diga isso e peça para mandar de novo]';
+      return { role: 'user', content: m.text ? `${m.text}
+${foto}` : foto };
+    }
     const p = m.proposal;
     const note = p ? `\n(proposta "${p.title}" ${fmt.format(p.start)}: ${p.status})` : '';
     return { role: 'assistant', content: m.text + note };

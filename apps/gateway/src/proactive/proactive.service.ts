@@ -141,7 +141,10 @@ export class ProactiveService implements OnModuleInit, OnModuleDestroy {
       const lastUser = this.chat.lastUserAt();
       // Só entram as que ele não cobrou nas últimas 20 h — senão vira cobrança diária da mesma coisa.
       const pendentes = this.tasks.worthNudging(20).slice(0, 5);
-      const call = await this.brain.judge(this.chat.history(10), {
+      // A conversa do dia inteiro, não só as últimas: ele perguntava "como foi a ligação?" de
+      // algo que o dono tinha contado de manhã, 10 mensagens antes.
+      const today = this.chat.history(60).filter((m) => this.sameDay(m.ts, now));
+      const call = await this.brain.judge(today.length ? today : this.chat.history(6), {
         idleHours: (now - this.chat.lastActivityAt()) / HOUR,
         lastSpontaneous: this.mem.lastSpokenText,
         spokenToday: this.mem.spokenCount,

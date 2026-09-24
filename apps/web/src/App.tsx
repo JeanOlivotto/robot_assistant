@@ -252,6 +252,7 @@ function Main({ token, onLogout }: { token: string; onLogout(): void }) {
 
       {tab === 'chat' && (
         <Chat
+          token={token}
           messages={robo.messages}
           thinking={!!r?.thinking}
           online={robo.conn === 'open'}

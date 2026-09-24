@@ -7,6 +7,7 @@ import { BracoService } from '../braco/braco.service.js';
 import { CalendarService } from '../calendar/calendar.service.js';
 import { deviceText } from '../calendar/device-text.js';
 import { APP_CONFIG, type AppConfig } from '../config/app-config.js';
+import { VisionService } from '../vision/vision.service.js';
 import { ChatStore } from './chat.store.js';
 
 export interface ChatState {
@@ -65,6 +66,7 @@ export class ChatService implements OnModuleInit, OnModuleDestroy {
     private readonly brain: BrainService,
     private readonly calendar: CalendarService,
     private readonly braco: BracoService,
+    private readonly vision: VisionService,
   ) {
     this.timeFmt = new Intl.DateTimeFormat('pt-BR', {
       weekday: 'short',
@@ -119,6 +121,14 @@ export class ChatService implements OnModuleInit, OnModuleDestroy {
   /** Como say(), mas devolve a resposta do robô (a voz precisa dela para falar). */
   ask(text: string, via: MessageVia = 'text', opts: AskOptions = {}): Promise<ChatMessage | undefined> {
     return this.enqueue(() => this.handleUserText(text, via, opts));
+  }
+
+  /**
+   * Foto do app (já guardada em disco): entra na conversa na hora, e a resposta vem depois que o
+   * modelo de visão descrever — a descrição fica na mensagem, para o robô lembrar da foto depois.
+   */
+  sayPhoto(photo: { id: string; w: number; h: number }, image: Buffer, mime: string, caption: string): Promise<ChatMessage | undefined> {
+    return this.enqueue(() => this.handlePhoto(photo, image, mime, caption));
   }
 
   async confirm(proposalId: string, ok: boolean): Promise<void> {
@@ -188,6 +198,29 @@ export class ChatService implements OnModuleInit, OnModuleDestroy {
       });
     }
 
+    return this.answer(via, opts, wasWaiting);
+  }
+
+  private async handlePhoto(
+    photo: { id: string; w: number; h: number },
+    image: Buffer,
+    mime: string,
+    caption: string,
+  ): Promise<ChatMessage | undefined> {
+    const wasWaiting = this.state.waitingSince > 0;
+    const msg: ChatMessage = { id: randomUUID(), from: 'user', text: caption, ts: Date.now(), photo };
+    this.push(msg);
+    this.setState({ thinking: true, waitingSince: 0 });
+
+    const desc = await this.vision.describe(image, mime, caption);
+    // Guarda o que ele viu junto da foto: é o que entra no histórico dali em diante.
+    this.push({ ...msg, photo: { ...photo, desc: desc ?? undefined } });
+    if (!desc) this.log.warn('Nenhum modelo de visão descreveu a foto');
+    return this.answer('text', {}, wasWaiting);
+  }
+
+  /** O cérebro responde ao que está no histórico (a última mensagem é do dono). */
+  private async answer(via: MessageVia, opts: AskOptions, wasWaiting: boolean): Promise<ChatMessage | undefined> {
     this.setState({ thinking: true, waitingSince: 0 });
     if (wasWaiting) this.react$.next({ face: 'love', ms: 2000 }); // finalmente respondeu!
     try {

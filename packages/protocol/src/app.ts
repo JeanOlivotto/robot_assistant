@@ -32,6 +32,15 @@ export const MESSAGE_KINDS = ['reply', 'proactive', 'reminder'] as const;
 export const MESSAGE_VIA = ['text', 'voice', 'siri'] as const;
 export type MessageVia = (typeof MESSAGE_VIA)[number];
 
+/** Foto mandada pelo app. O arquivo fica no servidor; `desc` é o que o modelo de visão viu nela. */
+export const ChatPhoto = z.object({
+  id: z.string().uuid(),
+  w: z.number().int().positive(),
+  h: z.number().int().positive(),
+  /** Descrição feita pelo modelo de visão — é por ela que o cérebro (só texto) "enxerga" a foto. */
+  desc: z.string().max(3000).optional(),
+});
+
 export const ChatMessage = z.object({
   id: z.string(),
   from: z.enum(['user', 'robot']),
@@ -41,6 +50,7 @@ export const ChatMessage = z.object({
   via: z.enum(MESSAGE_VIA).optional(),
   face: z.enum(FACES).optional(),
   proposal: Proposal.optional(),
+  photo: ChatPhoto.optional(),
 });
 
 export const RobotView = z.object({
@@ -102,6 +112,7 @@ export const AppServerMessage = z.discriminatedUnion('t', [Snapshot, MessageUpse
 
 export type Proposal = z.infer<typeof Proposal>;
 export type ChatMessage = z.infer<typeof ChatMessage>;
+export type ChatPhoto = z.infer<typeof ChatPhoto>;
 export type RobotView = z.infer<typeof RobotView>;
 export type AppClientMessage = z.infer<typeof AppClientMessage>;
 export type AppServerMessage = z.infer<typeof AppServerMessage>;

@@ -100,7 +100,7 @@ export class MemoryService {
     if (!this.llm.enabled || history.length === 0) return;
     const texto = history
       .slice(-12)
-      .map((m) => `${m.from === 'user' ? 'Dono' : 'Robô'}: ${m.text}`)
+      .map((m) => `${m.from === 'user' ? 'Dono' : 'Robô'}: ${m.text}${m.photo?.desc ? ` [mandou foto: ${m.photo.desc}]` : ''}`)
       .join('\n');
     try {
       const msg = await this.llm.complete(
