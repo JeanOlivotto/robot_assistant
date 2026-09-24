@@ -264,7 +264,7 @@ export class BrainService {
 
     let proposal: ProposalDraft | undefined;
     for (let step = 0; step < MAX_STEPS; step++) {
-      const msg = await this.llm.complete(messages, TOOLS, opts.spoken ? { maxTokens: SPOKEN_MAX_TOKENS } : undefined);
+      const msg = await this.llm.complete(messages, TOOLS, opts.spoken ? { maxTokens: SPOKEN_MAX_TOKENS, quick: true } : undefined);
       const calls = (msg.tool_calls ?? []).filter((c) => c.type === 'function');
       if (!calls.length) {
         const { text, face } = splitEmotion(msg.content ?? '');

@@ -1,4 +1,4 @@
-import { BadRequestException, Body, Controller, HttpCode, HttpException, Post, Query, UseGuards } from '@nestjs/common';
+import { BadRequestException, Body, Controller, HttpCode, HttpException, Logger, Post, Query, UseGuards } from '@nestjs/common';
 import { AppTokenGuard } from '../auth/app-token.guard.js';
 import type { ChatVoz } from '@robo/protocol';
 import { SttError, SttService } from '../stt/stt.service.js';
@@ -46,6 +46,8 @@ function forSpeech(text: string): string {
 @Controller('api')
 @UseGuards(AppTokenGuard)
 export class VoiceController {
+  private readonly log = new Logger(VoiceController.name);
+
   constructor(
     private readonly stt: SttService,
     private readonly chat: ChatService,
@@ -59,6 +61,14 @@ export class VoiceController {
    * De quem é esta voz, pelo banco. Roda em paralelo com a transcrição, então não atrasa a
    * resposta. Voz que ele não tem certeza fica guardada: se a pessoa disser o nome, salvar_voz usa.
    */
+  /**
+   * quemFala com prazo: a resposta não pode esperar o reconhecimento de voz (o serviço de vozes é
+   * um só e pode estar ocupado separando as vozes de uma reunião). Passou do prazo, segue sem.
+   */
+  private quemFalaAte(audio: Buffer, ms: number): Promise<ChatVoz | undefined> {
+    return Promise.race([this.quemFala(audio), new Promise<undefined>((r) => setTimeout(() => r(undefined), ms))]);
+  }
+
   private async quemFala(audio: Buffer): Promise<ChatVoz | undefined> {
     if (!this.vozes.enabled) return undefined;
     try {
@@ -93,7 +103,7 @@ export class VoiceController {
   async voice(@Body() audio: unknown): Promise<{ text: string; seconds: number }> {
     if (!Buffer.isBuffer(audio) || !audio.length) throw new BadRequestException('mande o áudio no corpo (Content-Type audio/*)');
     try {
-      const [{ text, seconds }, voz] = await Promise.all([this.stt.transcribe(audio), this.quemFala(audio)]);
+      const [{ text, seconds }, voz] = await Promise.all([this.stt.transcribe(audio), this.quemFalaAte(audio, 3000)]);
       if (!text) throw new SttError('não entendi nada nesse áudio', 422);
       void this.chat.say(text, 'voice', { voz });
       return { text, seconds };
@@ -111,13 +121,21 @@ export class VoiceController {
   ): Promise<{ you: string; reply: string; face: string; action?: 'start_meeting' }> {
     if (!Buffer.isBuffer(audio) || !audio.length) throw new BadRequestException('mande o áudio no corpo (Content-Type audio/*)');
     try {
-      const [{ text }, voz] = await Promise.all([this.stt.transcribe(audio), this.quemFala(audio)]);
+      const t0 = Date.now();
+      let tStt = 0;
+      const [{ text }, voz] = await Promise.all([
+        this.stt.transcribe(audio).finally(() => (tStt = Date.now() - t0)),
+        this.quemFalaAte(audio, 1500),
+      ]);
+      const tOuvir = Date.now() - t0;
       if (!text) throw new SttError('não entendi nada nesse áudio', 422);
       // Pediu para gravar uma reunião: o app entra no modo reunião (não vira conversa nem agenda).
       if (wantsMeeting(text)) {
         return { you: text, reply: 'Bora! Tô abrindo o modo reunião e já começo a gravar. Pode falar!', face: 'happy', action: 'start_meeting' };
       }
       const reply = await this.chat.ask(text, 'voice', { since: this.sessions.since(session), spoken: true, voz });
+      // Onde vai o tempo de cada fala da ligação (transcrição, voz, cérebro) — é por aqui que se afina.
+      this.log.log(`Ligação: transcrição ${tStt} ms, ouvir+voz ${tOuvir} ms, cérebro ${Date.now() - t0 - tOuvir} ms`);
       return {
         you: text,
         reply: reply ? forSpeech(reply.text) : 'Hmm, não sei o que dizer agora.',

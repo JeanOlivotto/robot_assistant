@@ -11,7 +11,7 @@ import { acquireMic, audioContext, micSupported, releaseMic } from './mic';
 const RATE = 16000;
 const PRE_ROLL_MS = 900; // quanto do passado entra junto quando o turno abre
 const BARGE_PRE_ROLL_MS = 350; // ao cortar o robô, pega pouco de trás (o resto é eco dele)
-const SILENCE_MS = 1100; // silêncio que encerra a sua fala (com 700 ms ele atropelava qualquer pausa para pensar)
+const SILENCE_MS = 900; // silêncio que encerra a sua fala (700 ms atropelava as pausas; 1100 ms deixava a ligação arrastada)
 const MIN_SPEECH_MS = 280; // menos que isso é tosse, estalo, porta batendo
 const NO_SPEECH_MS = 8000; // ninguém falou nesta rodada: volta vazio (quem chama decide se segue ouvindo)
 const MAX_MS = 30_000; // trava de segurança

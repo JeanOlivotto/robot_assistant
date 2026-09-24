@@ -72,7 +72,12 @@ export class LlmService {
   async complete(
     messages: ChatCompletionMessageParam[],
     tools?: ChatCompletionTool[],
-    opts?: { maxTokens?: number; temperature?: number },
+    opts?: {
+      maxTokens?: number;
+      temperature?: number;
+      /** Pensar pouco antes de responder (ligação): o gpt-oss raciocina bem menos e responde mais rápido. */
+      quick?: boolean;
+    },
   ): Promise<ChatCompletionMessage> {
     if (!this.targets.length) throw new Error('LLM desligado (sem chave)');
     const now = Date.now();
@@ -90,6 +95,8 @@ export class LlmService {
           ...(tools?.length ? { tools, tool_choice: 'auto' as const } : {}),
           temperature: opts?.temperature ?? 0.6,
           max_tokens: opts?.maxTokens ?? 800,
+          // Só o gpt-oss entende "esforço de raciocínio"; os outros modelos recusariam o campo.
+          ...(opts?.quick && /gpt-oss/.test(t.model) ? { reasoning_effort: 'low' as const } : {}),
         });
         const msg = res.choices[0]?.message;
         if (!msg) throw new Error('resposta vazia');
