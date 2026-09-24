@@ -40,11 +40,11 @@ describe('PresenceService', () => {
     expect(svc.isPresent).toBe(true);
 
     vi.advanceTimersByTime(4 * 60_000); // só aparelhos longe nesse tempo
-    svc.record(ble([{ a: 'bb', r: -78, k: 0x10 }]));
+    svc.record(ble([{ a: 'bb', r: -96, k: 0x10 }])); // iPhone de outra pessoa, longe
     expect(svc.isPresent).toBe(true);
 
     vi.advanceTimersByTime(2 * 60_000); // passou dos 5 min sem o sinal forte
-    svc.record(ble([{ a: 'bb', r: -78, k: 0x10 }]));
+    svc.record(ble([{ a: 'bb', r: -96, k: 0x10 }]));
     expect(svc.isPresent).toBe(false);
   });
 });

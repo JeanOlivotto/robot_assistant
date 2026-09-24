@@ -11,11 +11,11 @@ type BleMsg = z.infer<typeof Ble>;
 /** Tipo do anúncio Apple que um iPhone/iPad/Mac em uso manda o tempo todo. */
 const NEARBY_INFO = 0x10;
 /*
- * "Na mesa" = um iPhone apareceu forte nos últimos 5 min. Primeiros dados (24/09, dono sentado o
- * tempo todo): o iPhone dele oscila entre -43 e -48 dBm, mas some por até 4 min quando está
- * bloqueado; o que resta é -72 a -80, de outros aparelhos Apple mais longe. Mesma regra do firmware.
+ * "Na mesa" = um iPhone (Nearby Info) apareceu a ≥ -80 dBm nos últimos 5 min. Leituras aparelho por
+ * aparelho (24/09) mostraram o iPhone do dono, com o mesmo endereço, em -71 a -75 bloqueado e -45
+ * desbloqueado; os iPhones dos outros ficam em -95 ou menos. Mesma regra do firmware.
  */
-const NEAR_RSSI = -60;
+const NEAR_RSSI = -80;
 const NEAR_MS = 5 * 60_000;
 const KEEP_MS = 7 * 24 * 3600_000;
 const FILE_MAX_BYTES = 8 * 1024 * 1024;

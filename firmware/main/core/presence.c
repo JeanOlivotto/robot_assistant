@@ -32,7 +32,9 @@
 #define SCAN_ITVL   256
 #define SCAN_WINDOW 80
 
-#define NEAR_RSSI   (-60)
+/* O iPhone bloqueado transmite mais fraco: na mesa, a um palmo do robô, fica em -71 a -75 dBm
+ * (desbloqueado, -45). Os de outras pessoas chegam a -95 ou menos. */
+#define NEAR_RSSI   (-80)
 #define NEAR_MS     (5 * 60 * 1000)
 #define NEARBY_INFO 0x10
 
