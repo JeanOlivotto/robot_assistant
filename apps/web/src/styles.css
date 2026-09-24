@@ -1571,8 +1571,9 @@ html.desktop-bolha #root {
   height: 84px;
   flex: none;
   padding: 0;
-  border-radius: 50%;
-  border: 2px solid rgba(90, 230, 240, 0.35);
+  /* a moldura da tela do robô físico: quadrado de cantos arredondados, bisel escuro */
+  border-radius: 20px;
+  border: 3px solid #1c222c;
   background: #05070b;
   display: grid;
   place-items: center;
@@ -1634,6 +1635,9 @@ html.desktop-bolha #root {
   color: var(--text);
   overflow-wrap: anywhere;
   user-select: text;
+}
+.balao__texto--convite {
+  color: var(--dim);
 }
 .balao__texto--pensando {
   color: var(--dim);

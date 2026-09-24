@@ -61,11 +61,22 @@ function useAndando(): 'esquerda' | 'direita' | null {
   return lado;
 }
 
+/** O balão aberto: a mensagem (se houver), desde quando aparece e se foi você que abriu. */
+interface Balao {
+  msg: ChatMessage | null;
+  desde: number;
+  porClique: boolean;
+}
+
+/** Mensagem do robô recente o bastante para aparecer quando você clica na carinha. */
+const RECENTE_MS = 30 * 60_000;
+
 function BolhaLogada({ token, andando }: { token: string; andando: 'esquerda' | 'direita' | null }) {
   const robo = useRobo(token);
-  const [balao, setBalao] = useState<ChatMessage | null>(null);
+  const [balao, setBalao] = useState<Balao | null>(null);
   const [resposta, setResposta] = useState('');
   const [esperando, setEsperando] = useState(false);
+  const [emCima, setEmCima] = useState(false);
   const [voz, setVoz] = useState(() => {
     try {
       return localStorage.getItem(VOZ_KEY) === '1';
@@ -74,7 +85,6 @@ function BolhaLogada({ token, andando }: { token: string; andando: 'esquerda' | 
     }
   });
   const vistoAte = useRef(Date.now()); // o histórico que já existia não vira balão
-  const segurando = useRef(false); // mouse em cima ou digitando: o balão não some
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -113,21 +123,41 @@ function BolhaLogada({ token, andando }: { token: string; andando: 'esquerda' | 
     if (!novas.length) return;
     vistoAte.current = Math.max(...novas.map((m) => m.ts));
     const ultima = novas[novas.length - 1]!;
-    setBalao(ultima);
+    // Se você abriu o balão para conversar, ele continua "seu": não some sozinho.
+    setBalao((b) => ({ msg: ultima, desde: Date.now(), porClique: b?.porClique ?? false }));
     setEsperando(false);
     if (voz) void speak(ultima.text);
   }, [robo.messages, voz]);
 
-  // Tamanho da janela acompanha o balão; o balão some sozinho depois de um tempo.
+  // Tamanho da janela acompanha o balão. O que abriu sozinho some depois de um tempo, contado de
+  // quando APARECEU (antes contava da hora da mensagem, e o balão aberto no clique fechava na hora).
   useEffect(() => {
     desktop?.modo(balao || esperando ? 'balao' : 'carinha');
-    if (!balao || esperando) return;
-    const prazo = BALAO_MIN_MS + balao.text.length * BALAO_POR_LETRA_MS;
+    if (!balao || balao.porClique || esperando) return;
+    const prazo = BALAO_MIN_MS + (balao.msg?.text.length ?? 0) * BALAO_POR_LETRA_MS;
     const id = setInterval(() => {
-      if (!segurando.current && document.activeElement !== inputRef.current && Date.now() - balao.ts > prazo) setBalao(null);
+      const mexendo = emCima || document.activeElement === inputRef.current || resposta.trim();
+      if (!mexendo && Date.now() - balao.desde > prazo) setBalao(null);
     }, 1000);
     return () => clearInterval(id);
-  }, [balao, esperando]);
+  }, [balao, esperando, emCima, resposta]);
+
+  // Com o balão aberto ou o mouse em cima, ela não sai passeando.
+  useEffect(() => {
+    desktop?.ocupada?.(!!balao || esperando || emCima);
+  }, [balao, esperando, emCima]);
+
+  /** Clique na carinha: abre o balão para conversar (com a última mensagem, se for recente) ou fecha. */
+  const clicar = () => {
+    if (balao) {
+      setBalao(null);
+      return;
+    }
+    const ultima = ultimaDoRobo(robo.messages);
+    setBalao({ msg: ultima && Date.now() - ultima.ts < RECENTE_MS ? ultima : null, desde: Date.now(), porClique: true });
+    desktop?.focar?.();
+    setTimeout(() => inputRef.current?.focus(), 80);
+  };
 
   const responder = (e: FormEvent) => {
     e.preventDefault();
@@ -141,20 +171,19 @@ function BolhaLogada({ token, andando }: { token: string; andando: 'esquerda' | 
 
   const r = robo.robot;
   const face = r?.online ? r.face : r?.thinking || esperando ? 'thinking' : 'neutral';
-  const texto = esperando ? 'pensando…' : balao?.text;
-  const tag = balao?.kind ? TAG[balao.kind] : undefined;
+  const texto = esperando ? 'pensando…' : balao?.msg?.text ?? 'Oi! Fale comigo.';
+  const tag = !esperando && balao?.msg?.kind ? TAG[balao.msg.kind] : undefined;
 
   return (
-    <div className="bolha">
+    <div className="bolha" onMouseEnter={() => setEmCima(true)} onMouseLeave={() => setEmCima(false)}>
       {(balao || esperando) && (
-        <div
-          className="balao"
-          onMouseEnter={() => (segurando.current = true)}
-          onMouseLeave={() => (segurando.current = false)}
-        >
+        <div className="balao">
           <div className="balao__topo">
             {tag ? <span className="balao__tag">{tag}</span> : <span />}
             <span className="balao__botoes">
+              <button type="button" onClick={() => desktop?.painel('abrir')} title="Abrir o painel (chat, agenda, reunião)">
+                ⤢
+              </button>
               <button type="button" onClick={trocarVoz} title={voz ? 'Parar de falar em voz alta' : 'Falar em voz alta'}>
                 {voz ? '🔊' : '🔇'}
               </button>
@@ -163,13 +192,16 @@ function BolhaLogada({ token, andando }: { token: string; andando: 'esquerda' | 
               </button>
             </span>
           </div>
-          <p className={`balao__texto ${esperando ? 'balao__texto--pensando' : ''}`}>{texto}</p>
+          <p className={`balao__texto ${esperando ? 'balao__texto--pensando' : ''} ${!balao?.msg && !esperando ? 'balao__texto--convite' : ''}`}>
+            {texto}
+          </p>
           <form className="balao__resposta" onSubmit={responder}>
             <input
               ref={inputRef}
               value={resposta}
               onChange={(e) => setResposta(e.target.value)}
-              placeholder="Responder…"
+              onKeyDown={(e) => e.key === 'Escape' && setBalao(null)}
+              placeholder={balao?.msg ? 'Responder…' : 'Escreva aqui…'}
               disabled={robo.conn !== 'open'}
             />
           </form>
@@ -178,9 +210,8 @@ function BolhaLogada({ token, andando }: { token: string; andando: 'esquerda' | 
       <Carinha
         andando={andando}
         face={robo.conn === 'open' ? (andando ? 'happy' : face) : null}
-        onClick={() => (balao ? desktop?.painel('alternar') : setBalao(ultimaDoRobo(robo.messages) ?? null))}
-        onDoubleClick={() => desktop?.painel('alternar')}
-        dica={balao ? 'Clique para abrir o painel' : 'Clique para ver a última mensagem'}
+        onClick={clicar}
+        dica={balao ? 'Fechar o balão' : 'Falar com o robô'}
       />
     </div>
   );

@@ -19,6 +19,8 @@ interface RoboDesktopBridge {
   /** Terminou de arrastar: guarda a posição. */
   soltar(): void;
   painel(acao: 'alternar' | 'abrir' | 'fechar'): void;
+  ocupada?(sim: boolean): void;
+  focar?(): void;
   /** O Electron avisa (menu da bandeja) que a voz foi ligada/desligada. */
   aoMudarVoz(cb: (ligada: boolean) => void): void;
   vozMudou(ligada: boolean): void;

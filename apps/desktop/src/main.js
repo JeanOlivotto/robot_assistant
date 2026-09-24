@@ -9,8 +9,7 @@
  * andando de um para o outro.
  */
 import { execFile, spawn } from 'node:child_process';
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { homedir } from 'node:os';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { BrowserWindow, Menu, Tray, app, globalShortcut, ipcMain, screen, session, shell } from 'electron';
@@ -19,10 +18,12 @@ const AQUI = dirname(fileURLToPath(import.meta.url));
 const BASE = (process.env.ROBO_URL || 'https://srv1966497.hstgr.cloud').replace(/\/+$/, '');
 const ORIGEM = new URL(BASE).origin;
 const ATALHO = process.env.ROBO_ATALHO || 'Super+K';
-/** Velocidade da caminhada entre monitores (px/s) e os limites de duração. */
-const PASSO_PX_S = 1300;
-const ANDAR_MIN_MS = 700;
-const ANDAR_MAX_MS = 2200;
+/** Caminhada: atravessar de monitor é rápido; passear é devagar, como quem está à toa. */
+const TROCA = { px_s: 1300, min: 700, max: 2200 };
+const PASSEIO = { px_s: 160, min: 2500, max: 9000 };
+/** De quanto em quanto tempo ele resolve dar uma volta, e quanto respeita você depois de arrastá-lo. */
+const PASSEIO_A_CADA_MS = { min: 25_000, max: 70_000 };
+const PARADO_DEPOIS_DE_ARRASTAR_MS = 3 * 60_000;
 const ICONE = join(AQUI, '../assets/icone-128.png');
 const ICONE_BANDEJA = join(AQUI, '../assets/icone-22.png');
 
@@ -43,9 +44,12 @@ let bolha = null;
 let canto = null;
 /** Quando o próprio app posicionou a bolha por último (para não confundir com você arrastando). */
 let posicionadoEm = 0;
-/** Onde a carinha fica em relação ao canto de baixo à direita do monitor: vale para todos eles. */
-let margem = { dx: MARGEM, dy: MARGEM };
+/** Onde a carinha está no monitor, em proporção (0–1): ao trocar de monitor, vai ao ponto equivalente. */
+let relativo = null;
 let andando = null; // a caminhada em curso (setInterval)
+let passear = true; // passeia pela tela sozinho (bandeja liga/desliga)
+let ocupada = false; // balão aberto ou mouse em cima: fica quieta
+let arrastadaEm = 0;
 let painel = null;
 let bandeja = null;
 let modoBolha = 'carinha';
@@ -76,25 +80,29 @@ function salvarEstado(parcial) {
 
 /* ── bolha ───────────────────────────────────────────────────────────── */
 
-/** A carinha no monitor dado, na posição relativa de sempre (margem ao canto de baixo à direita). */
+/** A carinha no monitor dado, no ponto equivalente (mesma proporção); sem proporção, no canto de baixo à direita. */
 function cantoNo(area) {
-  const x = area.x + area.width - Math.min(Math.max(margem.dx, 0), area.width - CARINHA.w);
-  const y = area.y + area.height - Math.min(Math.max(margem.dy, 0), area.height - CARINHA.h);
-  return { x, y };
+  if (!relativo) return { x: area.x + area.width - MARGEM, y: area.y + area.height - MARGEM };
+  const x = area.x + CARINHA.w + relativo.fx * (area.width - CARINHA.w);
+  const y = area.y + CARINHA.h + relativo.fy * (area.height - CARINHA.h);
+  return { x: Math.round(x), y: Math.round(y) };
 }
 
-/** Guarda a posição relativa ao monitor onde a carinha está (arrastou para outro canto: vale para todos). */
-function lembrarMargem() {
+/** Guarda onde a carinha está, em proporção do monitor dela. */
+function lembrarPosicao() {
   const c = cantoAtual();
   const area = screen.getDisplayNearestPoint(c).workArea;
-  margem = { dx: area.x + area.width - c.x, dy: area.y + area.height - c.y };
-  salvarEstado({ margem });
+  const fx = (c.x - area.x - CARINHA.w) / Math.max(1, area.width - CARINHA.w);
+  const fy = (c.y - area.y - CARINHA.h) / Math.max(1, area.height - CARINHA.h);
+  relativo = { fx: Math.min(1, Math.max(0, fx)), fy: Math.min(1, Math.max(0, fy)) };
+  salvarEstado({ relativo });
 }
 
 /** O canto de baixo à direita da janela da bolha — onde a carinha mora. */
 function cantoInicial() {
-  const salvo = lerEstado().margem;
-  if (salvo && Number.isFinite(salvo.dx) && Number.isFinite(salvo.dy)) margem = salvo;
+  const salvo = lerEstado();
+  if (salvo.relativo && Number.isFinite(salvo.relativo.fx)) relativo = salvo.relativo;
+  if (typeof salvo.passear === 'boolean') passear = salvo.passear;
   return cantoNo(screen.getPrimaryDisplay().workArea);
 }
 
@@ -157,9 +165,11 @@ function criarBolha() {
       }
       const b = bolha.getBounds();
       canto = { x: b.x + b.width, y: b.y + b.height };
-      lembrarMargem();
+      arrastadaEm = Date.now();
+      lembrarPosicao();
     });
     seguirMonitor();
+    passearDeVezEmQuando();
   });
   bolha.on('closed', () => (bolha = null));
 }
@@ -272,14 +282,20 @@ async function ajustarNoBspwm(win, { sticky = false, semBorda = false }) {
 
 /* ── seguir o monitor em uso, andando ────────────────────────────────── */
 
+function pararDeAndar() {
+  clearInterval(andando);
+  andando = null;
+  bolha?.webContents.send('andando', null);
+}
+
 /** Anda da posição atual até `alvo`, com a carinha pulando e virada para onde vai. */
-function andarAte(alvo) {
+function andarAte(alvo, ritmo = TROCA) {
   if (!bolha) return;
   clearInterval(andando);
   const de = cantoAtual();
   const dist = Math.hypot(alvo.x - de.x, alvo.y - de.y);
   if (dist < 4) return;
-  const dur = Math.min(ANDAR_MAX_MS, Math.max(ANDAR_MIN_MS, (dist / PASSO_PX_S) * 1000));
+  const dur = Math.min(ritmo.max, Math.max(ritmo.min, (dist / ritmo.px_s) * 1000));
   const t0 = Date.now();
   bolha.webContents.send('andando', alvo.x < de.x ? 'esquerda' : 'direita');
   andando = setInterval(() => {
@@ -288,11 +304,31 @@ function andarAte(alvo) {
     canto = { x: Math.round(de.x + (alvo.x - de.x) * e), y: Math.round(de.y + (alvo.y - de.y) * e) };
     aplicarModo(modoBolha);
     if (p >= 1) {
-      clearInterval(andando);
-      andando = null;
-      bolha?.webContents.send('andando', null);
+      pararDeAndar();
+      lembrarPosicao();
     }
   }, 16);
+}
+
+/** De tempos em tempos, se ninguém está mexendo com ela, dá uma volta pelo monitor em uso. */
+function passearDeVezEmQuando() {
+  const proxima = PASSEIO_A_CADA_MS.min + Math.random() * (PASSEIO_A_CADA_MS.max - PASSEIO_A_CADA_MS.min);
+  setTimeout(async () => {
+    const quieta = !passear || !visivel || ocupada || andando || modoBolha !== 'carinha';
+    if (!quieta && Date.now() - arrastadaEm > PARADO_DEPOIS_DE_ARRASTAR_MS) {
+      const area = await monitorFocado();
+      if (area) {
+        // Um ponto qualquer, mas não longe demais de onde está: parece passeio, não teletransporte.
+        const c = cantoAtual();
+        const alcance = Math.min(area.width, area.height) * 0.45;
+        const ang = Math.random() * Math.PI * 2;
+        const x = Math.min(area.x + area.width - 8, Math.max(area.x + CARINHA.w + 8, c.x + Math.cos(ang) * alcance));
+        const y = Math.min(area.y + area.height - 8, Math.max(area.y + CARINHA.h + 8, c.y + Math.sin(ang) * alcance));
+        andarAte({ x: Math.round(x), y: Math.round(y) }, PASSEIO);
+      }
+    }
+    passearDeVezEmQuando();
+  }, proxima);
 }
 
 /** O monitor (área útil) que o bspwm diz estar em foco. */
@@ -324,6 +360,8 @@ function seguirMonitor() {
     const chave = `${area.x},${area.y}`;
     if (chave === ultimo) return;
     ultimo = chave;
+    // Já está nesse monitor (você a levou até lá, ou clicou nela): não sai do lugar.
+    if (dentro(cantoAtual(), area)) return;
     if (visivel) andarAte(cantoNo(area));
     else {
       canto = cantoNo(area); // escondido: aparece já no monitor certo
@@ -342,33 +380,6 @@ function seguirMonitor() {
 
 /* ── bandeja ─────────────────────────────────────────────────────────── */
 
-const AUTOSTART = join(homedir(), '.config/autostart/robo-desktop.desktop');
-
-function iniciaComSistema() {
-  try {
-    readFileSync(AUTOSTART);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-/** ~/.config/autostart: o dex do bspwmrc abre o que estiver lá quando você entra. */
-function definirAutostart(ligado) {
-  if (!ligado) {
-    rmSync(AUTOSTART, { force: true });
-    return;
-  }
-  const exec = app.isPackaged ? `"${process.execPath}"` : `"${process.execPath}" "${app.getAppPath()}"`;
-  mkdirSync(dirname(AUTOSTART), { recursive: true });
-  writeFileSync(
-    AUTOSTART,
-    ['[Desktop Entry]', 'Type=Application', 'Name=Robô', 'Comment=O robô flutuante', `Exec=${exec}`, `Icon=${ICONE}`, 'X-GNOME-Autostart-enabled=true', ''].join(
-      '\n',
-    ),
-  );
-}
-
 function atualizarBandeja() {
   if (!bandeja) return;
   bandeja.setContextMenu(
@@ -386,10 +397,14 @@ function atualizarBandeja() {
         },
       },
       {
-        label: 'Iniciar com o sistema',
+        label: 'Passear pela tela',
         type: 'checkbox',
-        checked: iniciaComSistema(),
-        click: (item) => definirAutostart(item.checked),
+        checked: passear,
+        click: (item) => {
+          passear = item.checked;
+          salvarEstado({ passear });
+          if (!passear && andando) pararDeAndar();
+        },
       },
       { type: 'separator' },
       { label: 'Sair', click: () => app.quit() },
@@ -452,7 +467,17 @@ ipcMain.on('bolha:mover', (_e, dx, dy) => {
   canto = { x: Math.round(c.x + dx), y: Math.round(c.y + dy) };
   aplicarModo(modoBolha);
 });
-ipcMain.on('bolha:soltar', () => bolha && lembrarMargem());
+ipcMain.on('bolha:soltar', () => {
+  if (!bolha) return;
+  arrastadaEm = Date.now(); // você a pôs ali: ela fica um tempo sem passear
+  lembrarPosicao();
+});
+ipcMain.on('bolha:ocupada', (_e, sim) => {
+  ocupada = !!sim;
+  if (ocupada && andando) pararDeAndar();
+});
+// Abriu o balão pelo clique: a janela precisa do foco para você digitar.
+ipcMain.on('bolha:focar', () => bolha?.focus());
 ipcMain.on('painel', (_e, acao) => {
   if (acao === 'fechar' || (acao === 'alternar' && painelAberto)) fecharPainel();
   else abrirPainel();
