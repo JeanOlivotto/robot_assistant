@@ -23,12 +23,12 @@ int main(int argc, char **argv)
     uint32_t now = 0;
     for (; now < 3000; now += 33) { /* deixa a troca de expressão assentar */
         gfx_clear(0);
-        music_view_draw(now, "11:42", title, artist);
+        music_view_draw(now, "11:47", title, artist);
     }
     for (int f = 0; f < FRAMES; f++) {
         for (uint32_t t = 0; t < GAP_MS; t += 33) {
             gfx_clear(0);
-            music_view_draw(now += 33, "11:42", title, artist);
+            music_view_draw(now += 33, "11:47", title, artist);
         }
         icon_bluetooth(101, 3, f % 2 == 0); /* quadros pares: iPhone perto; ímpares: ninguém */
         for (int i = 0; i < 4; i++) gfx_fill_rect(113 + i * 3, 12 - i * 3, 2, 3 + i * 3, GFX_RGB(60, 220, 120));

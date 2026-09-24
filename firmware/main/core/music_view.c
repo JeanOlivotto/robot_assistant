@@ -1,6 +1,7 @@
 #include "music_view.h"
 
 #include <math.h>
+#include <stdio.h>
 #include "face.h"
 #include "gfx.h"
 
@@ -53,7 +54,7 @@ static void draw_floating_notes(uint32_t now)
         const bool left = (((now + (uint32_t)i * (NOTE_MS / NOTES)) / NOTE_MS) + (uint32_t)i) % 2 == 0;
         /* Sobem pelos cantos, por fora do arco, e somem antes da barra de cima (relógio e ícones). */
         const int x = (left ? 5 : 113) + (int)(sinf(p * 6.28f + i) * 2.5f);
-        const int y = 46 - (int)(p * 26.0f);
+        const int y = 50 - (int)(p * 20.0f); /* a haste (10 px) nunca passa de y=20: o relógio fica intacto */
         const uint8_t fade = p < 0.45f ? 0 : (uint8_t)((p - 0.45f) / 0.55f * 255.0f);
         draw_note(x, y, gfx_mix(i % 2 ? C_NOTE : C_NOTE2, C_BG, fade));
     }
@@ -61,7 +62,8 @@ static void draw_floating_notes(uint32_t now)
 
 void music_view_draw(uint32_t now, const char *hhmm, const char *title, const char *artist)
 {
-    if (hhmm[0]) gfx_text_center(64, 3, hhmm, C_DIM, 1);
+    /* Mesma barra de cima da tela do rosto: relógio à esquerda, ícones (ui.c) à direita. */
+    if (hhmm[0]) gfx_text(4, 3, hhmm, C_TEXT, 2);
 
     /* Cabeça balançando na batida: desce rápido, volta devagar. */
     const uint32_t in_beat = now % BEAT_MS;
@@ -79,6 +81,10 @@ void music_view_draw(uint32_t now, const char *hhmm, const char *title, const ch
     gfx_fill_round_rect(4 + tilt - pulse, cy - 6 - pulse, 11 + pulse * 2, 22 + pulse * 2, 5, C_PHONE);
     gfx_fill_round_rect(113 + tilt - pulse, cy - 6 - pulse, 11 + pulse * 2, 22 + pulse * 2, 5, C_PHONE);
 
-    render_marquee(101, title[0] ? title : "tocando algo", C_TEXT, now);
-    if (artist[0]) gfx_text_fit(4, 115, GFX_W - 8, artist, C_DIM, 1);
+    /* Uma linha só, rolando: título e artista em duas linhas ficavam espremidos embaixo da boca. */
+    static char line[160];
+    if (!title[0]) snprintf(line, sizeof(line), "tocando algo");
+    else if (artist[0]) snprintf(line, sizeof(line), "%s - %s", title, artist);
+    else snprintf(line, sizeof(line), "%s", title);
+    render_marquee(111, line, C_TEXT, now);
 }
