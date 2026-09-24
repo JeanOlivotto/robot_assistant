@@ -8,6 +8,9 @@
 #include "esp_random.h"
 #include "esp_timer.h"
 #include "face.h"
+#include "icons.h"
+#include "music_view.h"
+#include "presence.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "gfx.h"
@@ -51,8 +54,6 @@
 #define C_ERR    GFX_RGB(255, 80, 80)
 #define C_INK    GFX_RGB(25, 20, 10) /* texto sobre a faixa amarela */
 #define C_BUBBLE GFX_RGB(38, 46, 62) /* balão de fala */
-#define C_PHONE  GFX_RGB(120, 200, 255) /* fones */
-#define C_NOTE   GFX_RGB(180, 130, 255) /* nota musical */
 
 typedef enum { VIEW_FACE, VIEW_ALERT, VIEW_AGENDA } view_t;
 
@@ -415,22 +416,33 @@ static void render_usb(int x, int top)
     gfx_thick_line(x + 4, top + 6, x + 1, top + 12, 2, C_WARN);
 }
 
-static void render_status_bar(uint32_t now, int64_t wall_ms, bool clock_ok)
+/* Sinal do Wi-Fi e energia: não precisa ler o rádio a cada quadro. */
+static void read_radio(uint32_t now, int *rssi, hal_power_t *power)
 {
-    static int rssi;
-    static hal_power_t power;
+    static int s_rssi;
+    static hal_power_t s_power;
     static uint32_t read_at;
-    if (!read_at || now - read_at > 2000) { /* não precisa ler o rádio a cada quadro */
-        rssi = net_rssi();
-        power = hal_power_read();
+    if (!read_at || now - read_at > 2000) {
+        s_rssi = net_rssi();
+        s_power = hal_power_read();
         read_at = now ? now : 1;
     }
+    *rssi = s_rssi;
+    *power = s_power;
+}
+
+static void render_status_bar(uint32_t now, int64_t wall_ms, bool clock_ok)
+{
+    int rssi;
+    hal_power_t power;
+    read_radio(now, &rssi, &power);
 
     char hhmm[16] = "--:--";
     if (clock_ok) fmt_hhmm(wall_ms, hhmm, sizeof(hhmm));
     gfx_text_center(64, 3, hhmm, C_TEXT, 2);
     render_wifi(113, 15, rssi);
-    if (power.usb) render_usb(104, 3);
+    if (presence_listening()) icon_bluetooth(101, 3, presence_near());
+    if (power.usb) render_usb(presence_listening() ? 90 : 104, 3);
     const int64_t waiting = waiting_for(wall_ms, clock_ok);
     if (waiting) render_bubble(now, waiting);
 }
@@ -545,32 +557,6 @@ static void render_sleep_view(uint32_t now, int64_t wall_ms, bool clock_ok)
     if (waiting) render_bubble(now, waiting); /* dormindo, mas ainda avisa que tem mensagem */
 }
 
-/* Uma nota musical simples que balança. */
-static void draw_note(int x, int y, uint16_t color)
-{
-    gfx_fill_ellipse(x, y, 4, 3, color);
-    gfx_fill_rect(x + 3, y - 13, 2, 13, color);
-    gfx_fill_triangle(x + 4, y - 13, x + 4, y - 7, x + 10, y - 10, color);
-}
-
-/* Texto que rola quando não cabe (marquee). */
-static void render_marquee(int y, const char *text, uint16_t color, uint32_t now)
-{
-    const int w = GFX_W - 8;
-    const int tw = gfx_text_width(text, 1);
-    if (tw <= w) {
-        gfx_text_center(64, y, text, color, 1);
-        return;
-    }
-    const int span = tw + 24;
-    const int off = (int)((now / 30) % (uint32_t)span);
-    gfx_set_clip(4, y - 1, w, 10);
-    gfx_text(4 - off, y, text, color, 1);
-    gfx_text(4 - off + span, y, text, color, 1);
-    gfx_reset_clip();
-}
-
-/* Modo música: carinha curtindo, fones de ouvido, notinhas e o que está tocando. */
 /* Atualizando o firmware: a tela para tudo e vira barra de progresso até reiniciar. */
 static void render_ota_view(uint32_t now)
 {
@@ -631,23 +617,13 @@ static void render_music_view(uint32_t now, int64_t wall_ms, bool clock_ok)
 {
     char hhmm[8] = "";
     if (clock_ok) fmt_hhmm(wall_ms, hhmm, sizeof(hhmm));
-    if (hhmm[0]) gfx_text_center(64, 3, hhmm, C_DIM, 1);
-
-    face_draw(64, 52, now);
-
-    /* Fones: arco por cima da cabeça + as duas conchas. */
-    gfx_arc_band(64, 52, 44, 44, 4, false, C_PHONE);
-    gfx_fill_round_rect(14, 44, 12, 22, 5, C_PHONE);
-    gfx_fill_round_rect(102, 44, 12, 22, 5, C_PHONE);
-
-    /* Notinhas balançando. */
-    const int bob = (now / 220) % 2 ? 0 : -3;
-    draw_note(24, 30 + bob, C_NOTE);
-    draw_note(100, 26 - bob, C_NOTE);
-
     const music_state_t *m = &s_snap.music;
-    render_marquee(103, m->title[0] ? m->title : "tocando algo", C_TEXT, now);
-    if (m->artist[0]) gfx_text_fit(4, 116, GFX_W - 8, m->artist, C_DIM, 1);
+    music_view_draw(now, hhmm, m->title, m->artist);
+    int rssi;
+    hal_power_t power;
+    read_radio(now, &rssi, &power);
+    render_wifi(113, 15, rssi);
+    if (presence_listening()) icon_bluetooth(101, 3, presence_near());
 }
 
 static void render_face_view(uint32_t now, int64_t wall_ms, bool clock_ok)

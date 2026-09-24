@@ -10,6 +10,13 @@ type BleMsg = z.infer<typeof Ble>;
 
 /** Tipo do anúncio Apple que um iPhone/iPad/Mac em uso manda o tempo todo. */
 const NEARBY_INFO = 0x10;
+/*
+ * "Na mesa" = um iPhone apareceu forte nos últimos 5 min. Primeiros dados (24/09, dono sentado o
+ * tempo todo): o iPhone dele oscila entre -43 e -48 dBm, mas some por até 4 min quando está
+ * bloqueado; o que resta é -72 a -80, de outros aparelhos Apple mais longe. Mesma regra do firmware.
+ */
+const NEAR_RSSI = -60;
+const NEAR_MS = 5 * 60_000;
 const KEEP_MS = 7 * 24 * 3600_000;
 const FILE_MAX_BYTES = 8 * 1024 * 1024;
 
@@ -23,6 +30,8 @@ export interface PresenceMinute {
   nearby: number | null;
   /** Mais aparelhos Apple distintos numa janela de 10 s. */
   devices: number;
+  /** Pela regra da janela de 5 min, o dono estava na mesa neste minuto. */
+  present: boolean;
 }
 
 /**
@@ -35,7 +44,8 @@ export class PresenceService {
   private readonly log = new Logger(PresenceService.name);
   private readonly file: string;
   private minutes: PresenceMinute[] = [];
-  private lastLevel = '';
+  private strongAt = 0;
+  private present = false;
 
   constructor(@Inject(APP_CONFIG) cfg: AppConfig) {
     this.file = rootPath(`${cfg.DATA_DIR}/presenca.jsonl`);
@@ -52,7 +62,7 @@ export class PresenceService {
     let m = this.minutes.at(-1);
     if (!m || m.at !== at) {
       if (m) this.persist(m);
-      m = { at, best: null, nearby: null, devices: 0 };
+      m = { at, best: null, nearby: null, devices: 0, present: false };
       this.minutes.push(m);
       this.trim(now);
     }
@@ -60,12 +70,19 @@ export class PresenceService {
     m.nearby = max(m.nearby, nearby);
     m.devices = Math.max(m.devices, msg.n);
 
-    // Uma linha só quando muda de faixa — o log não vira um contador de 10 em 10 s.
-    const level = nivel(nearby ?? best);
-    if (level !== this.lastLevel) {
-      this.log.log(`BLE: ${level} (Apple mais forte ${best ?? '—'} dBm, Nearby ${nearby ?? '—'} dBm, ${msg.n} aparelho(s))`);
-      this.lastLevel = level;
+    if (nearby !== null && nearby >= NEAR_RSSI) this.strongAt = now;
+    const present = now - this.strongAt < NEAR_MS;
+    m.present ||= present;
+    // Uma linha só quando muda — o log não vira um contador de 10 em 10 s.
+    if (present !== this.present) {
+      this.log.log(present ? `BLE: dono chegou (iPhone a ${nearby} dBm)` : 'BLE: dono saiu (5 min sem o iPhone por perto)');
+      this.present = present;
     }
+  }
+
+  /** O dono está na mesa agora (pela janela de 5 min). */
+  get isPresent(): boolean {
+    return this.present;
   }
 
   /** Os minutos das últimas `horas`, mais antigos primeiro. */
@@ -113,12 +130,4 @@ function size(file: string): number {
   } catch {
     return 0;
   }
-}
-
-/** Faixas só para o log; os limiares de verdade saem do histórico. */
-function nivel(rssi: number | null): string {
-  if (rssi === null) return 'nenhum aparelho Apple';
-  if (rssi >= -60) return 'aparelho bem perto';
-  if (rssi >= -75) return 'aparelho no ambiente';
-  return 'só sinal fraco';
 }

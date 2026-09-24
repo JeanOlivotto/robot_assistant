@@ -4,6 +4,7 @@
 #include <string.h>
 #include "esp_heap_caps.h"
 #include "esp_log.h"
+#include "esp_timer.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "host/ble_gap.h"
@@ -25,10 +26,15 @@
 #define MAX_REPORT  8   /* quantos vão na mensagem: os de sinal mais forte */
 #define APPLE_ID    0x004C
 
-/* Varredura passiva em fatias: 30 ms ouvindo a cada 320 ms (unidades de 0,625 ms). O rádio é
- * um só para Wi-Fi e Bluetooth; janela curta deixa o Wi-Fi quase intacto. */
-#define SCAN_ITVL   512
-#define SCAN_WINDOW 48
+/* Varredura passiva em fatias: 50 ms ouvindo a cada 160 ms (unidades de 0,625 ms). O rádio é
+ * um só para Wi-Fi e Bluetooth. Com 30/320 ms (9%) o iPhone bloqueado, que anuncia pouco,
+ * sumia por minutos com o dono na mesa; o Wi-Fi do robô quase não tem tráfego e aguenta 31%. */
+#define SCAN_ITVL   256
+#define SCAN_WINDOW 80
+
+#define NEAR_RSSI   (-60)
+#define NEAR_MS     (5 * 60 * 1000)
+#define NEARBY_INFO 0x10
 
 typedef struct {
     uint8_t addr[6];
@@ -43,6 +49,7 @@ static int s_total; /* anúncios Apple ouvidos na janela, repetidos inclusive */
 static portMUX_TYPE s_lock = portMUX_INITIALIZER_UNLOCKED;
 static uint8_t s_own_addr_type;
 static volatile bool s_running;
+static volatile int64_t s_strong_at_us; /* última vez que um iPhone apareceu forte */
 
 static void scan(void);
 
@@ -63,6 +70,7 @@ static int apple_kind(const uint8_t *d, uint8_t len)
 
 static void note(const uint8_t addr[6], int8_t rssi, uint8_t kind)
 {
+    if (kind == NEARBY_INFO && rssi >= NEAR_RSSI) s_strong_at_us = esp_timer_get_time();
     portENTER_CRITICAL(&s_lock);
     s_total++;
     for (int i = 0; i < s_n; i++) {
@@ -183,6 +191,16 @@ void presence_start(void)
     nimble_port_freertos_init(host_task);
     s_running = true;
     if (!reporting) reporting = xTaskCreate(report_task, "ble_report", 3072, NULL, 2, NULL) == pdPASS;
+}
+
+bool presence_listening(void)
+{
+    return s_running;
+}
+
+bool presence_near(void)
+{
+    return s_running && s_strong_at_us && esp_timer_get_time() - s_strong_at_us < (int64_t)NEAR_MS * 1000;
 }
 
 void presence_stop(void)
