@@ -135,7 +135,7 @@ export class MeetingService implements OnModuleInit {
 
     // Trecho em silêncio é normal numa reunião: não derruba a gravação, só não acrescenta texto.
     try {
-      const { text, seconds, segments } = await this.stt.transcribe(audio);
+      const { text, seconds, segments } = await this.stt.transcribe(audio, { dica: false }); // reunião tem muito silêncio
       if (text) {
         m.transcript = m.transcript ? `${m.transcript} ${text}` : text;
         m.segments += 1;

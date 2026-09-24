@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent, type PointerEvent } from 'react';
 import type { ChatMessage } from '@robo/protocol';
 import { desktop } from '../lib/desktop';
+import { GRAVANDO_KEY } from './Meeting';
 import { configureSpeech, speak, stopSpeaking } from '../lib/speech';
 import { useRobo } from '../lib/useRobo';
 import { RobotFace } from './RobotFace';
@@ -50,6 +51,30 @@ export function DesktopBubble() {
 
   if (!token) return <Carinha face={null} andando={andando} onClick={() => desktop?.painel('abrir')} dica="Clique para entrar" />;
   return <BolhaLogada token={token} andando={andando} />;
+}
+
+/** O painel está gravando uma reunião? (ele avisa pelo armazenamento que as janelas compartilham) */
+function useGravando(): number | null {
+  const ler = () => {
+    try {
+      const g = JSON.parse(localStorage.getItem(GRAVANDO_KEY) ?? 'null') as { desde?: number } | null;
+      return g?.desde ?? null;
+    } catch {
+      return null;
+    }
+  };
+  const [desde, setDesde] = useState(ler);
+  const [, tique] = useState(0);
+  useEffect(() => {
+    const onStorage = (e: StorageEvent) => e.key === GRAVANDO_KEY && setDesde(ler());
+    window.addEventListener('storage', onStorage);
+    const id = setInterval(() => tique((n) => n + 1), 1000); // o relógio anda
+    return () => {
+      window.removeEventListener('storage', onStorage);
+      clearInterval(id);
+    };
+  }, []);
+  return desde;
 }
 
 /** O Electron avisa quando a carinha está andando para o monitor em uso, e para que lado. */
@@ -244,6 +269,7 @@ function Carinha({
   dica: string;
 }) {
   const inicio = useRef<{ x: number; y: number; arrastou: boolean } | null>(null);
+  const gravando = useGravando();
 
   const down = (e: PointerEvent<HTMLButtonElement>) => {
     if (e.button !== 0) return;
@@ -281,6 +307,11 @@ function Carinha({
       onDoubleClick={onDoubleClick}
     >
       <RobotFace face={face ?? null} size={70} />
+      {gravando && (
+        <span className="carinha__rec" title="Gravando a reunião">
+          <i /> {tempo(Date.now() - gravando)}
+        </span>
+      )}
       {andando && (
         <span className="carinha__pes" aria-hidden="true">
           <i />
@@ -289,4 +320,12 @@ function Carinha({
       )}
     </button>
   );
+}
+
+function tempo(ms: number): string {
+  const s = Math.max(0, Math.floor(ms / 1000));
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const ss = String(s % 60).padStart(2, '0');
+  return h ? `${h}:${String(m).padStart(2, '0')}:${ss}` : `${m}:${ss}`;
 }

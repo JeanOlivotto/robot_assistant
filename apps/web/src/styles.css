@@ -1720,3 +1720,32 @@ html.desktop-bolha #root {
   0%, 100% { transform: translateY(0); }
   50% { transform: translateY(-3px); opacity: 0.6; }
 }
+
+/* Gravando reunião: pontinho vermelho e o tempo, em cima da carinha. */
+.carinha__rec {
+  position: absolute;
+  top: 3px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 6px;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.75);
+  color: #ff8a8a;
+  font-size: 10px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+}
+.carinha__rec i {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #ff4d4d;
+  animation: rec-pisca 1.2s ease-in-out infinite;
+}
+@keyframes rec-pisca {
+  50% { opacity: 0.3; }
+}

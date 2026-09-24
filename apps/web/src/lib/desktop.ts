@@ -21,6 +21,9 @@ interface RoboDesktopBridge {
   painel(acao: 'alternar' | 'abrir' | 'fechar'): void;
   ocupada?(sim: boolean): void;
   focar?(): void;
+  /** Cria a fonte do som do computador (PipeWire) e devolve o rótulo dela, ou null. */
+  somDoSistema?(): Promise<string | null>;
+  soltarSomDoSistema?(): void;
   /** O Electron avisa (menu da bandeja) que a voz foi ligada/desligada. */
   aoMudarVoz(cb: (ligada: boolean) => void): void;
   vozMudou(ligada: boolean): void;

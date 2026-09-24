@@ -9,7 +9,7 @@
  * andando de um para o outro.
  */
 import { execFile, spawn } from 'node:child_process';
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { BrowserWindow, Menu, Tray, app, globalShortcut, ipcMain, screen, session, shell } from 'electron';
@@ -288,6 +288,67 @@ async function ajustarNoBspwm(win, { sticky = false, semBorda = false }) {
   }
   if (semBorda) await bspc(['config', '-n', id, 'border_width', '0']);
 }
+
+/* ── som do computador para a reunião (PipeWire) ─────────────────────── */
+
+/*
+ * O Chromium esconde as fontes "monitor" (o que sai no fone): não dá para gravar a chamada
+ * direto. O jeito é uma fonte virtual que repete o que sai no fone, com cara de microfone comum:
+ * um pw-loopback que captura a saída (stream.capture.sink) e a publica como Audio/Source.
+ * (O module-remap-source do pipewire-pulse cria a fonte, mas muda; e com node.passive o
+ * pw-loopback também fica mudo — testado em 24/09.) Nasce com a reunião e morre com ela.
+ */
+const SOM_NOME = 'robo_sistema';
+const SOM_ROTULO = 'Robo-som-do-computador';
+let loopback = null;
+
+function comando(bin, args) {
+  return new Promise((resolve) => execFile(bin, args, (err, out) => resolve(err ? null : String(out).trim())));
+}
+
+/* O PID fica num arquivo: se o app cair no meio de uma reunião, a próxima encerra o que sobrou
+   (e só ele — um pkill por nome acertaria qualquer processo com esse texto na linha de comando). */
+const LOOPBACK_PID = join(app.getPath('userData'), 'loopback.pid');
+
+function soltarSomDoSistema() {
+  loopback?.kill();
+  loopback = null;
+  try {
+    const pid = Number(readFileSync(LOOPBACK_PID, 'utf8'));
+    if (pid > 1) process.kill(pid);
+  } catch {
+    /* não havia sobra */
+  }
+  rmSync(LOOPBACK_PID, { force: true });
+}
+
+async function prepararSomDoSistema() {
+  soltarSomDoSistema(); // inclusive a sobra de uma execução que caiu
+  const saida = await comando('pactl', ['get-default-sink']); // a de agora (pode ter trocado de fone)
+  loopback = spawn(
+    'pw-loopback',
+    [
+      '-n',
+      'robo-loopback',
+      `--capture-props=stream.capture.sink=true${saida ? ` target.object=${saida}` : ''}`,
+      `--playback-props=media.class=Audio/Source node.name=${SOM_NOME} node.description=${SOM_ROTULO}`,
+    ],
+    { stdio: 'ignore' },
+  );
+  loopback.on('error', () => (loopback = null));
+  loopback.on('exit', () => (loopback = null));
+  if (loopback.pid) writeFileSync(LOOPBACK_PID, String(loopback.pid));
+  for (let i = 0; i < 15; i++) {
+    if ((await comando('pactl', ['list', 'short', 'sources']))?.includes(SOM_NOME)) return SOM_ROTULO;
+    await new Promise((r) => setTimeout(r, 200));
+  }
+  soltarSomDoSistema();
+  return null;
+}
+
+ipcMain.handle('reuniao:som', () => prepararSomDoSistema());
+ipcMain.on('reuniao:soltar-som', () => soltarSomDoSistema());
+app.on('will-quit', () => soltarSomDoSistema());
 
 /* ── seguir o monitor em uso, andando ────────────────────────────────── */
 

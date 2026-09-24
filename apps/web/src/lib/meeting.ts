@@ -1,4 +1,5 @@
 /** Modo reunião: grava em segmentos completos (cada um é um arquivo válido) e envia um a um. */
+import { desktop } from './desktop';
 import { acquireMic, audioContext, micSupported, releaseMic } from './mic';
 
 const MIME_CANDIDATES = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4', 'audio/ogg;codecs=opus'];
@@ -120,8 +121,27 @@ export async function agendar(token: string, title: string, start: Date, minutes
  * De onde vem o áudio da reunião: o microfone da sala, ou o som da aba (reunião online —
  * você compartilha a aba do Meet/Zoom marcando "compartilhar áudio" e ele ouve todo mundo).
  * Na aba entra também o microfone de quem grava: o Meet não devolve a sua própria voz para a aba.
+ * 'computador' (só no app do computador): o microfone do fone + tudo o que sai no fone.
  */
-export type FonteAudio = 'mic' | 'aba';
+export type FonteAudio = 'mic' | 'aba' | 'computador';
+
+/** O som que sai no fone, pela fonte virtual que o app do computador cria no PipeWire. */
+async function somDoComputador(): Promise<MediaStream> {
+  const rotulo = await desktop?.somDoSistema?.();
+  if (!rotulo) throw new Error('não consegui pegar o som do computador (o PipeWire está rodando?)');
+  // O navegador demora um instante para enxergar a fonte nova.
+  for (let i = 0; i < 10; i++) {
+    const d = (await navigator.mediaDevices.enumerateDevices()).find((x) => x.kind === 'audioinput' && x.label.includes(rotulo));
+    if (d) {
+      return navigator.mediaDevices.getUserMedia({
+        // Cru: nada de cancelar eco ou "limpar" — é a chamada, não um microfone na sala.
+        audio: { deviceId: { exact: d.deviceId }, echoCancellation: false, noiseSuppression: false, autoGainControl: false },
+      });
+    }
+    await new Promise((r) => setTimeout(r, 300));
+  }
+  throw new Error('a fonte do som do computador não apareceu');
+}
 
 /** Grava a reunião em segmentos completos, entregando cada Blob pronto para envio. */
 export class MeetingRecorder {
@@ -131,8 +151,9 @@ export class MeetingRecorder {
 
   private stream: MediaStream | null = null;
   private sources: MediaStreamAudioSourceNode[] = [];
-  /** Stream da aba (quando a fonte é 'aba'): é nosso, não vem do microfone compartilhado. */
+  /** Stream da aba ou do som do computador: é nosso, não vem do microfone compartilhado. */
   private tela: MediaStream | null = null;
+  private usouSomDoComputador = false;
   /** Pegou o microfone emprestado (mic.ts) e tem que devolver no fim. */
   private usouMic = false;
   private rec: MediaRecorder | null = null;
@@ -171,6 +192,11 @@ export class MeetingRecorder {
       audio[0]!.addEventListener('ended', () => {
         if (!this.stopped) this.onFimDaAba?.();
       });
+    }
+    if (fonte === 'computador') {
+      await acquireMic().then(releaseMic); // a permissão do microfone é o que libera os nomes dos aparelhos
+      this.tela = await somDoComputador();
+      this.usouSomDoComputador = true;
     }
     try {
       this.mime = MIME_CANDIDATES.find((m) => MediaRecorder.isTypeSupported(m));
@@ -246,8 +272,10 @@ export class MeetingRecorder {
   }
 
   private release(): void {
-    this.tela?.getTracks().forEach((t) => t.stop()); // o da aba é nosso e morre aqui
+    this.tela?.getTracks().forEach((t) => t.stop()); // o da aba (ou do computador) é nosso e morre aqui
     this.tela = null;
+    if (this.usouSomDoComputador) desktop?.soltarSomDoSistema?.(); // tira a fonte virtual do PipeWire
+    this.usouSomDoComputador = false;
     try {
       this.sources.forEach((n) => n.disconnect());
       this.analyser?.disconnect();

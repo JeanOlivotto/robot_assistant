@@ -98,8 +98,13 @@ export class SttService {
     return this.client !== null || this.groq !== null;
   }
 
-  async transcribe(audio: Buffer): Promise<Transcript> {
-    if (this.groq) return this.transcribeGroq(audio);
+  /**
+   * `dica`: manda o nome do dono como vocabulário. Bom para conversa ("Jean" saía "Gia"), ruim
+   * para trecho em silêncio — o Whisper devolve a própria dica ("Nomes, Jeean."). Nas reuniões,
+   * cheias de silêncio, vai sem.
+   */
+  async transcribe(audio: Buffer, opts: { dica?: boolean } = {}): Promise<Transcript> {
+    if (this.groq) return this.transcribeGroq(audio, opts.dica ?? true);
     if (!this.client) throw new SttError('transcrição desligada no servidor', 503);
     const pcm = await this.toPcm(audio);
     const seconds = pcm.length / (SAMPLE_RATE * 2);
@@ -137,7 +142,7 @@ export class SttService {
   }
 
   /** Groq: converte para FLAC 16 kHz mono e manda de uma vez só (bem mais rápido que a NVIDIA). */
-  private async transcribeGroq(audio: Buffer): Promise<Transcript> {
+  private async transcribeGroq(audio: Buffer, dica: boolean): Promise<Transcript> {
     const g = this.groq!;
     const flac = await this.ffmpeg(audio, ['-ac', '1', '-ar', String(SAMPLE_RATE), '-f', 'flac']);
 
@@ -149,7 +154,7 @@ export class SttService {
     // Dica de vocabulário: sem ela o Whisper não conhece o nome do dono ("Jean" saía "Gia") — e é
     // esse nome que vai para o banco de vozes quando ele se apresenta. Curta de propósito: uma
     // frase inteira ("Conversa com Jean…") fazia ele escrever "Jeean"; "Nomes: Jean." não.
-    if (this.cfg.OWNER_NAME) form.append('prompt', `Nomes: ${this.cfg.OWNER_NAME}.`);
+    if (dica && this.cfg.OWNER_NAME) form.append('prompt', `Nomes: ${this.cfg.OWNER_NAME}.`);
 
     const started = Date.now();
     let res: Response;
@@ -171,7 +176,8 @@ export class SttService {
     const text = (data.text ?? '').replace(/\s+/g, ' ').trim();
     const seconds = data.duration ?? 0;
     this.log.log(`Transcrito ${seconds ? `${seconds.toFixed(1)} s de ` : ''}áudio em ${Date.now() - started} ms (Groq)`);
-    if (!text) throw new SttError('não entendi nada nesse áudio', 422);
+    // Silêncio com dica vira a própria dica ("Nomes, Jeean. Nome."): isso não é fala.
+    if (!text || (dica && ecoDaDica(text))) throw new SttError('não entendi nada nesse áudio', 422);
     // Frases com horário: é o que casa a transcrição com "quem falou quando" na reunião.
     const segments = (data.segments ?? [])
       .map((s) => ({ start: s.start, end: s.end, text: s.text.replace(/\s+/g, ' ').trim() }))
@@ -229,4 +235,16 @@ export class SttService {
       await Promise.all([rm(input, { force: true }), rm(output, { force: true })]);
     }
   }
+}
+
+/** A transcrição é só o eco da dica "Nomes: Jean." (o Whisper inventando em cima do silêncio)? */
+export function ecoDaDica(texto: string): boolean {
+  const palavras = texto
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .replace(/[^a-z ]/g, ' ')
+    .split(/\s+/)
+    .filter(Boolean);
+  return palavras.length > 0 && palavras.length <= 4 && palavras[0]!.startsWith('nome');
 }

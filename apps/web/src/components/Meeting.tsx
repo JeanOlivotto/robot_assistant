@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { ago } from '../lib/format';
+import { DESKTOP } from '../lib/desktop';
 import { addTask } from '../lib/tasks';
 import {
   MeetingRecorder,
@@ -25,6 +26,21 @@ import {
 } from '../lib/meeting';
 
 type Phase = 'checking' | 'unavailable' | 'idle' | 'recording' | 'finalizing' | 'done';
+
+/**
+ * No computador, a gravação acontece no painel e quem mostra que está gravando é a carinha:
+ * o painel avisa pelo armazenamento do app, que as duas janelas compartilham.
+ */
+export const GRAVANDO_KEY = 'robo.gravando';
+function marcarGravando(g: { desde: number; titulo: string } | null): void {
+  if (!DESKTOP) return;
+  try {
+    if (g) localStorage.setItem(GRAVANDO_KEY, JSON.stringify(g));
+    else localStorage.removeItem(GRAVANDO_KEY);
+  } catch {
+    /* sem armazenamento: a carinha só não mostra */
+  }
+}
 
 function mmss(sec: number): string {
   const m = Math.floor(sec / 60);
@@ -315,7 +331,8 @@ export function MeetingView({
   const [phase, setPhase] = useState<Phase>('checking');
   /* No computador a reunião é online (áudio da aba); no celular, que não captura aba, é o
      microfone gravando a sala. Quem está no computador ainda pode trocar para a sala no botão. */
-  const [fonte, setFonte] = useState<FonteAudio>(MeetingRecorder.podeGravarAba ? 'aba' : 'mic');
+  // No app do computador o padrão é o fone + o som do computador (a chamada inteira, sem compartilhar aba).
+  const [fonte, setFonte] = useState<FonteAudio>(DESKTOP ? 'computador' : MeetingRecorder.podeGravarAba ? 'aba' : 'mic');
   const [convite, setConvite] = useState('');
   const [copiado, setCopiado] = useState(false);
   /** Ata aberta em tela cheia — em telas pequenas a ata fica espremida no meio da lista. */
@@ -478,6 +495,7 @@ export function MeetingView({
       await rec.start(fonte);
       recorder.current = rec;
       setPhase('recording');
+      marcarGravando({ desde: startedAt.current, titulo: titulo || 'Reunião' });
     } catch (e) {
       setError(`Não consegui iniciar: ${(e as Error).message}`);
     }
@@ -488,6 +506,7 @@ export function MeetingView({
     setPhase('finalizing');
     await recorder.current?.stop(); // resolve só depois de entregar o último trecho
     recorder.current = null;
+    marcarGravando(null);
     // Envia o que sobrou — inclusive o trecho que chegou no finzinho de um envio em curso.
     while (queue.current.length || uploading.current) await pump();
     try {
@@ -511,6 +530,7 @@ export function MeetingView({
   const cancel = () => {
     recorder.current?.stop();
     recorder.current = null;
+    marcarGravando(null);
     queue.current = [];
     meetingId.current = null;
     setPhase('idle');
@@ -555,7 +575,7 @@ export function MeetingView({
             <p className="hint">Este navegador não grava áudio.</p>
           ) : (
             <>
-              {!guest && MeetingRecorder.podeGravarAba && (
+              {!guest && (DESKTOP || MeetingRecorder.podeGravarAba) && (
                 <div className="meeting__fonte">
                   <button
                     type="button"
@@ -566,10 +586,10 @@ export function MeetingView({
                   </button>
                   <button
                     type="button"
-                    className={`chip ${fonte === 'aba' ? 'chip--on' : ''}`}
-                    onClick={() => setFonte('aba')}
+                    className={`chip ${fonte === (DESKTOP ? 'computador' : 'aba') ? 'chip--on' : ''}`}
+                    onClick={() => setFonte(DESKTOP ? 'computador' : 'aba')}
                   >
-                    Reunião online
+                    {DESKTOP ? 'Reunião online (fone + computador)' : 'Reunião online'}
                   </button>
                 </div>
               )}
@@ -581,7 +601,9 @@ export function MeetingView({
           <p className="hint">
             {guest && fonte === 'mic'
               ? 'Este navegador não captura o áudio da aba: ele vai gravar pelo microfone. Para pegar todo mundo da chamada, abra este link no Chrome do computador.'
-              : fonte === 'aba'
+              : fonte === 'computador'
+                ? 'Ele grava o seu microfone e tudo o que sai no fone (as outras pessoas da chamada) — Meet, Zoom, Teams, o que for. Pode esconder o painel: a gravação continua, e a carinha mostra que está gravando.'
+                : fonte === 'aba'
                 ? 'Ao iniciar, escolha a aba do Meet/Zoom e marque "compartilhar áudio da guia" — ele ouve a chamada e o seu microfone. Ao parar de compartilhar, a ata sai sozinha.'
                 : 'Deixe o celular perto de quem fala. A ata sai quando você encerrar.'}
           </p>
