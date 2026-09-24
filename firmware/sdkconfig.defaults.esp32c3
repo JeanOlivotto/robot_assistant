@@ -3,3 +3,16 @@ CONFIG_ESPTOOLPY_FLASHSIZE_16MB=y
 
 # Console no USB Serial/JTAG nativo: GPIO20/21 (UART0) ficam livres para o I2S na Fase 3
 CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y
+
+# Bluetooth só para ouvir (presença pelo iPhone): NimBLE, papel de observador e nada mais —
+# sem anunciar, sem conectar. Cada papel a menos é RAM a mais, e o C3 não tem PSRAM.
+CONFIG_BT_ENABLED=y
+CONFIG_BT_NIMBLE_ENABLED=y
+CONFIG_BT_NIMBLE_ROLE_OBSERVER=y
+# CONFIG_BT_NIMBLE_ROLE_CENTRAL is not set
+# CONFIG_BT_NIMBLE_ROLE_PERIPHERAL is not set
+# CONFIG_BT_NIMBLE_ROLE_BROADCASTER is not set
+CONFIG_BT_NIMBLE_MAX_CONNECTIONS=1
+# CONFIG_BT_NIMBLE_SECURITY_ENABLE is not set
+# CONFIG_BT_NIMBLE_NVS_PERSIST is not set
+CONFIG_BT_NIMBLE_LOG_LEVEL_WARNING=y

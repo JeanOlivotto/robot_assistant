@@ -97,6 +97,23 @@ export const Battery = z.object({
   usb: z.boolean(),
 });
 
+/**
+ * O que o Bluetooth ouviu nos últimos ~10 s: aparelhos Apple por perto e o sinal de cada um.
+ * Experimento de presença — o iPhone do dono na mesa aparece forte (perto de -50 dBm).
+ */
+export const Ble = z.object({
+  t: z.literal('ble'),
+  ts: epochMs,
+  /** Aparelhos Apple distintos na janela. */
+  n: z.number().int().min(0),
+  /** Anúncios Apple ouvidos na janela, repetidos inclusive. */
+  ads: z.number().int().min(0),
+  /** Os de sinal mais forte, em ordem. `a`: fim do endereço (troca a cada ~15 min), `k`: tipo do anúncio. */
+  dev: z
+    .array(z.object({ a: z.string().max(12), r: z.number().int().min(-127).max(20), k: z.number().int().min(0).max(255) }))
+    .max(8),
+});
+
 export const DeviceError = z.object({
   t: z.literal('error'),
   ts: epochMs,
@@ -122,7 +139,7 @@ export const OtaStatus = z.object({
   detail: z.string().max(120).optional(),
 });
 
-export const DeviceMessage = z.discriminatedUnion('t', [Hello, Ping, Button, Battery, DeviceError, FaceReport, OtaStatus]);
+export const DeviceMessage = z.discriminatedUnion('t', [Hello, Ping, Button, Battery, Ble, DeviceError, FaceReport, OtaStatus]);
 
 /* ───────────── Servidor → Device ───────────── */
 

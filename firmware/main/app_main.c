@@ -4,6 +4,7 @@
 #include "hal.h"
 #include "net.h"
 #include "ota.h"
+#include "presence.h"
 #include "ui.h"
 #include "ws_client.h"
 
@@ -21,4 +22,5 @@ void app_main(void)
 
     net_start();
     ws_client_start();
+    presence_start(); /* experimento: o sinal do iPhone diz se o dono está na mesa? */
 }

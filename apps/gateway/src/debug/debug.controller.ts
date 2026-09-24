@@ -1,9 +1,10 @@
-import { BadRequestException, Body, Controller, Get, HttpCode, Post, UseGuards } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Get, HttpCode, Post, Query, UseGuards } from '@nestjs/common';
 import { z } from 'zod';
 import { AlertService } from '../alerts/alert.service.js';
 import { CalendarService } from '../calendar/calendar.service.js';
 import { ChatService } from '../chat/chat.service.js';
 import { DeviceGateway } from '../device/device.gateway.js';
+import { PresenceService } from '../presence/presence.service.js';
 import { ProactiveService } from '../proactive/proactive.service.js';
 import { TokenGuard } from './token.guard.js';
 
@@ -23,6 +24,7 @@ export class DebugController {
     private readonly devices: DeviceGateway,
     private readonly chat: ChatService,
     private readonly proactiveSvc: ProactiveService,
+    private readonly presence: PresenceService,
   ) {}
 
   /** Público: não expõe títulos. */
@@ -51,6 +53,14 @@ export class DebugController {
       start: new Date(i.start).toISOString(),
       end: new Date(i.end).toISOString(),
     }));
+  }
+
+  /** Experimento de presença pelo Bluetooth: um minuto por linha, no fuso do servidor. */
+  @Get('debug/presence')
+  @UseGuards(TokenGuard)
+  presenceHistory(@Query('h') h?: string) {
+    const horas = Math.min(Math.max(Number(h) || 3, 1), 168);
+    return this.presence.history(horas).map((m) => ({ ...m, at: new Date(m.at).toISOString() }));
   }
 
   @Post('debug/alert')

@@ -12,12 +12,14 @@ idf_component_register(
         "core/life.c"
         "core/net.c"
         "core/ota.c"
+        "core/presence.c"
         "core/ui.c"
         "core/ws_client.c"
         "hal/hal_${IDF_TARGET}.c"
     INCLUDE_DIRS "." "core" "hal"
     PRIV_REQUIRES
         app_update
+        bt
         esp_app_format
         esp_driver_gpio
         esp_driver_spi

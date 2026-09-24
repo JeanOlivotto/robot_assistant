@@ -23,6 +23,7 @@
 #define ROBO_MSG_PING "ping"
 #define ROBO_MSG_BUTTON "button"
 #define ROBO_MSG_BATTERY "battery"
+#define ROBO_MSG_BLE "ble"
 #define ROBO_MSG_ERROR "error"
 #define ROBO_MSG_FACE "face"
 #define ROBO_MSG_OTA_STATUS "ota_status"

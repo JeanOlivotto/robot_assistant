@@ -228,13 +228,14 @@ void net_start(void)
     ESP_LOGI(TAG, "%d rede(s) configurada(s)", N_NETS);
     ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
     ESP_ERROR_CHECK(esp_wifi_start());
-    /* Modo mesa (USB): sem economia de energia no rádio, resposta mais rápida. */
-    esp_wifi_set_ps(WIFI_PS_NONE);
+    /* Modo mesa: economia mínima. Desligar de vez não dá — com o Bluetooth ligado, o rádio é
+       dividido e o Wi-Fi precisa desse respiro para o BLE ouvir (o IDF recusa WIFI_PS_NONE). */
+    esp_wifi_set_ps(WIFI_PS_MIN_MODEM);
 }
 
 void net_set_power_save(bool on)
 {
-    esp_wifi_set_ps(on ? WIFI_PS_MAX_MODEM : WIFI_PS_NONE);
+    esp_wifi_set_ps(on ? WIFI_PS_MAX_MODEM : WIFI_PS_MIN_MODEM);
     ESP_LOGI(TAG, "economia do rádio %s", on ? "ligada" : "desligada");
 }
 

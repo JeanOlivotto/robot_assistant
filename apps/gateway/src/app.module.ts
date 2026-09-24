@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { AlertService } from './alerts/alert.service.js';
+import { PresenceService } from './presence/presence.service.js';
 import { BracoGateway } from './braco/braco.gateway.js';
 import { BracoService } from './braco/braco.service.js';
 import { BrainService } from './brain/brain.service.js';
@@ -69,6 +70,7 @@ import { WsRouter } from './ws/ws-router.service.js';
     MeetingAccessGuard,
     MemoryService,
     TaskService,
+    PresenceService,
     SpotifyService,
     FirmwareService,
     TokenGuard,

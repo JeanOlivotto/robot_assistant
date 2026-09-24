@@ -10,6 +10,7 @@ import { CalendarService } from '../calendar/calendar.service.js';
 import { ChatService, type ChatState } from '../chat/chat.service.js';
 import { APP_CONFIG, type AppConfig } from '../config/app-config.js';
 import { FirmwareService } from '../firmware/firmware.service.js';
+import { PresenceService } from '../presence/presence.service.js';
 import { RobotStateService } from '../robot/robot-state.service.js';
 import { SpotifyService, type MusicState } from '../spotify/spotify.service.js';
 import { rejectUpgrade, WsRouter } from '../ws/ws-router.service.js';
@@ -61,6 +62,7 @@ export class DeviceGateway implements OnModuleInit, OnModuleDestroy {
     private readonly robot: RobotStateService,
     private readonly spotify: SpotifyService,
     private readonly firmware: FirmwareService,
+    private readonly presence: PresenceService,
   ) {}
 
   onModuleInit(): void {
@@ -185,6 +187,9 @@ export class DeviceGateway implements OnModuleInit, OnModuleDestroy {
         s.power = power;
         break;
       }
+      case 'ble':
+        this.presence.record(msg);
+        break;
       case 'error':
         this.log.warn(`${this.label(s)} erro no device: ${msg.code} ${msg.detail ?? ''}`);
         break;

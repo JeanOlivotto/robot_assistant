@@ -41,7 +41,7 @@ static char s_rx[RX_MAX + 1];
 static size_t s_rx_len;
 static bool s_rx_overflow;
 
-static void send_json(const char *json)
+void ws_client_send_json(const char *json)
 {
     if (!esp_websocket_client_is_connected(s_client)) return;
     if (esp_websocket_client_send_text(s_client, json, strlen(json), SEND_TIMEOUT) < 0) {
@@ -58,7 +58,7 @@ static void send_hello(void)
              "\"caps\":{\"codec\":[],\"wake\":\"none\",\"lcd\":{\"w\":%u,\"h\":%u}}}",
              (long long)net_epoch_ms(), ROBO_DEVICE_NAME, esp_app_get_description()->version, caps->chip_name,
              caps->lcd_w, caps->lcd_h);
-    send_json(buf);
+    ws_client_send_json(buf);
 }
 
 void ws_client_send_face(robo_face_t face)
@@ -66,7 +66,7 @@ void ws_client_send_face(robo_face_t face)
     char buf[64];
     snprintf(buf, sizeof(buf), "{\"t\":\"" ROBO_MSG_FACE "\",\"ts\":%lld,\"v\":\"%s\"}", (long long)net_epoch_ms(),
              robo_face_name(face));
-    send_json(buf);
+    ws_client_send_json(buf);
 }
 
 void ws_client_send_ota_status(robo_ota_phase_t phase, int pct, const char *version, const char *detail)
@@ -77,7 +77,7 @@ void ws_client_send_ota_status(robo_ota_phase_t phase, int pct, const char *vers
     snprintf(buf, sizeof(buf), "{\"t\":\"" ROBO_MSG_OTA_STATUS "\",\"ts\":%lld,\"phase\":\"%s\",\"pct\":%d,\"version\":\"%.31s\"%s}",
              (long long)net_epoch_ms(), robo_ota_phase_name(phase), pct < 0 ? 0 : pct > 100 ? 100 : pct,
              version ? version : "", extra);
-    send_json(buf);
+    ws_client_send_json(buf);
 }
 
 void ws_client_send_button(robo_btn_t id, robo_btn_ev_t ev)
@@ -85,7 +85,7 @@ void ws_client_send_button(robo_btn_t id, robo_btn_ev_t ev)
     char buf[96];
     snprintf(buf, sizeof(buf), "{\"t\":\"" ROBO_MSG_BUTTON "\",\"ts\":%lld,\"id\":\"%s\",\"ev\":\"%s\"}",
              (long long)net_epoch_ms(), robo_btn_name(id), robo_btn_ev_name(ev));
-    send_json(buf);
+    ws_client_send_json(buf);
 }
 
 static const char *str_or(const cJSON *obj, const char *key, const char *fallback)
@@ -249,7 +249,7 @@ static void send_battery(void)
     char buf[96];
     snprintf(buf, sizeof(buf), "{\"t\":\"" ROBO_MSG_BATTERY "\",\"ts\":%lld,\"mv\":%d,\"usb\":%s}",
              (long long)net_epoch_ms(), p.mv, p.usb ? "true" : "false");
-    send_json(buf);
+    ws_client_send_json(buf);
 }
 
 static void ping_task(void *arg)
@@ -258,7 +258,7 @@ static void ping_task(void *arg)
         vTaskDelay(pdMS_TO_TICKS(PING_PERIOD_MS));
         char buf[48];
         snprintf(buf, sizeof(buf), "{\"t\":\"" ROBO_MSG_PING "\",\"ts\":%lld}", (long long)net_epoch_ms());
-        send_json(buf);
+        ws_client_send_json(buf);
         if (n % 4 == 0) send_battery(); /* a cada minuto */
     }
 }
