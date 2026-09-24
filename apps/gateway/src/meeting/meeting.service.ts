@@ -8,6 +8,7 @@ import { rootPath } from '../config/paths.js';
 import { LlmService } from '../llm/llm.service.js';
 import { TaskService } from '../tasks/task.service.js';
 import { SttError, SttService, type TranscriptSegment } from '../stt/stt.service.js';
+import { BancoVozesService } from '../vozes/banco.service.js';
 import { VozesService, type Turno } from '../vozes/vozes.service.js';
 
 /** Uma tarefa da reunião; responsável e prazo quando dá para identificar. */
@@ -30,6 +31,15 @@ export interface Fala {
   fim: number;
   texto: string;
 }
+/** Quem é cada "Pessoa N" da reunião: reconhecida pelo banco de vozes, ou esperando um nome. */
+export interface VozReuniao {
+  pessoa: number;
+  nome?: string;
+  /** Semelhança com a voz do banco, quando reconheceu. */
+  score?: number;
+  /** A assinatura fica na reunião: é ela que vai para o banco quando você disser quem é. */
+  embedding?: number[];
+}
 export interface Meeting {
   id: string;
   titulo: string;
@@ -46,6 +56,7 @@ export interface Meeting {
   partes?: { i: number; frases: TranscriptSegment[] }[];
   falas?: Fala[];
   pessoas?: number;
+  vozes?: VozReuniao[];
   ata?: Ata;
 }
 
@@ -75,6 +86,7 @@ export class MeetingService implements OnModuleInit {
     private readonly tasks: TaskService,
     private readonly vozes: VozesService,
     private readonly chat: ChatService,
+    private readonly banco: BancoVozesService,
   ) {
     this.dir = rootPath(`${cfg.DATA_DIR}/meetings`);
   }
@@ -235,8 +247,14 @@ export class MeetingService implements OnModuleInit {
       ata.acoes.length ? `${ata.acoes.length} tarefa(s)` : '',
       m.pessoas ? `${m.pessoas} voz(es)` : '',
     ].filter(Boolean);
+    const conhecidas = (m.vozes ?? []).filter((v) => v.nome).map((v) => v.nome!);
+    const semNome = (m.vozes ?? []).filter((v) => !v.nome && v.embedding).length;
     this.chat.robotSay(
-      `A ata de "${m.titulo}" ficou pronta${partes.length ? ` — ${partes.join(', ')}` : ''}. Está na aba Reunião.`,
+      `A ata de "${m.titulo}" ficou pronta${partes.length ? ` — ${partes.join(', ')}` : ''}.` +
+        (conhecidas.length ? ` Reconheci ${conhecidas.join(', ')}.` : '') +
+        (semNome
+          ? ` ${semNome === 1 ? 'Uma voz eu não conheço' : `${semNome} vozes eu não conheço`} — me diga quem é na ata, na aba Reunião.`
+          : ' Está na aba Reunião.'),
       'happy',
       'meeting',
     );
@@ -265,6 +283,19 @@ export class MeetingService implements OnModuleInit {
     const r = await this.vozes.diarizar(Buffer.concat(pcms, total));
     if (!r?.turnos.length) return null;
 
+    // Banco de vozes: quem já foi apresentado sai com o nome; os outros esperam você dizer quem é.
+    m.vozes = [];
+    for (let p = 1; p <= r.pessoas; p++) {
+      const a = (r.assinaturas ?? []).find((x) => x.pessoa === p);
+      const quem = a ? this.banco.identificar(a.embedding) : null;
+      if (quem?.certeza === 'alta') this.banco.reforcar(quem, a!.embedding);
+      m.vozes.push({
+        pessoa: p,
+        ...(quem?.certeza === 'alta' ? { nome: quem.nome, score: quem.score } : {}),
+        ...(a ? { embedding: a.embedding } : {}),
+      });
+    }
+
     const falas: Fala[] = [];
     for (const parte of m.partes) {
       for (const f of parte.frases) {
@@ -285,7 +316,7 @@ export class MeetingService implements OnModuleInit {
 
   private async buildAta(m: Meeting): Promise<Ata> {
     const comVozes = !!m.falas?.length;
-    const transcript = (comVozes ? m.falas!.map((f) => `Pessoa ${f.pessoa}: ${f.texto}`).join('\n') : m.transcript).slice(
+    const transcript = (comVozes ? m.falas!.map((f) => `${this.rotulo(m, f.pessoa)}: ${f.texto}`).join('\n') : m.transcript).slice(
       0,
       TRANSCRIPT_LIMIT,
     );
@@ -298,9 +329,9 @@ export class MeetingService implements OnModuleInit {
       'decisoes: só o que ficou DECIDIDO ([] se nada claro). ' +
       'acoes: as tarefas combinadas — "responsavel" só se der para saber quem, "prazo" só se for dito (ex.: "sexta", "até dia 30"). ' +
       (comVozes
-        ? 'A transcrição vem separada por voz ("Pessoa 1", "Pessoa 2"…), na ordem em que cada uma falou pela primeira vez. ' +
-          'Se alguém for chamado pelo nome e der para saber qual Pessoa é, use o nome; senão, use "Pessoa N". A separação ' +
-          'por voz pode errar em trechos curtos — prefira o sentido da conversa quando os dois brigarem. '
+        ? 'A transcrição vem separada por voz: pelo nome, quando a voz foi reconhecida, ou "Pessoa N" quando não. ' +
+          'Se uma "Pessoa N" for chamada pelo nome e der para saber quem é, use o nome; senão, mantenha "Pessoa N" ' +
+          'exatamente assim. A separação por voz pode errar em trechos curtos — prefira o sentido da conversa quando os dois brigarem. '
         : '') +
       'Não invente nada que não esteja na transcrição.';
     const msg = await this.llm.complete(
@@ -344,6 +375,39 @@ export class MeetingService implements OnModuleInit {
     }
     // Sem JSON utilizável: guarda o texto como resumo para não perder o trabalho.
     return { resumo: clean.slice(0, 1500), decisoes: [], acoes: [] };
+  }
+
+  /** "Jean" se a voz foi reconhecida (ou nomeada), senão "Pessoa N". */
+  private rotulo(m: Meeting, pessoa: number): string {
+    return m.vozes?.find((v) => v.pessoa === pessoa)?.nome ?? `Pessoa ${pessoa}`;
+  }
+
+  /**
+   * Você disse quem é a "Pessoa N": a voz entra no banco (reconhecida nas próximas reuniões e no
+   * chat) e a ata troca "Pessoa N" pelo nome.
+   */
+  nomearVoz(id: string, pessoa: number, nome: string): Meeting {
+    const m = this.load(id);
+    if (!m) throw new MeetingError('reunião não encontrada', 404);
+    const v = m.vozes?.find((x) => x.pessoa === pessoa);
+    if (!v) throw new MeetingError(`não tem Pessoa ${pessoa} nesta reunião`, 404);
+    const limpo = nome.trim().slice(0, 40);
+    if (!limpo) throw new MeetingError('falta o nome', 400);
+    if (v.embedding) this.banco.cadastrar(limpo, v.embedding);
+    v.nome = limpo;
+
+    const troca = (s: string) => s.replace(new RegExp(`\\bPessoa ${pessoa}\\b`, 'g'), limpo);
+    if (m.ata) {
+      m.ata = {
+        resumo: troca(m.ata.resumo),
+        pontos: m.ata.pontos?.map(troca),
+        decisoes: m.ata.decisoes.map(troca),
+        acoes: m.ata.acoes.map((a) => ({ ...a, texto: troca(a.texto), ...(a.responsavel ? { responsavel: troca(a.responsavel) } : {}) })),
+      };
+    }
+    this.save(m);
+    this.log.log(`Pessoa ${pessoa} de "${m.titulo}" é ${limpo}`);
+    return m;
   }
 
   /** Joga a reunião fora de vez: some da lista e o arquivo vai junto (e o áudio, se ainda houver). */

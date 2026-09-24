@@ -10,6 +10,7 @@ import { APP_CONFIG, type AppConfig } from '../config/app-config.js';
 import { LlmService } from '../llm/llm.service.js';
 import { MemoryService } from '../memory/memory.service.js';
 import { TaskService } from '../tasks/task.service.js';
+import { BancoVozesService } from '../vozes/banco.service.js';
 import { describeAgenda, splitEmotion, systemPrompt } from './prompts.js';
 import { DIAS, resolveDay, resolveWhen } from './resolve-date.js';
 
@@ -135,6 +136,20 @@ const TOOLS: ChatCompletionTool[] = [
   {
     type: 'function',
     function: {
+      name: 'salvar_voz',
+      description:
+        'Guarda no banco de vozes a voz da última mensagem falada que você NÃO reconheceu (ou reconheceu sem certeza), ' +
+        'com o nome que a pessoa disse. Só use depois de a pessoa dizer quem é e concordar — nunca por conta própria.',
+      parameters: {
+        type: 'object',
+        properties: { nome: { type: 'string', description: 'o nome da pessoa, como ela disse' } },
+        required: ['nome'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
       name: 'usar_computador',
       description:
         'Executa na máquina do dono uma das ações que ELE cadastrou (a lista está no seu contexto). ' +
@@ -189,6 +204,7 @@ export class BrainService {
     private readonly memory: MemoryService,
     private readonly braco: BracoService,
     private readonly tasks: TaskService,
+    private readonly banco: BancoVozesService,
   ) {
     this.dayFmt = new Intl.DateTimeFormat('pt-BR', {
       weekday: 'long',
@@ -223,7 +239,7 @@ export class BrainService {
       }
       messages.push({ role: 'assistant', content: msg.content ?? '', tool_calls: calls });
       for (const call of calls) {
-        const out = await this.runTool(call.function.name, call.function.arguments, now);
+        const out = await this.runTool(call.function.name, call.function.arguments, now, history.at(-1)?.voz);
         this.log.log(`ferramenta ${call.function.name}(${call.function.arguments}) → ${out.result.split('\n')[0]}`);
         if (out.proposal) proposal = out.proposal;
         messages.push({ role: 'tool', tool_call_id: call.id, content: out.result });
@@ -394,6 +410,7 @@ export class BrainService {
       memories: this.memory.summaries(),
       acoesDaMaquina: this.braco.acoes(),
       pendencias: this.tasks.open().map((t) => (t.pessoa ? `${t.texto} (com ${t.pessoa})` : t.texto)),
+      vozesConhecidas: this.banco.listar().map((v) => v.nome),
     };
   }
 
@@ -427,7 +444,12 @@ export class BrainService {
     await this.memory.learn(history);
   }
 
-  private async runTool(name: string, rawArgs: string, now: Date): Promise<{ result: string; proposal?: ProposalDraft }> {
+  private async runTool(
+    name: string,
+    rawArgs: string,
+    now: Date,
+    voz?: ChatMessage['voz'],
+  ): Promise<{ result: string; proposal?: ProposalDraft }> {
     let args: Record<string, unknown>;
     try {
       args = JSON.parse(rawArgs || '{}') as Record<string, unknown>;
@@ -439,6 +461,11 @@ export class BrainService {
       if (name === 'propor_evento') return await this.proporEvento(args, now);
       if (name === 'anotar_pendencia') return { result: this.anotarPendencia(args) };
       if (name === 'concluir_pendencia') return { result: this.concluirPendencia(args) };
+      if (name === 'salvar_voz') return { result: this.salvarVoz(args) };
+      // A máquina é do dono: outra pessoa reconhecida pela voz não mexe nela, peça o que pedir.
+      if ((name === 'usar_computador' || name === 'propor_comando') && this.vozDeOutro(voz)) {
+        return { result: `recusado: a voz é de ${voz!.nome}, e só ${this.cfg.OWNER_NAME || 'o dono'} mexe no computador dele` };
+      }
       if (name === 'usar_computador') return { result: await this.usarComputador(args) };
       if (name === 'propor_comando') return this.proporComando(args);
       return { result: `erro: a ferramenta ${name} não existe` };
@@ -458,6 +485,21 @@ export class BrainService {
     if (!t) return 'erro: não existe pendência com esse número';
     this.tasks.done(t.id);
     return `resolvida: ${t.texto}`;
+  }
+
+  private salvarVoz(args: Record<string, unknown>): string {
+    const nome = String(args.nome ?? '').trim();
+    if (!nome) return 'erro: falta o nome';
+    const v = this.banco.salvarPendente(nome);
+    return v
+      ? `voz salva como ${v.nome} (${v.amostras.length} amostra(s)). Da próxima vez você reconhece.`
+      : 'erro: não tem voz esperando para salvar — peça para a pessoa mandar um áudio falando';
+  }
+
+  /** Voz reconhecida com certeza, e não é a do dono. */
+  private vozDeOutro(voz?: ChatMessage['voz']): boolean {
+    const dono = (this.cfg.OWNER_NAME || '').trim().toLowerCase();
+    return voz?.certeza === 'alta' && !!voz.nome && !!dono && voz.nome.trim().toLowerCase() !== dono;
   }
 
   /** Ação já autorizada pelo dono: roda na hora e devolve a saída para o robô comentar. */
@@ -598,7 +640,15 @@ function toLlmHistory(history: ChatMessage[], tz: string): ChatCompletionMessage
   });
   return history.map((m): ChatCompletionMessageParam => {
     if (m.from === 'user') {
-      if (!m.photo) return { role: 'user', content: m.text };
+      // Mensagem falada: de quem é a voz, pelo banco — o cérebro não ouve, só lê isto.
+      const voz = m.voz
+        ? m.voz.certeza === 'alta'
+          ? `[voz reconhecida: ${m.voz.nome}] `
+          : m.voz.certeza === 'duvida'
+            ? `[voz parecida com a de ${m.voz.nome}, sem certeza] `
+            : '[voz que você não conhece] '
+        : '';
+      if (!m.photo) return { role: 'user', content: voz + m.text };
       // O cérebro só lê texto: a foto entra pela descrição que o modelo de visão fez.
       const foto = m.photo.desc
         ? `[${m.text ? 'junto, ' : ''}ele mandou uma foto. O que aparece nela: ${m.photo.desc}]`

@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { Inject, Injectable, Logger, type OnModuleDestroy, type OnModuleInit } from '@nestjs/common';
 import { BehaviorSubject, Subject } from 'rxjs';
-import { LIMITS, type ChatMessage, type Face, type MessageVia, type Mode, type Proposal } from '@robo/protocol';
+import { LIMITS, type ChatMessage, type ChatVoz, type Face, type MessageVia, type Mode, type Proposal } from '@robo/protocol';
 import { BrainService } from '../brain/brain.service.js';
 import { BracoService } from '../braco/braco.service.js';
 import { CalendarService } from '../calendar/calendar.service.js';
@@ -30,6 +30,8 @@ export interface AskOptions {
   since?: number;
   /** A resposta vai ser FALADA: curta, sem emoji, sem botão. */
   spoken?: boolean;
+  /** De quem é a voz (mensagem falada), pelo banco de vozes. */
+  voz?: ChatVoz;
 }
 
 const PROPOSAL_TTL_MS = 30 * 60_000;
@@ -114,8 +116,8 @@ export class ChatService implements OnModuleInit, OnModuleDestroy {
   }
 
   /** Mensagem do dono. Processadas uma de cada vez, na ordem. */
-  async say(text: string, via: MessageVia = 'text'): Promise<void> {
-    await this.ask(text, via);
+  async say(text: string, via: MessageVia = 'text', opts: AskOptions = {}): Promise<void> {
+    await this.ask(text, via, opts);
   }
 
   /** Como say(), mas devolve a resposta do robô (a voz precisa dela para falar). */
@@ -181,7 +183,14 @@ export class ChatService implements OnModuleInit, OnModuleDestroy {
 
   private async handleUserText(text: string, via: MessageVia, opts: AskOptions = {}): Promise<ChatMessage | undefined> {
     const wasWaiting = this.state.waitingSince > 0;
-    this.push({ id: randomUUID(), from: 'user', text, ts: Date.now(), via: via === 'text' ? undefined : via });
+    this.push({
+      id: randomUUID(),
+      from: 'user',
+      text,
+      ts: Date.now(),
+      via: via === 'text' ? undefined : via,
+      ...(opts.voz ? { voz: opts.voz } : {}),
+    });
 
     // "sim"/"não" (digitado ou falado) com uma proposta aberta vale como o botão
     const pending = this.store.pendingProposals();

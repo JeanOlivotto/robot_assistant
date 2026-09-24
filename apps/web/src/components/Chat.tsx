@@ -381,7 +381,7 @@ export function Chat({
                   {m.text && <div className="text">{m.text}</div>}
                   {m.proposal && <ProposalCard p={m.proposal} onConfirm={(ok) => onConfirm(m.proposal!.id, ok)} />}
                   <div className="time">
-                    {m.via === 'voice' ? '🎤 ' : m.via === 'siri' ? 'Siri · ' : ''}
+                    {m.via === 'voice' ? `🎤 ${m.voz?.certeza === 'alta' ? `${m.voz.nome} · ` : ''}` : m.via === 'siri' ? 'Siri · ' : ''}
                     {hhmm(m.ts)}
                   </div>
                 </div>

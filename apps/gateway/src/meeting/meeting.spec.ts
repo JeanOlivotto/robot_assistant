@@ -7,6 +7,7 @@ import type { LlmService } from '../llm/llm.service.js';
 import { SttError, type SttService } from '../stt/stt.service.js';
 import { TaskService } from '../tasks/task.service.js';
 import type { ChatService } from '../chat/chat.service.js';
+import { BancoVozesService } from '../vozes/banco.service.js';
 import type { VozesService } from '../vozes/vozes.service.js';
 import { MeetingService, quemFalou } from './meeting.service.js';
 
@@ -24,9 +25,10 @@ function make(llmReply: string, stt?: Partial<SttService>, vozes?: Partial<Vozes
   const vozesSvc = { enabled: false, diarizar: vi.fn().mockResolvedValue(null), ...vozes } as unknown as VozesService;
   // As ações da ata viram pendências: o serviço de verdade, num diretório temporário.
   const tasks = new TaskService(cfg);
-  const deps = { stt: sttSvc, llm, tasks, vozes: vozesSvc, chat };
-  const novo = () => new MeetingService(cfg, sttSvc, llm, tasks, vozesSvc, chat);
-  return { svc: novo(), novo, cfg, deps, tasks, chat };
+  const banco = new BancoVozesService(cfg);
+  const deps = { stt: sttSvc, llm, tasks, vozes: vozesSvc, chat, banco };
+  const novo = () => new MeetingService(cfg, sttSvc, llm, tasks, vozesSvc, chat, banco);
+  return { svc: novo(), novo, cfg, deps, tasks, chat, banco };
 }
 
 const CLEAN = JSON.stringify({
@@ -206,5 +208,53 @@ describe('MeetingService', () => {
     ];
     expect(quemFalou(turnos, 3, 9)).toBe(2); // 2 s da pessoa 1, 4 s da pessoa 2
     expect(quemFalou(turnos, 12, 13)).toBe(2);
+  });
+
+  it('banco de vozes: quem já é conhecido sai com o nome; o desconhecido você nomeia depois', async () => {
+    const JEAN = [1, 0, 0, 0];
+    const ESTRANHO = [0, 0, 1, 0];
+    const { svc, banco, chat, deps } = make(
+      JSON.stringify({ resumo: 'Jean e Pessoa 2 alinharam.', decisoes: [], acoes: [{ texto: 'Revisar', responsavel: 'Pessoa 2' }] }),
+      {
+        transcribe: vi.fn().mockResolvedValue({
+          text: 'x',
+          seconds: 25,
+          segments: [
+            { start: 0, end: 4, text: 'Oi, aqui é o Jean.' },
+            { start: 5, end: 9, text: 'Eu reviso.' },
+          ],
+        }),
+      },
+      {
+        enabled: true,
+        diarizar: vi.fn().mockResolvedValue({
+          pessoas: 2,
+          turnos: [
+            { inicio: 0, fim: 4.5, pessoa: 1 },
+            { inicio: 4.8, fim: 9.5, pessoa: 2 },
+          ],
+          assinaturas: [
+            { pessoa: 1, segundos: 4, embedding: [0.98, 0.1, 0, 0] },
+            { pessoa: 2, segundos: 4, embedding: ESTRANHO },
+          ],
+        }),
+      },
+    );
+    banco.cadastrar('Jean', JEAN);
+    const m = svc.start('Alinhamento');
+    await svc.addSegment(m.id, Buffer.from('a'));
+    const fim = await svc.stop(m.id);
+
+    expect(fim.vozes?.map((v) => v.nome)).toEqual(['Jean', undefined]);
+    const prompt = (deps.llm.complete as ReturnType<typeof vi.fn>).mock.calls[0]![0][1].content as string;
+    expect(prompt).toContain('Jean: Oi, aqui é o Jean.');
+    expect(prompt).toContain('Pessoa 2: Eu reviso.');
+    expect((chat.robotSay as ReturnType<typeof vi.fn>).mock.calls[1]![0]).toContain('Uma voz eu não conheço');
+
+    // Você diz quem é: a ata troca o nome e a voz entra no banco.
+    const nomeada = svc.nomearVoz(m.id, 2, 'Fábio');
+    expect(nomeada.ata?.resumo).toBe('Jean e Fábio alinharam.');
+    expect(nomeada.ata?.acoes[0]?.responsavel).toBe('Fábio');
+    expect(banco.identificar(ESTRANHO)?.nome).toBe('Fábio');
   });
 });

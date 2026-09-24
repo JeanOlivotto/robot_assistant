@@ -21,11 +21,31 @@ import { MeetingError, MeetingService, type Meeting } from './meeting.service.js
 const StartBody = z.object({ titulo: z.string().max(120).optional() });
 const InviteBody = z.object({ titulo: z.string().max(120).default('') });
 
+/**
+ * As vozes da reunião sem as assinaturas (512 números cada, só servem para o banco), com um
+ * pedacinho do que cada pessoa falou — ajuda a lembrar quem era a "Pessoa 2".
+ */
+function semAssinatura(m: Meeting) {
+  return m.vozes?.map(({ embedding, ...v }) => {
+    const fala = m.falas?.find((f) => f.pessoa === v.pessoa && f.texto.length > 20) ?? m.falas?.find((f) => f.pessoa === v.pessoa);
+    const amostra = fala ? (fala.texto.length > 90 ? `${fala.texto.slice(0, 90)}…` : fala.texto) : undefined;
+    return { ...v, nomeavel: !!embedding, ...(amostra ? { amostra } : {}) };
+  });
+}
+
 /** Uma reunião sem a transcrição inteira, para as listagens não ficarem pesadas. */
 function slim(m: Meeting) {
-  const { transcript, partes, falas, ...rest } = m;
-  return { ...rest, chars: transcript.length };
+  const { transcript, partes, falas, vozes, ...rest } = m;
+  return { ...rest, vozes: semAssinatura(m), chars: transcript.length };
 }
+
+/** A reunião inteira (transcrição e falas), mas sem as assinaturas de voz. */
+function full(m: Meeting) {
+  const { partes, vozes, ...rest } = m;
+  return { ...rest, vozes: semAssinatura(m) };
+}
+
+const NomearBody = z.object({ pessoa: z.number().int().min(1), nome: z.string().trim().min(1).max(40) });
 
 @Controller('api/meeting')
 export class MeetingController {
@@ -118,7 +138,21 @@ export class MeetingController {
   get(@Param('id') id: string) {
     const m = this.meetings.get(id);
     if (!m) throw new HttpException('reunião não encontrada', 404);
-    return m;
+    return full(m);
+  }
+
+  /** "A Pessoa 2 é o Fábio": a voz vai para o banco e a ata passa a usar o nome. */
+  @Post(':id/vozes')
+  @UseGuards(AppTokenGuard)
+  @HttpCode(200)
+  nomear(@Param('id') id: string, @Body() body: unknown) {
+    const parsed = NomearBody.safeParse(body ?? {});
+    if (!parsed.success) throw new BadRequestException(z.prettifyError(parsed.error));
+    try {
+      return full(this.meetings.nomearVoz(id, parsed.data.pessoa, parsed.data.nome));
+    } catch (err) {
+      throw toHttp(err);
+    }
   }
 }
 

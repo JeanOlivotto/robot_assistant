@@ -6,8 +6,11 @@ import {
   agendar,
   apagarMeeting,
   convidar,
+  apagarVoz,
   getMeeting,
   listMeetings,
+  listarVozes,
+  nomearVoz,
   meetingStatus,
   sendSegment,
   startMeeting,
@@ -17,6 +20,8 @@ import {
   type FonteAudio,
   type Meeting,
   type MeetingFull,
+  type VozConhecida,
+  type VozReuniao,
 } from '../lib/meeting';
 
 type Phase = 'checking' | 'unavailable' | 'idle' | 'recording' | 'finalizing' | 'done';
@@ -108,7 +113,7 @@ function mmssDe(seg: number): string {
 }
 
 /** A reunião inteira, como foi falada — separada por voz quando o servidor conseguiu separar. */
-function ReuniaoCompleta({ token, id }: { token: string; id: string }) {
+function ReuniaoCompleta({ token, id, vozes }: { token: string; id: string; vozes?: VozReuniao[] }) {
   const [m, setM] = useState<MeetingFull | null>(null);
   const [erro, setErro] = useState('');
   useEffect(() => {
@@ -125,7 +130,8 @@ function ReuniaoCompleta({ token, id }: { token: string; id: string }) {
         {m.falas.map((f, i) => (
           <div key={i} className="fala">
             <span className={`fala__quem fala__quem--${((f.pessoa - 1) % 6) + 1}`}>
-              Pessoa {f.pessoa} <span className="fala__hora">{mmssDe(f.inicio)}</span>
+              {vozes?.find((v) => v.pessoa === f.pessoa)?.nome ?? `Pessoa ${f.pessoa}`}{' '}
+              <span className="fala__hora">{mmssDe(f.inicio)}</span>
             </span>
             <p>{f.texto}</p>
           </div>
@@ -136,12 +142,78 @@ function ReuniaoCompleta({ token, id }: { token: string; id: string }) {
   return <p className="transcricao transcricao--corrida">{m.transcript || 'Sem transcrição.'}</p>;
 }
 
+/** "Quem é a Pessoa 2?" — você diz o nome, a voz entra no banco e a ata passa a usar o nome. */
+function QuemEQuem({ token, id, vozes, onNomeada }: { token: string; id: string; vozes: VozReuniao[]; onNomeada(m: MeetingFull): void }) {
+  const [nomes, setNomes] = useState<Record<number, string>>({});
+  const [salvando, setSalvando] = useState<number | null>(null);
+  const [erro, setErro] = useState('');
+  const conhecidas = vozes.filter((v) => v.nome);
+  const faltam = vozes.filter((v) => !v.nome && v.nomeavel);
+  if (!conhecidas.length && !faltam.length) return null;
+
+  const salvar = (pessoa: number) => {
+    const nome = (nomes[pessoa] ?? '').trim();
+    if (!nome) return;
+    setSalvando(pessoa);
+    setErro('');
+    nomearVoz(token, id, pessoa, nome)
+      .then(onNomeada)
+      .catch((e: Error) => setErro(e.message))
+      .finally(() => setSalvando(null));
+  };
+
+  return (
+    <div className="quem">
+      <h4>Quem falou</h4>
+      {conhecidas.length > 0 && (
+        <p className="quem__conhecidas">
+          {conhecidas.map((v) => (
+            <span key={v.pessoa} className="quem__chip">
+              ✓ {v.nome}
+            </span>
+          ))}
+        </p>
+      )}
+      {faltam.map((v) => (
+        <form
+          key={v.pessoa}
+          className="quem__linha"
+          onSubmit={(e) => {
+            e.preventDefault();
+            salvar(v.pessoa);
+          }}
+        >
+          <div className="quem__quem">
+            <strong>Pessoa {v.pessoa}</strong>
+            {v.amostra && <span className="quem__amostra">“{v.amostra}”</span>}
+          </div>
+          <div className="quem__campo">
+            <input
+              placeholder="Quem é?"
+              maxLength={40}
+              value={nomes[v.pessoa] ?? ''}
+              onChange={(e) => setNomes({ ...nomes, [v.pessoa]: e.target.value })}
+            />
+            <button type="submit" className="mini-btn" disabled={salvando !== null || !(nomes[v.pessoa] ?? '').trim()}>
+              {salvando === v.pessoa ? 'Salvando…' : 'Salvar'}
+            </button>
+          </div>
+        </form>
+      ))}
+      {faltam.length > 0 && <p className="hint">Salvando o nome, eu passo a reconhecer essa voz nas próximas reuniões e no chat.</p>}
+      {erro && <span className="item-ata__erro">{erro}</span>}
+    </div>
+  );
+}
+
 function AtaCard({
   ata,
   titulo,
   token,
   id,
   pessoas,
+  vozes,
+  onAtualizada,
   semCabecalho,
 }: {
   ata: Ata;
@@ -149,6 +221,9 @@ function AtaCard({
   token: string;
   id: string;
   pessoas?: number;
+  vozes?: VozReuniao[];
+  /** Você disse quem é uma das vozes: a ata voltou com o nome no lugar de "Pessoa N". */
+  onAtualizada?(m: MeetingFull): void;
   /** Em tela cheia o título já está na barra de cima. */
   semCabecalho?: boolean;
 }) {
@@ -179,7 +254,8 @@ function AtaCard({
           Copiar
         </button>
       </div>
-      {pessoas ? <p className="ata__meta">{pessoas} voz(es) identificada(s)</p> : null}
+      {pessoas ? <p className="ata__meta">{pessoas} voz(es) na reunião</p> : null}
+      {vozes?.length ? <QuemEQuem token={token} id={id} vozes={vozes} onNomeada={(m) => onAtualizada?.(m)} /> : null}
 
       <h4>Resumo</h4>
       <p className="ata__resumo">{ata.resumo}</p>
@@ -219,7 +295,7 @@ function AtaCard({
       <button type="button" className="ata__completa-btn" onClick={() => setCompleta(!completa)}>
         {completa ? 'Esconder a reunião completa' : 'Ver a reunião completa'}
       </button>
-      {completa && <ReuniaoCompleta token={token} id={id} />}
+      {completa && <ReuniaoCompleta key={JSON.stringify(vozes?.map((v) => v.nome))} token={token} id={id} vozes={vozes} />}
     </div>
   );
 }
@@ -277,6 +353,22 @@ export function MeetingView({
   const [result, setResult] = useState<Meeting | null>(null);
   const [past, setPast] = useState<Meeting[]>([]);
   const [open, setOpen] = useState<string | null>(null);
+  const [banco, setBanco] = useState<VozConhecida[]>([]);
+
+  const carregarBanco = () => {
+    if (guest) return;
+    listarVozes(token)
+      .then(setBanco)
+      .catch(() => {});
+  };
+
+  /** Uma voz ganhou nome: troca a reunião em todo lugar onde ela aparece, e o banco muda. */
+  const atualizar = (m: MeetingFull) => {
+    setResult((r) => (r?.id === m.id ? m : r));
+    setCheia((c) => (c?.id === m.id ? m : c));
+    setPast((lista) => lista.map((x) => (x.id === m.id ? m : x)));
+    carregarBanco();
+  };
 
   const recorder = useRef<MeetingRecorder | null>(null);
   const meetingId = useRef<string | null>(null);
@@ -293,10 +385,12 @@ export function MeetingView({
       listMeetings(token)
         .then((m) => alive && setPast(m))
         .catch(() => {});
+      carregarBanco();
     }
     return () => {
       alive = false;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token]);
 
   /* A ata sai em segundo plano: enquanto esta tela estiver aberta, confere até ela ficar pronta. */
@@ -591,7 +685,15 @@ export function MeetingView({
               Abrir em tela cheia
             </button>
           </div>
-          <AtaCard ata={result.ata} titulo={result.titulo} token={token} id={result.id} pessoas={result.pessoas} />
+          <AtaCard
+            ata={result.ata}
+            titulo={result.titulo}
+            token={token}
+            id={result.id}
+            pessoas={result.pessoas}
+            vozes={result.vozes}
+            onAtualizada={atualizar}
+          />
           <button type="button" className="rec-btn" onClick={() => setPhase('idle')}>
             Nova reunião
           </button>
@@ -607,7 +709,16 @@ export function MeetingView({
             <span className="ata-cheia__titulo">{cheia.titulo}</span>
           </div>
           <div className="ata-cheia__conteudo">
-            <AtaCard ata={cheia.ata} titulo={cheia.titulo} token={token} id={cheia.id} pessoas={cheia.pessoas} semCabecalho />
+            <AtaCard
+              ata={cheia.ata}
+              titulo={cheia.titulo}
+              token={token}
+              id={cheia.id}
+              pessoas={cheia.pessoas}
+              vozes={cheia.vozes}
+              onAtualizada={atualizar}
+              semCabecalho
+            />
           </div>
         </div>
       )}
@@ -643,11 +754,43 @@ export function MeetingView({
                       Apagar
                     </button>
                   </div>
-                  <AtaCard ata={m.ata} titulo={m.titulo} token={token} id={m.id} pessoas={m.pessoas} />
+                  <AtaCard
+                    ata={m.ata}
+                    titulo={m.titulo}
+                    token={token}
+                    id={m.id}
+                    pessoas={m.pessoas}
+                    vozes={m.vozes}
+                    onAtualizada={atualizar}
+                  />
                 </>
               )}
             </div>
           ))}
+        </div>
+      )}
+
+      {!guest && (phase === 'idle' || phase === 'done') && banco.length > 0 && (
+        <div className="meeting__past">
+          <h4>Vozes que o robô reconhece</h4>
+          {banco.map((v) => (
+            <div key={v.id} className="voz-conhecida">
+              <span>{v.nome}</span>
+              <button
+                type="button"
+                className="mini-btn mini-btn--perigo"
+                onClick={() => {
+                  if (!confirm(`Apagar a voz de ${v.nome}? O robô deixa de reconhecer essa pessoa.`)) return;
+                  void apagarVoz(token, v.id)
+                    .then(carregarBanco)
+                    .catch((e: Error) => setError(`Não consegui apagar: ${e.message}`));
+                }}
+              >
+                Apagar
+              </button>
+            </div>
+          ))}
+          <p className="hint">Só a assinatura da voz fica guardada, nunca o áudio.</p>
         </div>
       )}
     </div>

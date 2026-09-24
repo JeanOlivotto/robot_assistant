@@ -41,6 +41,13 @@ export const ChatPhoto = z.object({
   desc: z.string().max(3000).optional(),
 });
 
+/** De quem é a voz de uma mensagem falada, pelo banco de vozes. */
+export const ChatVoz = z.object({
+  certeza: z.enum(['alta', 'duvida', 'desconhecida']),
+  nome: z.string().max(40).optional(),
+  score: z.number().optional(),
+});
+
 export const ChatMessage = z.object({
   id: z.string(),
   from: z.enum(['user', 'robot']),
@@ -51,6 +58,7 @@ export const ChatMessage = z.object({
   face: z.enum(FACES).optional(),
   proposal: Proposal.optional(),
   photo: ChatPhoto.optional(),
+  voz: ChatVoz.optional(),
 });
 
 export const RobotView = z.object({
@@ -113,6 +121,7 @@ export const AppServerMessage = z.discriminatedUnion('t', [Snapshot, MessageUpse
 export type Proposal = z.infer<typeof Proposal>;
 export type ChatMessage = z.infer<typeof ChatMessage>;
 export type ChatPhoto = z.infer<typeof ChatPhoto>;
+export type ChatVoz = z.infer<typeof ChatVoz>;
 export type RobotView = z.infer<typeof RobotView>;
 export type AppClientMessage = z.infer<typeof AppClientMessage>;
 export type AppServerMessage = z.infer<typeof AppServerMessage>;

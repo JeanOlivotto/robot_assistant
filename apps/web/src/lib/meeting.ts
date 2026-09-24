@@ -23,6 +23,16 @@ export interface Fala {
   fim: number;
   texto: string;
 }
+/** Quem é cada "Pessoa N": reconhecida pelo banco de vozes, ou esperando você dizer. */
+export interface VozReuniao {
+  pessoa: number;
+  nome?: string;
+  score?: number;
+  /** Dá para dizer quem é (a reunião tem a assinatura dessa voz). */
+  nomeavel: boolean;
+  /** Um pedacinho do que essa pessoa falou. */
+  amostra?: string;
+}
 export interface Meeting {
   id: string;
   titulo: string;
@@ -34,6 +44,7 @@ export interface Meeting {
   seconds: number;
   chars: number;
   pessoas?: number;
+  vozes?: VozReuniao[];
   ata?: Ata;
 }
 /** A reunião inteira, com a transcrição — só quando você pede para ver. */
@@ -63,6 +74,28 @@ export const sendSegment = (token: string, id: string, blob: Blob) =>
 export const stopMeeting = (token: string, id: string) => api<Meeting>(token, `/${id}/stop`, { method: 'POST' });
 export const listMeetings = (token: string) => api<Meeting[]>(token, '/list');
 export const getMeeting = (token: string, id: string) => api<MeetingFull>(token, `/${id}`);
+/** "A Pessoa 2 é o Fábio": a voz vai para o banco e a ata passa a usar o nome. */
+export const nomearVoz = (token: string, id: string, pessoa: number, nome: string) =>
+  api<MeetingFull>(token, `/${id}/vozes`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ pessoa, nome }),
+  });
+
+/** O banco de vozes (quem o robô reconhece). */
+export interface VozConhecida {
+  id: string;
+  nome: string;
+  amostras: number;
+  atualizadaEm: number;
+}
+async function vozesApi<T>(token: string, path: string, init?: RequestInit): Promise<T> {
+  const res = await fetch(`/api/vozes${path}`, { ...init, headers: { Authorization: `Bearer ${token}` } });
+  if (!res.ok) throw new Error((await res.text().catch(() => '')) || `HTTP ${res.status}`);
+  return (await res.json()) as T;
+}
+export const listarVozes = (token: string) => vozesApi<VozConhecida[]>(token, '');
+export const apagarVoz = (token: string, id: string) => vozesApi<{ ok: true }>(token, `/${id}`, { method: 'DELETE' });
 export const apagarMeeting = (token: string, id: string) => api<{ ok: true }>(token, `/${id}`, { method: 'DELETE' });
 
 /** Cria o link para outra pessoa gravar uma reunião no seu lugar (vale 12 h). */

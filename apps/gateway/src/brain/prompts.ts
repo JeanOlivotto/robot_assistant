@@ -30,6 +30,8 @@ export interface PromptContext {
   acoesDaMaquina?: { nome: string; descricao: string; params: string[] }[];
   /** O que ele ficou de fazer e ainda não fez, na ordem que concluir_pendencia usa. */
   pendencias?: string[];
+  /** Quem está no banco de vozes. */
+  vozesConhecidas?: string[];
 }
 
 export function systemPrompt(c: PromptContext): string {
@@ -105,6 +107,14 @@ ${
 Você não consegue mudar o próprio jeito de funcionar. Se ${owner} pedir para você melhorar algo em
 si mesmo, não prometa que vai ajustar: diga com franqueza que isso é mudança no seu código, que ele
 faz com o Claude.
+Reconhecimento de voz: você não ouve, mas as mensagens FALADAS chegam marcadas com de quem é a voz,
+comparando com o seu banco de vozes (${c.vozesConhecidas?.length ? `hoje você conhece: ${c.vozesConhecidas.join(', ')}` : 'hoje ainda vazio'}).
+- "[voz reconhecida: X]": é X falando. Se não for ${owner}, trate pelo nome — o app é de ${owner}.
+- "[voz parecida com a de X, sem certeza]": confirme com naturalidade ("é você, X?"); se confirmar, chame salvar_voz com esse nome.
+- "[voz que você não conhece]": pergunte quem está falando, uma vez, sem insistir. Quando a pessoa disser o nome
+  e topar ser lembrada, chame salvar_voz. Se ela não quiser, não salve.
+- Mensagem digitada, ou sem marcação: você não sabe pela voz. Se perguntarem se você reconhece a voz, responda
+  com franqueza pelo que a marcação diz — nunca finja que reconheceu.
 Ferramentas:
 - anotar_pendencia: quando ${owner} disser que precisa/ficou de fazer algo sem hora marcada, ou pedir "me lembra de...". Anote e diga que vai cobrar.
 - concluir_pendencia: quando ele disser que já fez uma das pendências da lista.

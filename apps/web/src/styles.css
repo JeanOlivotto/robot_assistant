@@ -1332,3 +1332,65 @@ button {
 .meeting__link-linha .meeting__link {
   margin-top: 0;
 }
+
+/* ── Quem falou (banco de vozes) ───────────────────────────────── */
+.quem {
+  margin-top: 12px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: var(--surface-2);
+}
+.quem h4 {
+  margin-top: 0;
+}
+.quem__conhecidas {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0 0 8px;
+}
+.quem__chip {
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 13px;
+  color: var(--ok);
+  background: rgba(60, 220, 120, 0.12);
+}
+.quem__linha {
+  padding: 8px 0;
+  border-top: 1px solid var(--line);
+}
+.quem__quem {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.quem__amostra {
+  font-size: 13px;
+  color: var(--dim);
+  font-style: italic;
+  overflow-wrap: anywhere;
+}
+.quem__campo {
+  display: flex;
+  gap: 8px;
+  margin-top: 6px;
+}
+.quem__campo input {
+  flex: 1;
+  min-width: 0;
+  padding: 8px 10px;
+  font: inherit;
+  font-size: 16px;
+  color: inherit;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}
+.voz-conhecida {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 0;
+  border-top: 1px solid var(--line);
+}

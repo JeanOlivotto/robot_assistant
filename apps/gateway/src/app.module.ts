@@ -3,6 +3,8 @@ import { AlertService } from './alerts/alert.service.js';
 import { PhotoController } from './photos/photo.controller.js';
 import { PhotoService } from './photos/photo.service.js';
 import { VisionService } from './vision/vision.service.js';
+import { BancoVozesController } from './vozes/banco.controller.js';
+import { BancoVozesService } from './vozes/banco.service.js';
 import { VozesService } from './vozes/vozes.service.js';
 import { PresenceService } from './presence/presence.service.js';
 import { BracoGateway } from './braco/braco.gateway.js';
@@ -47,7 +49,7 @@ import { TtsService } from './tts/tts.service.js';
 import { WsRouter } from './ws/ws-router.service.js';
 
 @Module({
-  controllers: [DebugController, AppAuthController, VoiceController, PushController, TtsController, ClaudeUsageController, MeetingController, SpotifyController, FirmwareController, MemoryController, CalendarController, TaskController, PhotoController],
+  controllers: [DebugController, AppAuthController, VoiceController, PushController, TtsController, ClaudeUsageController, MeetingController, SpotifyController, FirmwareController, MemoryController, CalendarController, TaskController, PhotoController, BancoVozesController],
   providers: [
     { provide: APP_CONFIG, useFactory: () => loadConfig() },
     WsRouter,
@@ -77,6 +79,7 @@ import { WsRouter } from './ws/ws-router.service.js';
     PhotoService,
     VisionService,
     VozesService,
+    BancoVozesService,
     PresenceService,
     SpotifyService,
     FirmwareService,
