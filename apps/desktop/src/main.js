@@ -152,6 +152,15 @@ function criarBolha() {
   bolha.setVisibleOnAllWorkspaces(true);
   protegerNavegacao(bolha);
   bolha.loadURL(`${BASE}/?desktop=bolha`);
+  // Esconder (Super+K) tira a janela do mapa; ao voltar, o bspwm a trata como nova — com borda,
+  // sem "fixa" e sem "por cima". Então os ajustes valem a cada vez que ela aparece.
+  bolha.on('show', () => {
+    setTimeout(async () => {
+      if (!bolha) return;
+      await ajustarNoBspwm(bolha, { sticky: true, semBorda: true });
+      aplicarModo(modoBolha);
+    }, 60);
+  });
   bolha.once('ready-to-show', async () => {
     if (visivel) bolha.showInactive(); // aparece sem roubar o foco de quem está digitando
     await ajustarNoBspwm(bolha, { sticky: true, semBorda: true });
@@ -267,7 +276,7 @@ function idX11(win) {
 async function regrasBspwm() {
   // Tira as de execuções anteriores antes (senão elas se acumulam a cada vez que o app abre).
   await bspc(['rule', '-r', 'robo-desktop:*:*']);
-  await bspc(['rule', '-a', 'robo-desktop', 'state=floating', 'focus=off']);
+  await bspc(['rule', '-a', 'robo-desktop', 'state=floating', 'focus=off', 'border=off']);
 }
 
 async function ajustarNoBspwm(win, { sticky = false, semBorda = false }) {
