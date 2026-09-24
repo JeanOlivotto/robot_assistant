@@ -6,6 +6,19 @@ import { rootPath } from '../config/paths.js';
 
 const MAX_SOBRE = 15;
 
+const semAcento = (s: string) =>
+  s
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .replace(/[^a-z]/g, '');
+
+/**
+ * "Robô" é o que ele É, não um nome. Em produção ele tinha recusado ter nome antes de ganhar
+ * identidade e, coerente com o próprio histórico, "escolheu" Robo. Genérico não vale como nome.
+ */
+const GENERICOS = ['robo', 'robot', 'robozinho', 'assistente', 'bot', 'ia', 'maquina'];
+
 interface Identidade {
   /** O nome que ele mesmo escolheu (vazio: ainda usa o da configuração). */
   nome?: string;
@@ -34,12 +47,19 @@ export class IdentidadeService {
   }
 
   get nome(): string {
-    return this.eu.nome || this.cfg.ROBOT_NAME;
+    return this.escolheuNome ? this.eu.nome! : this.cfg.ROBOT_NAME;
   }
 
-  /** Já escolheu um nome próprio? */
+  /** Já escolheu um nome próprio (e não um genérico como "Robô")? */
   get escolheuNome(): boolean {
-    return !!this.eu.nome;
+    return !!this.eu.nome && !this.generico(this.eu.nome);
+  }
+
+  /** "Robô", "assistente", o nome do dono…: não é nome próprio. */
+  generico(nome: string): boolean {
+    const n = semAcento(nome);
+    const dono = semAcento(this.cfg.OWNER_NAME || '');
+    return !n || GENERICOS.some((g) => n === g || n.startsWith(g) || n.endsWith(g)) || (!!dono && n.includes(dono));
   }
 
   get sobre(): string[] {
@@ -49,6 +69,7 @@ export class IdentidadeService {
   definirNome(nome: string): string {
     const limpo = nome.trim().replace(/\s+/g, ' ').slice(0, 30);
     if (!limpo) throw new Error('nome vazio');
+    if (this.generico(limpo)) throw new Error(`"${limpo}" não é nome, é o que você é`);
     const antes = this.nome;
     this.eu.nome = limpo;
     this.save();

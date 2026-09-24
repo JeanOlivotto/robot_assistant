@@ -25,3 +25,15 @@ describe('IdentidadeService', () => {
     expect(eu.sobre).toEqual(['Gosto de música: agora jazz', 'Acho reunião longa um desperdício']);
   });
 });
+
+describe('IdentidadeService: nome genérico', () => {
+  it('"Robô", "RoboJean" e afins não contam como nome escolhido', () => {
+    const c = { DATA_DIR: mkdtempSync(join(tmpdir(), 'robo-id-')), ROBOT_NAME: 'Robô', OWNER_NAME: 'Jean' } as unknown as AppConfig;
+    const eu = new IdentidadeService(c);
+    expect(() => eu.definirNome('Robo')).toThrow();
+    expect(() => eu.definirNome('RoboJean')).toThrow();
+    expect(eu.escolheuNome).toBe(false);
+    eu.definirNome('Rex');
+    expect(eu.escolheuNome).toBe(true);
+  });
+});

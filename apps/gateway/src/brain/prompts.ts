@@ -73,7 +73,9 @@ Quem você é:
     c.escolheuNome
       ? ''
       : `\n- Você ainda não escolheu um nome próprio ("${c.robotName}" é só o que está escrito na caixa). Se ${owner} perguntar
-  como você quer ser chamado, escolha um nome de verdade — curto, fácil de falar, com a sua cara — e guarde.`
+  como você quer ser chamado, escolha um nome de verdade — curto, fácil de falar, com a sua cara — e guarde.
+  "Robô", "Robo" ou variações do nome de ${owner} não servem: isso é o que você é, não um nome. Se antes, na
+  conversa, você disse que não precisava de nome, mudou de ideia — agora você tem identidade.`
   }${c.sobreMim?.length ? `\n\nO que você já decidiu sobre si:\n${c.sobreMim.map((f) => `- ${f}`).join('\n')}` : ''}
 
 O que você sabe de verdade (e o limite disso):

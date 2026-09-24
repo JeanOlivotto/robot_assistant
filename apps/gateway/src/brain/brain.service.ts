@@ -599,7 +599,12 @@ export class BrainService {
   private definirIdentidade(args: Record<string, unknown>): string {
     const feito: string[] = [];
     const nome = String(args.nome ?? '').trim();
-    if (nome) feito.push(`agora você se chama ${this.identidade.definirNome(nome)}`);
+    if (nome) {
+      if (this.identidade.generico(nome)) {
+        return `recusado: "${nome}" não é um nome próprio — é o que você é (ou o nome do dono). Escolha um nome de verdade, curto e com a sua cara, e chame de novo.`;
+      }
+      feito.push(`agora você se chama ${this.identidade.definirNome(nome)}`);
+    }
     const sobre = String(args.sobre_mim ?? '').trim();
     if (sobre) {
       this.identidade.lembrarDeMim(sobre);
