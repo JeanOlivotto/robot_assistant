@@ -143,6 +143,16 @@ export class ChatService implements OnModuleInit, OnModuleDestroy {
     return msg;
   }
 
+  /**
+   * O dono abriu o app e viu a conversa: ler já é resposta suficiente para o robô parar de fazer
+   * cara de "esperando você". Só a proposta em aberto continua esperando — ela precisa do botão.
+   */
+  seen(): void {
+    if (!this.state.waitingSince) return;
+    if (this.store.pendingProposals().length) return;
+    this.setState({ waitingSince: 0 });
+  }
+
   /** Zera a conversa e o que a telinha do robô está mostrando. */
   clearHistory(): number {
     const had = this.store.clear();

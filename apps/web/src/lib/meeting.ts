@@ -68,6 +68,7 @@ export async function agendar(token: string, title: string, start: Date, minutes
 /**
  * De onde vem o áudio da reunião: o microfone da sala, ou o som da aba (reunião online —
  * você compartilha a aba do Meet/Zoom marcando "compartilhar áudio" e ele ouve todo mundo).
+ * Na aba entra também o microfone de quem grava: o Meet não devolve a sua própria voz para a aba.
  */
 export type FonteAudio = 'mic' | 'aba';
 
@@ -78,9 +79,11 @@ export class MeetingRecorder {
   }
 
   private stream: MediaStream | null = null;
-  private source: MediaStreamAudioSourceNode | null = null;
+  private sources: MediaStreamAudioSourceNode[] = [];
   /** Stream da aba (quando a fonte é 'aba'): é nosso, não vem do microfone compartilhado. */
   private tela: MediaStream | null = null;
+  /** Pegou o microfone emprestado (mic.ts) e tem que devolver no fim. */
+  private usouMic = false;
   private rec: MediaRecorder | null = null;
   private timer: ReturnType<typeof setTimeout> | null = null;
   private stopped = false;
@@ -90,7 +93,14 @@ export class MeetingRecorder {
   private analyser: AnalyserNode | null = null;
   private samples = new Uint8Array(256);
 
-  constructor(private readonly onSegment: (blob: Blob) => void) {}
+  /**
+   * @param onFimDaAba quem gravava a aba clicou em "Parar de compartilhar" na barra do Chrome —
+   *   para o app encerrar a reunião em vez de seguir gravando silêncio.
+   */
+  constructor(
+    private readonly onSegment: (blob: Blob) => void,
+    private readonly onFimDaAba?: () => void,
+  ) {}
 
   static get podeGravarAba(): boolean {
     return typeof navigator !== 'undefined' && !!navigator.mediaDevices?.getDisplayMedia;
@@ -107,18 +117,41 @@ export class MeetingRecorder {
         this.tela = null;
         throw new Error('Você compartilhou a aba sem o áudio. Repita marcando "compartilhar áudio da guia".');
       }
-      this.stream = new MediaStream(audio);
-    } else {
-      // Microfone emprestado do app (mic.ts): não pede permissão de novo a cada reunião.
-      this.stream = await acquireMic();
+      audio[0]!.addEventListener('ended', () => {
+        if (!this.stopped) this.onFimDaAba?.();
+      });
     }
     try {
       this.mime = MIME_CANDIDATES.find((m) => MediaRecorder.isTypeSupported(m));
       this.ctx = await audioContext();
-      this.source = this.ctx.createMediaStreamSource(this.stream);
       this.analyser = this.ctx.createAnalyser();
       this.analyser.fftSize = 512;
-      this.source.connect(this.analyser);
+
+      if (this.tela) {
+        // Aba + microfone misturados num stream só: a chamada inteira, inclusive quem está gravando.
+        const mix = this.ctx.createMediaStreamDestination();
+        const aba = this.ctx.createMediaStreamSource(new MediaStream(this.tela.getAudioTracks()));
+        aba.connect(mix);
+        aba.connect(this.analyser);
+        this.sources.push(aba);
+        try {
+          const mic = this.ctx.createMediaStreamSource(await acquireMic());
+          this.usouMic = true;
+          mic.connect(mix);
+          mic.connect(this.analyser);
+          this.sources.push(mic);
+        } catch {
+          /* sem permissão de microfone: grava só a chamada, que já é o principal */
+        }
+        this.stream = mix.stream;
+      } else {
+        // Microfone emprestado do app (mic.ts): não pede permissão de novo a cada reunião.
+        this.stream = await acquireMic();
+        this.usouMic = true;
+        const mic = this.ctx.createMediaStreamSource(this.stream);
+        mic.connect(this.analyser);
+        this.sources.push(mic);
+      }
     } catch (err) {
       this.release();
       throw err;
@@ -162,21 +195,21 @@ export class MeetingRecorder {
   }
 
   private release(): void {
-    const had = !!this.stream && !this.tela; // o mic é emprestado; o da aba é nosso e morre aqui
-    this.tela?.getTracks().forEach((t) => t.stop());
+    this.tela?.getTracks().forEach((t) => t.stop()); // o da aba é nosso e morre aqui
     this.tela = null;
     try {
-      this.source?.disconnect();
+      this.sources.forEach((n) => n.disconnect());
       this.analyser?.disconnect();
     } catch {
       /* já estava solto */
     }
     this.stream = null;
-    this.source = null;
+    this.sources = [];
     this.rec = null;
     this.ctx = null; // o AudioContext é do app inteiro: não se fecha aqui
     this.analyser = null;
-    if (had) releaseMic();
+    if (this.usouMic) releaseMic(); // o mic é emprestado: devolve
+    this.usouMic = false;
     this.doneResolve?.();
     this.doneResolve = null;
   }

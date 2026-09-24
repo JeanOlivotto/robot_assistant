@@ -282,11 +282,15 @@ export function MeetingView({
       const m = await startMeeting(token, titulo);
       meetingId.current = m.id;
       startedAt.current = Date.now();
-      const rec = new MeetingRecorder((blob) => {
-        queue.current.push(blob);
-        setPending(queue.current.length);
-        void pump();
-      });
+      const rec = new MeetingRecorder(
+        (blob) => {
+          queue.current.push(blob);
+          setPending(queue.current.length);
+          void pump();
+        },
+        // Parou de compartilhar a aba = a chamada acabou: fecha e gera a ata sozinho.
+        () => void finishRef.current(),
+      );
       await rec.start(fonte);
       recorder.current = rec;
       setPhase('recording');
@@ -296,6 +300,7 @@ export function MeetingView({
   };
 
   const finish = async () => {
+    if (!recorder.current) return; // já encerrando (clicou e a aba também fechou)
     setPhase('finalizing');
     await recorder.current?.stop(); // resolve só depois de entregar o último trecho
     recorder.current = null;
@@ -315,6 +320,9 @@ export function MeetingView({
       setPhase('idle');
     }
   };
+
+  const finishRef = useRef(finish);
+  finishRef.current = finish;
 
   const cancel = () => {
     recorder.current?.stop();
@@ -390,7 +398,7 @@ export function MeetingView({
             {guest && fonte === 'mic'
               ? 'Este navegador não captura o áudio da aba: ele vai gravar pelo microfone. Para pegar todo mundo da chamada, abra este link no Chrome do computador.'
               : fonte === 'aba'
-                ? 'Ao iniciar, escolha a aba do Meet/Zoom e marque "compartilhar áudio da guia" — ele ouve todo mundo da chamada.'
+                ? 'Ao iniciar, escolha a aba do Meet/Zoom e marque "compartilhar áudio da guia" — ele ouve a chamada e o seu microfone. Ao parar de compartilhar, a ata sai sozinha.'
                 : 'Deixe o celular perto de quem fala. A ata sai quando você encerrar.'}
           </p>
           {!guest && (

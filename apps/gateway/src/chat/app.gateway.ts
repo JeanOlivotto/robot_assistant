@@ -45,6 +45,10 @@ export class AppGateway implements OnModuleInit, OnModuleDestroy {
       this.chat.messages$.subscribe((message) => this.broadcast({ t: 'message', ts: Date.now(), message })),
       this.robot.view$.subscribe((robot) => this.broadcast({ t: 'robot', ts: Date.now(), robot })),
       this.calendar.appAgenda$.subscribe((items) => this.broadcast({ t: 'agenda', ts: Date.now(), items })),
+      // Mensagem nova com o app aberto na tela: ele já viu, o robô não fica cobrando resposta.
+      this.chat.state$.subscribe((s) => {
+        if (s.waitingSince && this.anyVisibleOpen) queueMicrotask(() => this.chat.seen());
+      }),
     );
 
     // Celular que dormiu com o app aberto deixa conexão pendurada: ping/pong derruba.
@@ -58,6 +62,12 @@ export class AppGateway implements OnModuleInit, OnModuleDestroy {
         ws.ping();
       }
     }, HEARTBEAT_MS);
+  }
+
+  /** Algum app conectado E na tela agora (sem conexão nenhuma, ninguém viu nada). */
+  private get anyVisibleOpen(): boolean {
+    for (const ws of this.wss.clients) if (ws.readyState === WebSocket.OPEN && (this.visible.get(ws) ?? false)) return true;
+    return false;
   }
 
   /** Alguém está com o app aberto e olhando? Se não, a resposta vira notificação. */
@@ -103,7 +113,10 @@ export class AppGateway implements OnModuleInit, OnModuleDestroy {
       const msg = parsed.data;
       if (msg.t === 'say') void this.chat.say(msg.text);
       else if (msg.t === 'confirm') void this.chat.confirm(msg.proposal_id, msg.ok);
-      else if (msg.t === 'presence') this.visible.set(ws, msg.visible);
+      else if (msg.t === 'presence') {
+        this.visible.set(ws, msg.visible);
+        if (msg.visible) this.chat.seen();
+      }
       else this.send(ws, { t: 'pong', ts: Date.now() });
     });
 
