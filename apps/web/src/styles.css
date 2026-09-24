@@ -777,83 +777,248 @@ button {
   line-height: 1.5;
 }
 
-/* ── Conversa por voz (overlay) ───────────────────────────────────────── */
-.convo {
+/* ── Ligação com o robô (overlay) ─────────────────────────────────────
+   Como os agentes de voz de hoje: a conversa corre como chat e o círculo embaixo mostra o estado. */
+.call {
   position: fixed;
   inset: 0;
   z-index: 50;
-  background: radial-gradient(120% 80% at 50% 20%, #16202e 0%, var(--bg) 70%);
   display: flex;
   flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 22px;
-  padding: 24px 16px calc(24px + env(safe-area-inset-bottom));
+  background: radial-gradient(120% 70% at 50% 100%, #10202a 0%, var(--bg) 65%);
 }
-.convo__close {
-  position: absolute;
-  top: calc(12px + env(safe-area-inset-top));
-  right: 16px;
-  width: 40px;
-  height: 40px;
+.call__top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: calc(env(safe-area-inset-top) + 10px) 16px 10px;
+  border-bottom: 1px solid var(--line);
+}
+.call__who {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.25;
+}
+.call__who span {
+  font-size: 13px;
+  color: var(--dim);
+  font-variant-numeric: tabular-nums;
+}
+.call__x {
+  width: 38px;
+  height: 38px;
   border-radius: 50%;
   border: 1px solid var(--line);
   background: var(--surface);
   color: var(--text);
-  font-size: 18px;
+  font-size: 16px;
   cursor: pointer;
 }
-.convo__stage {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 16px;
-}
-.orb {
-  width: 130px;
-  height: 130px;
-  border-radius: 50%;
-  background: radial-gradient(circle at 35% 30%, #7ff0fb, var(--accent) 55%, #2aa7b4);
-  box-shadow: 0 0 46px rgba(90, 230, 240, 0.35);
-  transition: transform 0.08s linear;
-}
-.orb--listen {
-  background: radial-gradient(circle at 35% 30%, #b6ffd2, var(--ok) 55%, #1f9e5a);
-  box-shadow: 0 0 46px rgba(60, 220, 120, 0.4);
-}
-.orb--think {
-  animation: pulse 1s ease-in-out infinite;
-}
-.orb--speak {
-  animation: pulse 1.6s ease-in-out infinite;
-}
-.convo__phase {
-  color: var(--dim);
-  font-size: 15px;
-  min-height: 20px;
-}
-.convo__lines {
-  width: 100%;
-  max-width: 420px;
-  text-align: center;
+.call__thread {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
   display: flex;
   flex-direction: column;
   gap: 8px;
+  padding: 14px 14px 8px;
+  -webkit-overflow-scrolling: touch;
 }
-.convo__you {
+.call__empty {
+  margin: auto;
   color: var(--dim);
-  font-style: italic;
 }
-.convo__reply {
-  color: var(--text);
-  font-size: 18px;
-  line-height: 1.45;
+.call__msg {
+  display: flex;
+  animation: call-in 0.25s ease-out;
 }
-.convo__controls {
+.call__msg p {
+  margin: 0;
+  max-width: 82%;
+  padding: 9px 13px;
+  border-radius: 18px;
+  line-height: 1.4;
+  font-size: 16px;
+  overflow-wrap: anywhere;
+}
+.call__msg--robot p {
+  background: var(--surface);
+  border-bottom-left-radius: 6px;
+}
+.call__msg--you {
+  justify-content: flex-end;
+}
+.call__msg--you p {
+  background: var(--accent);
+  color: var(--accent-ink);
+  border-bottom-right-radius: 6px;
+}
+@keyframes call-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: none; }
+}
+.call__typing {
+  display: flex;
+  gap: 5px;
+  padding: 13px 14px !important;
+}
+.call__typing span {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--dim);
+  animation: dot-hop 1.1s ease-in-out infinite;
+}
+.call__typing span:nth-child(2) { animation-delay: 0.15s; }
+.call__typing span:nth-child(3) { animation-delay: 0.3s; }
+
+.call__stage {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 12px;
+  /* folga para o círculo crescer com a voz e para as ondas, sem cobrir o texto */
+  gap: 30px;
+  padding: 34px 0 6px;
+}
+.call__status {
+  margin: 0;
+  min-height: 20px;
+  font-size: 14px;
+  color: var(--dim);
+}
+.call__controls {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 28px;
+  padding: 12px 16px calc(env(safe-area-inset-bottom) + 18px);
+}
+.call__btn {
+  width: 60px;
+  height: 60px;
+  border-radius: 50%;
+  border: 0;
+  display: grid;
+  place-items: center;
+  background: var(--surface-2);
+  color: var(--text);
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+.call__btn--on {
+  background: var(--text);
+  color: var(--bg);
+}
+.call__btn--falar {
+  width: auto;
+  padding: 0 22px;
+  border-radius: 30px;
+  background: var(--accent);
+  color: var(--accent-ink);
+}
+.call__btn--fim {
+  background: #e5484d;
+  color: #fff;
+}
+
+/* O círculo: 120 px, com as ondas por fora quando ele fala. */
+.orb2 {
+  position: relative;
+  width: 120px;
+  height: 120px;
+  display: grid;
+  place-items: center;
+}
+.orb2__core {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: radial-gradient(circle at 35% 30%, #8ff3fc, var(--accent) 55%, #238f9b);
+  box-shadow: 0 0 40px rgba(90, 230, 240, 0.35);
+  transition: transform 0.09s linear, background 0.4s, box-shadow 0.4s;
+}
+.orb2--listening .orb2__core {
+  background: radial-gradient(circle at 35% 30%, #c2ffdb, var(--ok) 55%, #1b8d50);
+  box-shadow: 0 0 40px rgba(60, 220, 120, 0.35);
+}
+.orb2--thinking .orb2__core {
+  animation: orb-breathe 1.4s ease-in-out infinite;
+}
+.orb2--paused .orb2__core,
+.orb2--error .orb2__core {
+  background: radial-gradient(circle at 35% 30%, #3a4557, #252d3b 60%, #1a202b);
+  box-shadow: none;
+}
+.orb2__dots {
+  display: flex;
+  gap: 8px;
+}
+.orb2__dots i {
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  background: rgba(3, 42, 46, 0.85);
+}
+.orb2--thinking .orb2__dots i,
+.orb2--connecting .orb2__dots i {
+  animation: dot-hop 1s ease-in-out infinite;
+}
+.orb2--speaking .orb2__dots i {
+  animation: dot-talk 0.62s ease-in-out infinite;
+}
+.orb2__dots i:nth-child(2) { animation-delay: 0.14s !important; }
+.orb2__dots i:nth-child(3) { animation-delay: 0.28s !important; }
+.orb2__bars {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  height: 44px;
+}
+.orb2__bars i {
+  width: 7px;
+  height: 100%;
+  border-radius: 4px;
+  background: rgba(3, 42, 46, 0.8);
+  transition: transform 0.08s linear;
+}
+.orb2__wave {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  border: 2px solid rgba(90, 230, 240, 0.55);
+  animation: orb-wave 1.8s ease-out infinite;
+}
+.orb2__wave--2 {
+  animation-delay: 0.9s;
+}
+@keyframes dot-hop {
+  0%, 60%, 100% { transform: translateY(0); opacity: 0.55; }
+  30% { transform: translateY(-7px); opacity: 1; }
+}
+@keyframes dot-talk {
+  0%, 100% { transform: scaleY(1); }
+  50% { transform: scaleY(2.1); border-radius: 6px; }
+}
+@keyframes orb-breathe {
+  0%, 100% { transform: scale(0.94); }
+  50% { transform: scale(1.03); }
+}
+@keyframes orb-wave {
+  from { transform: scale(1); opacity: 0.9; }
+  to { transform: scale(1.7); opacity: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .orb2__wave,
+  .orb2__dots i,
+  .orb2__core,
+  .call__typing span {
+    animation: none !important;
+  }
 }
 
 /* Escolha da fonte de áudio da reunião: sala ou aba do navegador. */

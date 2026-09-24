@@ -13,10 +13,17 @@ const PRE_ROLL_MS = 900; // quanto do passado entra junto quando o turno abre
 const BARGE_PRE_ROLL_MS = 350; // ao cortar o robô, pega pouco de trás (o resto é eco dele)
 const SILENCE_MS = 700; // silêncio que encerra a sua fala
 const MIN_SPEECH_MS = 280; // menos que isso é tosse, estalo, porta batendo
-const NO_SPEECH_MS = 8000; // ninguém falou: desiste desta rodada
+const NO_SPEECH_MS = 8000; // ninguém falou nesta rodada: volta vazio (quem chama decide se segue ouvindo)
 const MAX_MS = 30_000; // trava de segurança
-const BARGE_MS = 260; // voz por cima da fala do robô por este tempo = você o interrompeu
-const BARGE_GRACE_MS = 350; // ignora o comecinho da fala dele (o alto-falante volta pelo microfone)
+/*
+ * Interrupção. No iPhone o cancelamento de eco nem sempre vale para o som do <audio>: a voz do
+ * próprio robô volta pelo microfone e parecia que você tinha falado por cima — ele se cortava no
+ * meio da frase. Agora ele aprende o nível desse eco enquanto fala e só conta como interrupção
+ * uma voz bem acima dele, sustentada por mais tempo.
+ */
+const BARGE_MS = 450; // voz por cima da fala do robô por este tempo = você o interrompeu
+const BARGE_GRACE_MS = 500; // o comecinho da fala dele só serve para medir o eco
+const BARGE_OVER_ECHO = 3.2; // quantas vezes acima do eco precisa ser
 
 export type ListenState = 'waiting' | 'speaking';
 
@@ -101,6 +108,7 @@ export class VoiceSession {
   private cancelWatch: (() => void) | null = null;
   private cancelTurn: (() => void) | null = null;
   private bargeArmedAt = 0;
+  private muted = false;
 
   /** Pede o microfone e liga a captura. Uma vez por chamada. */
   async open(): Promise<void> {
@@ -180,6 +188,7 @@ export class VoiceSession {
     this.bargeArmedAt = 0; // só vale a partir de armBargeIn(), quando o som sai de verdade
     return new Promise<boolean>((resolve) => {
       let loudMs = 0;
+      let echo = 0; // quanto da voz dele volta pelo microfone (aprendido enquanto ele fala)
       const stop = (v: boolean) => {
         if (this.frame) this.frame = null;
         this.cancelWatch = null;
@@ -188,13 +197,26 @@ export class VoiceSession {
       this.cancelWatch = () => stop(false);
       this.frame = (rms, ms) => {
         if (this.closed || this.aborted) return stop(false);
-        if (!this.bargeArmedAt || Date.now() - this.bargeArmedAt < BARGE_GRACE_MS) return;
-        if (rms >= Math.max(0.045, this.noise * 5)) {
+        if (!this.bargeArmedAt || this.muted) return;
+        if (Date.now() - this.bargeArmedAt < BARGE_GRACE_MS) {
+          echo = Math.max(echo * 0.9, rms); // o começo é só eco: guarda o pico dele
+          return;
+        }
+        const limiar = Math.max(0.06, echo * BARGE_OVER_ECHO, this.noise * 6);
+        if (rms >= limiar) {
           loudMs += ms;
           if (loudMs >= BARGE_MS) return stop(true);
-        } else loudMs = Math.max(0, loudMs - ms);
+        } else {
+          loudMs = Math.max(0, loudMs - ms);
+          echo = echo * 0.98 + rms * 0.02; // o eco muda com o volume da frase: acompanha devagar
+        }
       };
     });
+  }
+
+  /** Microfone mudo: nada do que for dito conta, nem para interromper. */
+  setMuted(on: boolean): void {
+    this.muted = on;
   }
 
   /** O alto-falante começou a tocar: a partir de agora (menos um respiro) vale te ouvir por cima. */
@@ -275,8 +297,9 @@ export class VoiceSession {
 
   private feed(raw: Float32Array): void {
     if (this.closed || !raw.length) return;
-    const pcm = this.to16k(raw);
+    let pcm = this.to16k(raw);
     if (!pcm.length) return;
+    if (this.muted) pcm = new Float32Array(pcm.length); // mudo: segue o relógio, mas em silêncio
     this.pushPre(pcm);
     if (this.turn) {
       this.turn.push(pcm);
