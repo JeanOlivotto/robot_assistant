@@ -11,6 +11,7 @@ import { ago } from './lib/format';
 import { enablePush, pushState, refreshPush, testPush, type PushState } from './lib/push';
 import { audioContext, closeMic } from './lib/mic';
 import { configureSpeech, speak, speechSupported, stopSpeaking, unlockAudio } from './lib/speech';
+import { DESKTOP } from './lib/desktop';
 import { useRobo } from './lib/useRobo';
 
 const TOKEN_KEY = 'robo.token';
@@ -120,7 +121,7 @@ function Main({ token, onLogout }: { token: string; onLogout(): void }) {
       spokenUpTo.current = Date.now();
       return;
     }
-    if (!speakOn) return;
+    if (!speakOn || DESKTOP) return; // no computador quem fala é a bolha, não o painel
     const fresh = robo.messages.filter((m) => m.from === 'robot' && m.ts > spokenUpTo.current);
     if (!fresh.length) return;
     spokenUpTo.current = Math.max(...fresh.map((m) => m.ts));
@@ -176,23 +177,25 @@ function Main({ token, onLogout }: { token: string; onLogout(): void }) {
           <strong>Robô</strong>
           <span className={`status ${robo.conn !== 'open' ? 'status--warn' : r?.waiting_since ? 'status--wait' : ''}`}>{status}</span>
         </div>
-        <button
-          type="button"
-          className={`icon-btn ${push === 'granted' ? 'icon-btn--on' : ''}`}
-          onClick={onBell}
-          aria-label={push === 'granted' ? 'Notificações ativas — mandar teste' : 'Ativar notificações'}
-          title={push === 'granted' ? 'Notificações ativas (toque para testar)' : 'Ativar notificações'}
-        >
-          <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
-            <path
-              d="M6 16V11a6 6 0 1 1 12 0v5l1.5 2h-15L6 16ZM10 20.5a2 2 0 0 0 4 0"
-              fill={push === 'granted' ? 'currentColor' : 'none'}
-              stroke="currentColor"
-              strokeWidth="1.8"
-              strokeLinejoin="round"
-            />
-          </svg>
-        </button>
+        {!DESKTOP && (
+          <button
+            type="button"
+            className={`icon-btn ${push === 'granted' ? 'icon-btn--on' : ''}`}
+            onClick={onBell}
+            aria-label={push === 'granted' ? 'Notificações ativas — mandar teste' : 'Ativar notificações'}
+            title={push === 'granted' ? 'Notificações ativas (toque para testar)' : 'Ativar notificações'}
+          >
+            <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
+              <path
+                d="M6 16V11a6 6 0 1 1 12 0v5l1.5 2h-15L6 16ZM10 20.5a2 2 0 0 0 4 0"
+                fill={push === 'granted' ? 'currentColor' : 'none'}
+                stroke="currentColor"
+                strokeWidth="1.8"
+                strokeLinejoin="round"
+              />
+            </svg>
+          </button>
+        )}
         <button
           type="button"
           className="icon-btn"
@@ -212,7 +215,7 @@ function Main({ token, onLogout }: { token: string; onLogout(): void }) {
             />
           </svg>
         </button>
-        {speechSupported && (
+        {speechSupported && !DESKTOP && (
           <button
             type="button"
             className={`icon-btn ${speakOn ? 'icon-btn--on' : ''}`}

@@ -2,5 +2,6 @@ packages:
   - apps/*
   - packages/*
 allowBuilds:
+  electron: true
   esbuild: true
   protobufjs: false

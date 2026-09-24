@@ -1,0 +1,15 @@
+{
+  "name": "@robo/desktop",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "O robô no computador: a carinha flutuante, sempre por cima, com balão e o app inteiro num painel.",
+  "main": "src/main.js",
+  "scripts": {
+    "start": "electron .",
+    "build": "node --check src/main.js && node --check src/preload.cjs"
+  },
+  "devDependencies": {
+    "electron": "44.4.5"
+  }
+}
