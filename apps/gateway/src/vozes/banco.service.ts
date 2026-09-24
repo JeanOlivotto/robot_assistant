@@ -121,6 +121,31 @@ export class BancoVozesService {
     return v;
   }
 
+  /** Já tem voz com esse nome? */
+  conhece(nome: string): boolean {
+    return this.vozes.some((v) => norm(v.nome) === norm(nome));
+  }
+
+  /** O nome foi salvo errado ("Gui" no lugar de "Jean"): corrige. Se o nome certo já existe, junta as duas. */
+  renomear(atual: string, certo: string): VozConhecida | null {
+    const v = this.vozes.find((x) => norm(x.nome) === norm(atual));
+    const limpo = certo.trim().slice(0, 40);
+    if (!v || !limpo) return null;
+    const outra = this.vozes.find((x) => x !== v && norm(x.nome) === norm(limpo));
+    if (outra) {
+      outra.amostras = [...outra.amostras, ...v.amostras].slice(-MAX_AMOSTRAS);
+      outra.atualizadaEm = Date.now();
+      this.vozes = this.vozes.filter((x) => x !== v);
+      this.save();
+      return outra;
+    }
+    v.nome = limpo;
+    v.atualizadaEm = Date.now();
+    this.save();
+    this.log.log(`Voz renomeada: ${atual} → ${limpo}`);
+    return v;
+  }
+
   /** "Esquece a minha voz" — pelo nome. */
   removerPorNome(nome: string): boolean {
     const v = this.vozes.find((x) => norm(x.nome) === norm(nome));

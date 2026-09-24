@@ -59,8 +59,12 @@ export interface Judgement {
 }
 
 const HISTORY = 16;
-/** Resposta falada é curta de propósito: menos texto = o robô começa a falar mais cedo. */
-const SPOKEN_MAX_TOKENS = 220;
+/*
+ * Teto da resposta falada. Não é o que deixa a fala curta (isso é o prompt): o gpt-oss raciocina
+ * antes de escrever e esse raciocínio conta aqui — com 220 a fala saía cortada no meio ("era pra
+ * você ter") ou vazia ("..."), e era isso que "travava" a ligação.
+ */
+const SPOKEN_MAX_TOKENS = 1200;
 /** O juízo é uma decisão curta, não um texto longo. */
 /* O gpt-oss gasta parte disso raciocinando antes de escrever: com 260 o JSON saía cortado e ele calava. */
 const JUDGE_MAX_TOKENS = 1200;
@@ -139,12 +143,27 @@ const TOOLS: ChatCompletionTool[] = [
       name: 'salvar_voz',
       description:
         'Guarda no banco de vozes a voz da última mensagem falada que você NÃO reconheceu (ou reconheceu sem certeza), ' +
-        'com o nome da pessoa. Use assim que ela se apresentar ("sou a Francisca", "aqui é o Fábio") — não precisa ' +
-        'pedir licença. Só use o nome que a PRÓPRIA pessoa disse sobre si, nunca um nome de quem ela só citou.',
+        'com o nome da pessoa. Use quando ela se apresentar com todas as letras ("sou a Francisca", "meu nome é Fábio") ' +
+        'ou quando confirmar que é o dono depois de você perguntar. Palavra solta que parece nome não é apresentação.',
       parameters: {
         type: 'object',
         properties: { nome: { type: 'string', description: 'o nome da pessoa, como ela disse' } },
         required: ['nome'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'renomear_voz',
+      description: 'Corrige o nome de uma voz que ficou salva errado ("meu nome não é Gui, é Jean").',
+      parameters: {
+        type: 'object',
+        properties: {
+          nome_atual: { type: 'string', description: 'o nome errado, como está salvo' },
+          nome_certo: { type: 'string', description: 'o nome certo' },
+        },
+        required: ['nome_atual', 'nome_certo'],
       },
     },
   },
@@ -253,7 +272,7 @@ export class BrainService {
       }
       messages.push({ role: 'assistant', content: msg.content ?? '', tool_calls: calls });
       for (const call of calls) {
-        const out = await this.runTool(call.function.name, call.function.arguments, now, history.at(-1)?.voz);
+        const out = await this.runTool(call.function.name, call.function.arguments, now, history.at(-1)?.voz, history);
         this.log.log(`ferramenta ${call.function.name}(${call.function.arguments}) → ${out.result.split('\n')[0]}`);
         if (out.proposal) proposal = out.proposal;
         messages.push({ role: 'tool', tool_call_id: call.id, content: out.result });
@@ -425,6 +444,7 @@ export class BrainService {
       acoesDaMaquina: this.braco.acoes(),
       pendencias: this.tasks.open().map((t) => (t.pessoa ? `${t.texto} (com ${t.pessoa})` : t.texto)),
       vozesConhecidas: this.banco.listar().map((v) => v.nome),
+      conheceDono: !!this.cfg.OWNER_NAME && this.banco.conhece(this.cfg.OWNER_NAME),
     };
   }
 
@@ -463,6 +483,7 @@ export class BrainService {
     rawArgs: string,
     now: Date,
     voz?: ChatMessage['voz'],
+    history: ChatMessage[] = [],
   ): Promise<{ result: string; proposal?: ProposalDraft }> {
     let args: Record<string, unknown>;
     try {
@@ -475,7 +496,8 @@ export class BrainService {
       if (name === 'propor_evento') return await this.proporEvento(args, now);
       if (name === 'anotar_pendencia') return { result: this.anotarPendencia(args) };
       if (name === 'concluir_pendencia') return { result: this.concluirPendencia(args) };
-      if (name === 'salvar_voz') return { result: this.salvarVoz(args) };
+      if (name === 'salvar_voz') return { result: this.salvarVoz(args, history) };
+      if (name === 'renomear_voz') return { result: this.renomearVoz(args, voz) };
       if (name === 'esquecer_voz') return { result: this.esquecerVoz(args, voz) };
       // A máquina é do dono: outra pessoa reconhecida pela voz não mexe nela, peça o que pedir.
       if ((name === 'usar_computador' || name === 'propor_comando') && this.vozDeOutro(voz)) {
@@ -502,9 +524,21 @@ export class BrainService {
     return `resolvida: ${t.texto}`;
   }
 
-  private salvarVoz(args: Record<string, unknown>): string {
+  /**
+   * A transcrição de uma fala curta às vezes inventa: "opa, pode falar" virou "Gui, pahala" e o
+   * dono foi salvo como Gui. Por isso o nome precisa ter vindo de uma apresentação de verdade na
+   * última fala — ou ser o do dono, depois de você perguntar se era ele.
+   */
+  private salvarVoz(args: Record<string, unknown>, history: ChatMessage[]): string {
     const nome = String(args.nome ?? '').trim();
     if (!nome) return 'erro: falta o nome';
+    const fala = [...history].reverse().find((m) => m.from === 'user')?.text ?? '';
+    const pergunta = [...history].reverse().find((m) => m.from === 'robot')?.text ?? '';
+    const dono = this.cfg.OWNER_NAME || '';
+    const ehDono = !!dono && semAcento(nome) === semAcento(dono) && (contem(pergunta, dono) || contem(fala, dono));
+    if (!ehDono && !apresentou(fala, nome)) {
+      return `recusado: "${nome}" não veio de uma apresentação clara ("sou…", "meu nome é…"). A transcrição pode ter errado — pergunte o nome de novo.`;
+    }
     const v = this.banco.salvarPendente(nome);
     return v
       ? `voz salva como ${v.nome} (${v.amostras.length} amostra(s)). Da próxima vez você reconhece.`
@@ -519,6 +553,17 @@ export class BrainService {
     const podePedir = !voz || !this.vozDeOutro(voz) || quemPede === nome.toLowerCase();
     if (!podePedir) return `recusado: só ${nome} ou ${this.cfg.OWNER_NAME || 'o dono'} podem apagar essa voz`;
     return this.banco.removerPorNome(nome) ? `voz de ${nome} apagada — você não reconhece mais` : `não tem voz de ${nome} no banco`;
+  }
+
+  private renomearVoz(args: Record<string, unknown>, voz?: ChatMessage['voz']): string {
+    const atual = String(args.nome_atual ?? '').trim();
+    const certo = String(args.nome_certo ?? '').trim();
+    if (!atual || !certo) return 'erro: falta o nome atual ou o certo';
+    // Quem corrige: o dono (digitando no app dele, ou pela voz) ou a própria pessoa da voz.
+    const quem = voz?.certeza === 'alta' ? semAcento(voz.nome ?? '') : null;
+    if (voz && this.vozDeOutro(voz) && quem !== semAcento(atual)) return `recusado: só ${atual} ou ${this.cfg.OWNER_NAME || 'o dono'} corrigem esse nome`;
+    const v = this.banco.renomear(atual, certo);
+    return v ? `pronto: a voz que estava como ${atual} agora é ${v.nome}` : `não tem voz salva como ${atual}`;
   }
 
   /** Voz reconhecida com certeza, e não é a do dono. */
@@ -704,4 +749,25 @@ function parseJudgement(raw: string): RawJudgement | null {
   } catch {
     return null;
   }
+}
+
+const semAcento = (s: string) =>
+  s
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '')
+    .trim();
+
+const contem = (texto: string, nome: string) => new RegExp(`\\b${escape(semAcento(nome))}\\b`).test(semAcento(texto));
+
+function escape(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/** A pessoa se apresentou com esse nome na fala ("sou a Francisca", "meu nome é Fábio", "aqui é o Jean"). */
+export function apresentou(fala: string, nome: string): boolean {
+  const n = escape(semAcento(nome));
+  return new RegExp(
+    `\\b(sou|me chamo|meu nome e|meu nome eh|aqui e|aqui eh|quem fala e|e o|e a|fala o|fala a|eu sou)\\s+(o |a )?${n}\\b`,
+  ).test(semAcento(fala));
 }

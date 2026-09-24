@@ -31,6 +31,12 @@ const Schema = z.object({
   LLM_BASE_URL: z.string().default('https://api.groq.com/openai/v1'),
   LLM_API_KEY: z.string().default(''),
   LLM_MODEL: z.string().default('openai/gpt-oss-120b'),
+  /*
+   * Mais modelos no MESMO provedor do principal, antes da reserva. O Groq grátis limita tokens por
+   * minuto POR MODELO (8 mil no gpt-oss-120b): numa ligação, 3 falas seguidas estouravam e a
+   * reserva da NVIDIA demorava 30 s até desistir — "minha cabeça travou". Os daqui respondem em <1 s.
+   */
+  LLM_EXTRA_MODELS: z.string().default('openai/gpt-oss-20b,qwen/qwen3.8-27b'),
   /* Reserva quando o principal falha. Sem LLM_FALLBACK_API_KEY, usa o mesmo provedor do principal. */
   LLM_FALLBACK_BASE_URL: z.string().default('https://integrate.api.nvidia.com/v1'),
   LLM_FALLBACK_API_KEY: z.string().default(''),

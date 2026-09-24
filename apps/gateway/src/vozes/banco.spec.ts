@@ -76,3 +76,17 @@ describe('BancoVozesService: esquecer', () => {
     expect(b.removerPorNome('Fábio')).toBe(false);
   });
 });
+
+describe('BancoVozesService: renomear', () => {
+  it('corrige o nome salvo errado, e junta se o certo já existir', () => {
+    const b = new BancoVozesService(cfg());
+    b.cadastrar('Gui', JEAN);
+    expect(b.renomear('gui', 'Jean')?.nome).toBe('Jean');
+    expect(b.identificar(JEAN)?.nome).toBe('Jean');
+
+    b.cadastrar('Jeann', JEAN_OUTRO_DIA);
+    expect(b.renomear('Jeann', 'Jean')?.amostras).toHaveLength(2);
+    expect(b.listar()).toEqual([expect.objectContaining({ nome: 'Jean', amostras: 2 })]);
+    expect(b.renomear('Ninguém', 'X')).toBeNull();
+  });
+});
