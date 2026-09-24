@@ -63,6 +63,13 @@ export class DebugController {
     return this.presence.history(horas).map((m) => ({ ...m, at: new Date(m.at).toISOString() }));
   }
 
+  /** As leituras cruas do Bluetooth (~15 min): cada aparelho, com endereço, sinal e tipo. */
+  @Get('debug/presence/raw')
+  @UseGuards(TokenGuard)
+  presenceRaw() {
+    return this.presence.recent().map((r) => ({ ...r, at: new Date(r.at).toISOString() }));
+  }
+
   @Post('debug/alert')
   @UseGuards(TokenGuard)
   testAlert(@Body() body: unknown) {

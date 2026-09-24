@@ -45,6 +45,8 @@ export class PresenceService {
   private readonly file: string;
   private minutes: PresenceMinute[] = [];
   private strongAt = 0;
+  /** As últimas leituras cruas (10 s cada), para enxergar aparelho por aparelho. */
+  private raw: { at: number; dev: BleMsg['dev'] }[] = [];
   private present = false;
 
   constructor(@Inject(APP_CONFIG) cfg: AppConfig) {
@@ -54,6 +56,8 @@ export class PresenceService {
 
   record(msg: BleMsg): void {
     const now = Date.now();
+    this.raw.push({ at: now, dev: msg.dev });
+    if (this.raw.length > 90) this.raw.shift(); // 15 min
     const at = now - (now % 60_000);
     const best = msg.dev.length ? Math.max(...msg.dev.map((d) => d.r)) : null;
     const nearbyList = msg.dev.filter((d) => d.k === NEARBY_INFO).map((d) => d.r);
@@ -78,6 +82,11 @@ export class PresenceService {
       this.log.log(present ? `BLE: dono chegou (iPhone a ${nearby} dBm)` : 'BLE: dono saiu (5 min sem o iPhone por perto)');
       this.present = present;
     }
+  }
+
+  /** Leituras cruas dos últimos ~15 min, mais antigas primeiro. */
+  recent(): { at: number; dev: BleMsg['dev'] }[] {
+    return this.raw;
   }
 
   /** O dono está na mesa agora (pela janela de 5 min). */
