@@ -36,6 +36,8 @@ let bolha = null;
  * monitor em foco, e por um instante o Electron acha que ela está onde pediu, não onde foi parar.
  */
 let canto = null;
+/** Quando o próprio app posicionou a bolha por último (para não confundir com você arrastando). */
+let posicionadoEm = 0;
 let painel = null;
 let bandeja = null;
 let modoBolha = 'carinha';
@@ -90,6 +92,7 @@ function aplicarModo(modo) {
   const area = screen.getDisplayNearestPoint(canto).workArea;
   const x = Math.max(area.x, canto.x - t.w);
   const y = Math.max(area.y, canto.y - t.h);
+  posicionadoEm = Date.now();
   bolha.setBounds({ x, y, width: t.w, height: t.h });
   modoBolha = modo;
 }
@@ -123,8 +126,13 @@ function criarBolha() {
     if (visivel) bolha.showInactive(); // aparece sem roubar o foco de quem está digitando
     await ajustarNoBspwm(bolha, { sticky: true, semBorda: true });
     aplicarModo(modoBolha); // o bspwm pode ter levado a janela para outro monitor: volta para o lugar
-    // Moveu com Super+arrastar (o jeito do bspwm): a carinha passa a morar lá.
+    // Moveu com Super+arrastar (o jeito do bspwm): a carinha passa a morar lá. Movimento logo
+    // depois de o app posicionar é o bspwm levando a janela para o monitor em foco: desfaz.
     bolha.on('moved', () => {
+      if (Date.now() - posicionadoEm < 2000) {
+        setTimeout(() => aplicarModo(modoBolha), 50);
+        return;
+      }
       const b = bolha.getBounds();
       canto = { x: b.x + b.width, y: b.y + b.height };
       salvarEstado({ canto });
@@ -224,6 +232,8 @@ function idX11(win) {
  * bspwmrc) faz as dele nascerem flutuantes; o resto é ajustado na própria janela.
  */
 async function regrasBspwm() {
+  // Tira as de execuções anteriores antes (senão elas se acumulam a cada vez que o app abre).
+  await bspc(['rule', '-r', 'robo-desktop:*:*']);
   await bspc(['rule', '-a', 'robo-desktop', 'state=floating', 'focus=off']);
 }
 
