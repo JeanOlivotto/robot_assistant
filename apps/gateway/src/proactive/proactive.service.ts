@@ -133,7 +133,6 @@ export class ProactiveService implements OnModuleInit, OnModuleDestroy {
     if (hour < AWAKE_WINDOW.from || hour >= AWAKE_WINDOW.to) return; // de madrugada, nem pergunta
     if (this.mem.spokenCount >= SPEAK_PER_DAY) return;
     if (now - this.mem.lastSpokenAt < SPEAK_GAP_MS) return;
-    if (this.chat.state.waitingSince !== 0) return; // já perguntou algo e está esperando resposta
     if (now - this.mem.lastJudgeAt < JUDGE_GAP_MS) return;
 
     this.mem.lastJudgeAt = now;
@@ -148,6 +147,8 @@ export class ProactiveService implements OnModuleInit, OnModuleDestroy {
         lastSpontaneous: this.mem.lastSpokenText,
         spokenToday: this.mem.spokenCount,
         talkedToday: lastUser > 0 && this.sameDay(lastUser, now),
+        // Não espera resposta para voltar a falar: só avisa o juízo, para ele não insistir no mesmo assunto.
+        unanswered: this.chat.state.waitingSince !== 0,
         pending: pendentes.map((t) => ({
           texto: t.texto,
           pessoa: t.pessoa,

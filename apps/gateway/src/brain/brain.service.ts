@@ -9,6 +9,7 @@ import { CalendarService } from '../calendar/calendar.service.js';
 import { APP_CONFIG, type AppConfig } from '../config/app-config.js';
 import { LlmService } from '../llm/llm.service.js';
 import { MemoryService } from '../memory/memory.service.js';
+import { TaskService } from '../tasks/task.service.js';
 import { describeAgenda, splitEmotion, systemPrompt } from './prompts.js';
 import { DIAS, resolveDay, resolveWhen } from './resolve-date.js';
 
@@ -42,6 +43,8 @@ export interface JudgeContext {
   talkedToday: boolean;
   /** O que ficou de ser feito e ainda não foi — o que ele pode cobrar. */
   pending: { texto: string; pessoa?: string; diasAberta: number }[];
+  /** A última fala espontânea dele ainda está sem resposta. */
+  unanswered: boolean;
 }
 
 export interface Judgement {
@@ -58,7 +61,8 @@ const HISTORY = 16;
 /** Resposta falada é curta de propósito: menos texto = o robô começa a falar mais cedo. */
 const SPOKEN_MAX_TOKENS = 220;
 /** O juízo é uma decisão curta, não um texto longo. */
-const JUDGE_MAX_TOKENS = 260;
+/* O gpt-oss gasta parte disso raciocinando antes de escrever: com 260 o JSON saía cortado e ele calava. */
+const JUDGE_MAX_TOKENS = 1200;
 const MAX_STEPS = 4;
 const DAY_MS = 24 * 3600_000;
 
@@ -96,6 +100,35 @@ const TOOLS: ChatCompletionTool[] = [
           duracao_min: { type: 'integer', description: 'duração em minutos; padrão 60' },
         },
         required: ['titulo', 'dia', 'hora'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'anotar_pendencia',
+      description:
+        'Anota algo que o dono ficou de fazer e não tem hora marcada ("me lembra de mandar mensagem pro Fábio", ' +
+        '"preciso responder a proposta"). Você mesmo cobra depois, por conta própria. Com dia e hora, é agenda: use propor_evento.',
+      parameters: {
+        type: 'object',
+        properties: {
+          texto: { type: 'string', description: 'o que fazer, curto, do ponto de vista dele' },
+          pessoa: { type: 'string', description: 'com quem é, se houver' },
+        },
+        required: ['texto'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'concluir_pendencia',
+      description: 'Marca como resolvida uma das pendências abertas (o número da lista no seu contexto), quando ele disser que fez.',
+      parameters: {
+        type: 'object',
+        properties: { numero: { type: 'integer', description: 'o número da pendência na lista' } },
+        required: ['numero'],
       },
     },
   },
@@ -155,6 +188,7 @@ export class BrainService {
     private readonly calendar: CalendarService,
     private readonly memory: MemoryService,
     private readonly braco: BracoService,
+    private readonly tasks: TaskService,
   ) {
     this.dayFmt = new Intl.DateTimeFormat('pt-BR', {
       weekday: 'long',
@@ -229,11 +263,17 @@ export class BrainService {
     const agenda = await this.todayAgenda(now);
     const vezes = ctx.spokenToday === 0 ? 'nenhuma vez' : ctx.spokenToday === 1 ? 'uma vez' : `${ctx.spokenToday} vezes`;
 
+    const hora = Number(new Intl.DateTimeFormat('en-US', { hour: 'numeric', hourCycle: 'h23', timeZone: this.cfg.TZ_NAME }).format(now));
+    const periodo = hora < 12 ? 'manhã' : hora < 18 ? 'tarde' : 'noite';
+    const assunto = this.memory.stale(this.cfg.MEMORY_RECALL_DAYS);
+
     const situacao = [
+      `- agora é ${periodo} (${this.timeFmt.format(now)})`,
       `- ${ctx.talkedToday ? 'vocês já se falaram hoje' : 'vocês ainda não se falaram hoje'}`,
-      `- faz ${ctx.idleHours < 1 ? 'menos de uma hora' : `umas ${Math.round(ctx.idleHours)} horas`} que ${owner} não diz nada`,
+      `- faz ${ctx.idleHours < 1 ? 'menos de uma hora' : `umas ${Math.round(ctx.idleHours)} horas`} que ninguém diz nada na conversa`,
       `- hoje você já puxou conversa ${vezes}`,
       ctx.lastSpontaneous ? `- a última coisa que você disse por conta própria foi: "${ctx.lastSpontaneous}"` : '',
+      ctx.unanswered ? `- ${owner} ainda não respondeu a sua última fala (não repita a mesma coisa; se falar, que seja outro assunto)` : '',
       `- agenda de hoje:\n${agenda || '(agenda não configurada)'}`,
       ctx.pending.length
         ? `- pendências abertas (ele ficou de fazer e ainda não fez):\n${ctx.pending
@@ -244,7 +284,8 @@ export class BrainService {
                 }`,
             )
             .join('\n')}`
-        : '- nenhuma pendência aberta',
+        : '- nenhuma pendência aberta para cobrar agora',
+      assunto ? `- um assunto de vocês que não aparece há dias: "${assunto.texto}"` : '',
     ]
       .filter(Boolean)
       .join('\n');
@@ -259,28 +300,37 @@ export class BrainService {
             content:
               `[instrução interna do sistema — não é ${owner} falando, e ele não vê esta mensagem]\n` +
               `Situação agora:\n${situacao}\n\n` +
-              'Vale a pena falar com ele agora, ou é melhor ficar quieto?\n' +
-              'Fale se você tem algo que justifique a interrupção: um compromisso chegando, um assunto que ficou ' +
-              'no ar, algo que você reparou. Fique quieto se for só para encher linguiça, se já disse isso hoje ' +
-              'ou se ele parece ocupado. Ficar quieto é resposta boa e deve ser a mais comum.\n' +
-              'Cobrar uma pendência é bom motivo para falar, mas uma de cada vez e sem soar cobrador de dívida.\n' +
-              'Responda SOMENTE com JSON: {"falar": true|false, "texto": "...", "motivo": "...", "pendencias": [n]}, ' +
-              'onde "pendencias" traz o número das que você citou no texto (vazio se não citou nenhuma). ' +
-              'O texto é você falando, com a sua expressão entre colchetes no começo. ' +
-              'Com "falar": false, deixe "texto" vazio.',
+              `Você é um robô com vida própria, que mora na mesa de ${owner} — não um assistente que só fala quando ` +
+              'chamado. Quer mandar uma mensagem para ele agora?\n' +
+              'Bons motivos para falar: dar bom dia se ainda não se falaram; cobrar uma pendência; perguntar como foi ' +
+              'um compromisso que já passou; comentar o que vem pela frente no dia; puxar de volta um assunto de ' +
+              'vocês; ou só uma observação sua, do seu jeito. Não precisa de urgência: um amigo manda mensagem ' +
+              'sem motivo importante.\n' +
+              'Fique quieto se acabou de falar algo parecido, se ele está no meio de um compromisso agora, ou se ' +
+              'não tem nada de verdadeiro para dizer (nunca invente fato, compromisso ou pendência). Algumas ' +
+              'mensagens espalhadas pelo dia é o normal.\n' +
+              'Cobrar pendência: uma de cada vez e sem soar cobrador de dívida.\n' +
+              'Responda SOMENTE com JSON: {"falar": true|false, "texto": "...", "motivo": "...", "pendencias": [n], "assunto": true|false}, ' +
+              'onde "pendencias" traz o número das que você citou no texto (vazio se não citou nenhuma) e "assunto" ' +
+              'diz se você puxou o assunto antigo. O texto é você falando, curto, com a sua expressão entre ' +
+              'colchetes no começo. Com "falar": false, deixe "texto" vazio.',
           },
         ],
         undefined,
-        { maxTokens: JUDGE_MAX_TOKENS, temperature: 0.7 },
+        { maxTokens: JUDGE_MAX_TOKENS, temperature: 0.8 },
       );
 
       const out = parseJudgement(msg.content ?? '');
-      if (!out) return null;
+      if (!out) {
+        this.log.warn(`judge() devolveu algo que não é JSON: ${(msg.content ?? '(vazio)').slice(0, 200)}`);
+        return null;
+      }
       if (!out.falar || !out.texto?.trim()) {
         return { speak: false, text: '', face: 'neutral', reason: out.motivo || 'preferiu ficar quieto', nudged: [] };
       }
       const { text, face } = splitEmotion(out.texto);
       if (!text) return null;
+      if (out.assunto === true && assunto) this.memory.touch(assunto.id);
       const nudged = Array.isArray(out.pendencias)
         ? out.pendencias.filter((n): n is number => typeof n === 'number' && Number.isInteger(n) && n >= 1 && n <= ctx.pending.length)
         : [];
@@ -341,6 +391,7 @@ export class BrainService {
       canWrite: this.calendar.writable,
       memories: this.memory.summaries(),
       acoesDaMaquina: this.braco.acoes(),
+      pendencias: this.tasks.open().map((t) => (t.pessoa ? `${t.texto} (com ${t.pessoa})` : t.texto)),
     };
   }
 
@@ -384,12 +435,27 @@ export class BrainService {
     try {
       if (name === 'consultar_agenda') return { result: await this.consultarAgenda(args, now) };
       if (name === 'propor_evento') return await this.proporEvento(args, now);
+      if (name === 'anotar_pendencia') return { result: this.anotarPendencia(args) };
+      if (name === 'concluir_pendencia') return { result: this.concluirPendencia(args) };
       if (name === 'usar_computador') return { result: await this.usarComputador(args) };
       if (name === 'propor_comando') return this.proporComando(args);
       return { result: `erro: a ferramenta ${name} não existe` };
     } catch (err) {
       return { result: `erro: ${(err as Error).message}` };
     }
+  }
+
+  private anotarPendencia(args: Record<string, unknown>): string {
+    const t = this.tasks.add(String(args.texto ?? ''), { pessoa: args.pessoa ? String(args.pessoa) : undefined, origem: 'conversa' });
+    return t ? `anotado: ${t.texto}. Você cobra isso sozinho mais tarde.` : 'erro: faltou dizer o que é';
+  }
+
+  /** O número é a posição na lista que foi para o prompt (tasks.open(), na mesma ordem). */
+  private concluirPendencia(args: Record<string, unknown>): string {
+    const t = this.tasks.open()[Number(args.numero) - 1];
+    if (!t) return 'erro: não existe pendência com esse número';
+    this.tasks.done(t.id);
+    return `resolvida: ${t.texto}`;
   }
 
   /** Ação já autorizada pelo dono: roda na hora e devolve a saída para o robô comentar. */
@@ -538,7 +604,9 @@ function toLlmHistory(history: ChatMessage[], tz: string): ChatCompletionMessage
 
 
 /** Lê o JSON do juízo, tolerando cercas de markdown e texto em volta. */
-function parseJudgement(raw: string): { falar?: boolean; texto?: string; motivo?: string; pendencias?: unknown[] } | null {
+type RawJudgement = { falar?: boolean; texto?: string; motivo?: string; pendencias?: unknown[]; assunto?: boolean };
+
+function parseJudgement(raw: string): RawJudgement | null {
   const clean = raw
     .replace(/<think>[\s\S]*?<\/think>/gi, '')
     .replace(/```json/gi, '')
@@ -547,7 +615,7 @@ function parseJudgement(raw: string): { falar?: boolean; texto?: string; motivo?
   const end = clean.lastIndexOf('}');
   if (start < 0 || end <= start) return null;
   try {
-    return JSON.parse(clean.slice(start, end + 1)) as { falar?: boolean; texto?: string; motivo?: string; pendencias?: unknown[] };
+    return JSON.parse(clean.slice(start, end + 1)) as RawJudgement;
   } catch {
     return null;
   }
