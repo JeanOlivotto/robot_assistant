@@ -40,6 +40,7 @@ import { SpotifyService } from './spotify/spotify.service.js';
 import { ProactiveService } from './proactive/proactive.service.js';
 import { PushController } from './push/push.controller.js';
 import { PushService } from './push/push.service.js';
+import { RobotController } from './robot/robot.controller.js';
 import { RobotStateService } from './robot/robot-state.service.js';
 import { TaskController } from './tasks/task.controller.js';
 import { TaskService } from './tasks/task.service.js';
@@ -49,7 +50,7 @@ import { TtsService } from './tts/tts.service.js';
 import { WsRouter } from './ws/ws-router.service.js';
 
 @Module({
-  controllers: [DebugController, AppAuthController, VoiceController, PushController, TtsController, ClaudeUsageController, MeetingController, SpotifyController, FirmwareController, MemoryController, CalendarController, TaskController, PhotoController, BancoVozesController],
+  controllers: [DebugController, AppAuthController, VoiceController, PushController, TtsController, ClaudeUsageController, MeetingController, SpotifyController, FirmwareController, MemoryController, CalendarController, TaskController, PhotoController, BancoVozesController, RobotController],
   providers: [
     { provide: APP_CONFIG, useFactory: () => loadConfig() },
     WsRouter,

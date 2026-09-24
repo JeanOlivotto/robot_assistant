@@ -94,6 +94,7 @@ export class VoiceController {
   @HttpCode(200)
   session(): { session: string; greeting: string } {
     const s = this.sessions.start();
+    this.chat.acordar('happy', 2500); // atendeu a ligação: o da mesa acorda junto
     void this.tts.synth(s.greeting).catch(() => undefined);
     return { session: s.id, greeting: s.greeting };
   }

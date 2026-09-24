@@ -165,6 +165,14 @@ export class ChatService implements OnModuleInit, OnModuleDestroy {
     this.setState({ waitingSince: 0 });
   }
 
+  /**
+   * Acorda o robô da mesa. O firmware sai do repouso quando chega uma reação — então falar com
+   * ele pelo celular (texto, áudio, ligação) acorda o da mesa também, em vez de ele seguir dormindo.
+   */
+  acordar(face: Face = 'happy', ms = 1200): void {
+    this.react$.next({ face, ms });
+  }
+
   /** Zera a conversa e o que a telinha do robô está mostrando. */
   clearHistory(): number {
     const had = this.store.clear();
@@ -191,6 +199,7 @@ export class ChatService implements OnModuleInit, OnModuleDestroy {
       via: via === 'text' ? undefined : via,
       ...(opts.voz ? { voz: opts.voz } : {}),
     });
+    this.acordar(); // alguém falou com ele: o da mesa acorda e presta atenção
 
     // "sim"/"não" (digitado ou falado) com uma proposta aberta vale como o botão
     const pending = this.store.pendingProposals();
@@ -219,6 +228,7 @@ export class ChatService implements OnModuleInit, OnModuleDestroy {
     const wasWaiting = this.state.waitingSince > 0;
     const msg: ChatMessage = { id: randomUUID(), from: 'user', text: caption, ts: Date.now(), photo };
     this.push(msg);
+    this.acordar();
     this.setState({ thinking: true, waitingSince: 0 });
 
     const desc = await this.vision.describe(image, mime, caption);

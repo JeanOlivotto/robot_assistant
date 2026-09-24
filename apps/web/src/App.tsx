@@ -77,6 +77,7 @@ function Main({ token, onLogout }: { token: string; onLogout(): void }) {
   const [push, setPush] = useState<PushState>(() => pushState());
   const [notice, setNotice] = useState('');
   const [convo, setConvo] = useState(false);
+  const [cutucado, setCutucado] = useState(false);
   const [autoMeeting, setAutoMeeting] = useState(false);
   const proximos = robo.agenda.filter((i) => i.end > now).length;
 
@@ -152,10 +153,25 @@ function Main({ token, onLogout }: { token: string; onLogout(): void }) {
 
   const face = r?.online ? r.face : r?.thinking ? 'thinking' : null;
 
+  /** Tocou no robozinho: o da mesa acorda e dá um oi. */
+  const acordarRobo = () => {
+    setCutucado(true);
+    setTimeout(() => setCutucado(false), 500);
+    void fetch('/api/robot/acordar', { method: 'POST', headers: { Authorization: `Bearer ${token}` } }).catch(() => undefined);
+  };
+
   return (
     <div className="app">
       <header className="top">
-        <RobotFace face={face} size={52} className={r?.online ? '' : 'face--offline'} />
+        <button
+          type="button"
+          className={`robo-avatar ${cutucado ? 'robo-avatar--cutucado' : ''}`}
+          onClick={acordarRobo}
+          aria-label="Acordar o robô"
+          title="Acordar o robô"
+        >
+          <RobotFace face={face} size={52} className={r?.online ? '' : 'face--offline'} />
+        </button>
         <div className="who">
           <strong>Robô</strong>
           <span className={`status ${robo.conn !== 'open' ? 'status--warn' : r?.waiting_since ? 'status--wait' : ''}`}>{status}</span>
