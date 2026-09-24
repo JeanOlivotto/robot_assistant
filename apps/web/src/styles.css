@@ -814,64 +814,6 @@ button {
   font-size: 16px;
   cursor: pointer;
 }
-.call__thread {
-  flex: 1;
-  min-height: 0;
-  overflow-y: auto;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  padding: 14px 14px 8px;
-  -webkit-overflow-scrolling: touch;
-}
-.call__empty {
-  margin: auto;
-  color: var(--dim);
-}
-.call__msg {
-  display: flex;
-  animation: call-in 0.25s ease-out;
-}
-.call__msg p {
-  margin: 0;
-  max-width: 82%;
-  padding: 9px 13px;
-  border-radius: 18px;
-  line-height: 1.4;
-  font-size: 16px;
-  overflow-wrap: anywhere;
-}
-.call__msg--robot p {
-  background: var(--surface);
-  border-bottom-left-radius: 6px;
-}
-.call__msg--you {
-  justify-content: flex-end;
-}
-.call__msg--you p {
-  background: var(--accent);
-  color: var(--accent-ink);
-  border-bottom-right-radius: 6px;
-}
-@keyframes call-in {
-  from { opacity: 0; transform: translateY(6px); }
-  to { opacity: 1; transform: none; }
-}
-.call__typing {
-  display: flex;
-  gap: 5px;
-  padding: 13px 14px !important;
-}
-.call__typing span {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: var(--dim);
-  animation: dot-hop 1.1s ease-in-out infinite;
-}
-.call__typing span:nth-child(2) { animation-delay: 0.15s; }
-.call__typing span:nth-child(3) { animation-delay: 0.3s; }
-
 .call__stage {
   display: flex;
   flex-direction: column;
@@ -920,6 +862,32 @@ button {
 .call__btn--fim {
   background: #e5484d;
   color: #fff;
+}
+
+/* Só voz: o círculo ocupa o meio da tela, maior. */
+.call__stage--solo {
+  flex: 1;
+  justify-content: center;
+  gap: 40px;
+  padding: 0;
+}
+.call__stage--solo .orb2 {
+  width: 168px;
+  height: 168px;
+}
+.call__stage--solo .orb2__dots i {
+  width: 14px;
+  height: 14px;
+}
+.call__stage--solo .orb2__bars {
+  height: 60px;
+  gap: 7px;
+}
+.call__stage--solo .orb2__bars i {
+  width: 9px;
+}
+.call__stage--solo .call__status {
+  font-size: 16px;
 }
 
 /* O círculo: 120 px, com as ondas por fora quando ele fala. */
@@ -1015,8 +983,7 @@ button {
 @media (prefers-reduced-motion: reduce) {
   .orb2__wave,
   .orb2__dots i,
-  .orb2__core,
-  .call__typing span {
+  .orb2__core {
     animation: none !important;
   }
 }

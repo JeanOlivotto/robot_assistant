@@ -1,22 +1,17 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { type Speaking, speakStream, stopSpeaking } from '../lib/speech';
 import { VoiceSession, converse, startCall } from '../lib/voicechat';
 
 type Phase = 'connecting' | 'speaking' | 'listening' | 'thinking' | 'paused' | 'error';
 
-interface Turn {
-  who: 'you' | 'robot';
-  text: string;
-}
-
 /** Ninguém fala por este tempo: a ligação pausa (antes eram 8 s e ele desistia cedo demais). */
 const IDLE_PAUSE_MS = 2 * 60_000;
 
 /**
- * Modo chamada, no jeito dos agentes de voz de hoje: a conversa corre como um chat na tela e o
- * círculo embaixo mostra o que ele está fazendo — ouvindo (reage à sua voz), pensando (pontinhos)
- * ou falando (pontinhos conversando e ondas). Um toque abre, e daí é só conversar: ele volta a
- * ouvir sozinho depois de cada resposta, e você pode cortá-lo falando por cima.
+ * Modo chamada, no jeito dos agentes de voz de hoje: só voz, sem texto na tela (a conversa fica
+ * registrada no chat). O círculo mostra o que ele está fazendo — ouvindo (reage à sua voz),
+ * pensando (pontinhos) ou falando (pontinhos conversando e ondas). Um toque abre, e daí é só
+ * conversar: ele volta a ouvir sozinho depois de cada resposta, e você pode cortá-lo falando por cima.
  */
 export function VoiceConversation({
   token,
@@ -29,7 +24,6 @@ export function VoiceConversation({
 }) {
   const [phase, setPhase] = useState<Phase>('connecting');
   const [hint, setHint] = useState('');
-  const [turns, setTurns] = useState<Turn[]>([]);
   const [level, setLevel] = useState(0);
   const [hearing, setHearing] = useState(false);
   const [muted, setMuted] = useState(false);
@@ -40,7 +34,6 @@ export function VoiceConversation({
   const talking = useRef<Speaking | null>(null);
   const closed = useRef(false);
   const startedAt = useRef(Date.now());
-  const endRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     closed.current = false;
@@ -55,12 +48,6 @@ export function VoiceConversation({
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-
-  useLayoutEffect(() => {
-    endRef.current?.scrollIntoView({ block: 'end', behavior: 'smooth' });
-  }, [turns.length, phase]);
-
-  const add = (who: Turn['who'], text: string) => setTurns((t) => [...t, { who, text }]);
 
   /** Atende: abre o microfone e a conversa nova ao mesmo tempo, dá um oi e começa a escutar. */
   async function start(): Promise<void> {
@@ -90,7 +77,6 @@ export function VoiceConversation({
     const s = mic.current;
     if (!s || closed.current) return false;
     setPhase('speaking');
-    add('robot', text);
     const handle = speakStream(text, () => s.armBargeIn()); // vigia só depois que o som sai
     talking.current = handle;
     const cut = await Promise.race([handle.done.then(() => false), s.watchBargeIn()]);
@@ -147,7 +133,6 @@ export function VoiceConversation({
       misses = 0;
       setHint('');
       if (closed.current) return;
-      add('you', answer.you);
 
       const cut = await say(answer.reply);
       if (closed.current) return;
@@ -191,26 +176,7 @@ export function VoiceConversation({
         </button>
       </header>
 
-      <div className="call__thread">
-        {turns.length === 0 && <p className="call__empty">Conectando…</p>}
-        {turns.map((t, i) => (
-          <div key={i} className={`call__msg call__msg--${t.who}`}>
-            <p>{t.text}</p>
-          </div>
-        ))}
-        {phase === 'thinking' && (
-          <div className="call__msg call__msg--robot">
-            <p className="call__typing" aria-label="pensando">
-              <span />
-              <span />
-              <span />
-            </p>
-          </div>
-        )}
-        <div ref={endRef} />
-      </div>
-
-      <div className="call__stage">
+      <div className="call__stage call__stage--solo">
         <Orb phase={muted && phase === 'listening' ? 'paused' : phase} level={hearing ? level : level * 0.4} />
         <p className="call__status" aria-live="polite">
           {status}

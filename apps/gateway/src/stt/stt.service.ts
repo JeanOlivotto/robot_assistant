@@ -146,6 +146,10 @@ export class SttService {
     form.append('model', g.model);
     form.append('language', this.cfg.STT_LANGUAGE);
     form.append('response_format', 'verbose_json');
+    // Dica de vocabulário: sem ela o Whisper não conhece o nome do dono ("Jean" saía "Gia") — e é
+    // esse nome que vai para o banco de vozes quando ele se apresenta. Curta de propósito: uma
+    // frase inteira ("Conversa com Jean…") fazia ele escrever "Jeean"; "Nomes: Jean." não.
+    if (this.cfg.OWNER_NAME) form.append('prompt', `Nomes: ${this.cfg.OWNER_NAME}.`);
 
     const started = Date.now();
     let res: Response;
