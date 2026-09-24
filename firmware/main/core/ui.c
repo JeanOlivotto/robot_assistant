@@ -439,7 +439,8 @@ static void render_status_bar(uint32_t now, int64_t wall_ms, bool clock_ok)
 
     char hhmm[16] = "--:--";
     if (clock_ok) fmt_hhmm(wall_ms, hhmm, sizeof(hhmm));
-    gfx_text_center(64, 3, hhmm, C_TEXT, 2);
+    /* Relógio à esquerda e ícones à direita: centralizado, o "11:47" grande encostava no Bluetooth. */
+    gfx_text(4, 3, hhmm, C_TEXT, 2);
     render_wifi(113, 15, rssi);
     if (presence_listening()) icon_bluetooth(101, 3, presence_near());
     if (power.usb) render_usb(presence_listening() ? 90 : 104, 3);
@@ -460,17 +461,17 @@ static void render_speech(const char *text)
 /* Sem compromisso para mostrar: a data, por extenso. */
 static void render_date(int64_t wall_ms, bool clock_ok)
 {
-    static const char *const DAYS[] = {"domingo", "segunda-feira", "terça-feira", "quarta-feira",
-                                       "quinta-feira", "sexta-feira", "sábado"};
-    static const char *const MONTHS[] = {"janeiro", "fevereiro", "março", "abril", "maio", "junho",
-                                         "julho", "agosto", "setembro", "outubro", "novembro", "dezembro"};
+    /* Uma linha curta ("qui, 24 set"): as duas linhas por extenso ocupavam a largura inteira
+       e ficavam coladas na boca. */
+    static const char *const DAYS[] = {"dom", "seg", "ter", "qua", "qui", "sex", "sáb"};
+    static const char *const MONTHS[] = {"jan", "fev", "mar", "abr", "mai", "jun",
+                                         "jul", "ago", "set", "out", "nov", "dez"};
     if (!clock_ok) return;
     struct tm tm;
     local_tm(wall_ms, &tm);
-    char line[32];
-    snprintf(line, sizeof(line), "%d de %s", tm.tm_mday, MONTHS[tm.tm_mon]);
-    gfx_text_center(64, 103, DAYS[tm.tm_wday], C_DIM, 1);
-    gfx_text_center(64, 115, line, C_DIM, 1);
+    char line[24];
+    snprintf(line, sizeof(line), "%s, %d %s", DAYS[tm.tm_wday], tm.tm_mday, MONTHS[tm.tm_mon]);
+    gfx_text_center(64, 113, line, C_DIM, 1);
 }
 
 static void render_footer(uint32_t now, int64_t wall_ms, bool clock_ok)
