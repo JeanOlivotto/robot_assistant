@@ -45,5 +45,21 @@ jobs:
       - run: npm install --no-package-lock --no-audit --no-fund
 
       - run: npm run dist:win
+
+      # O ouvido tem que ter ido junto: carrega o sherpa-onnx de dentro do app empacotado.
+      - name: Conferir o pacote
+        working-directory: apps/desktop/dist/win-unpacked/resources/app
+        run: node -e "const s = require('sherpa-onnx-node'); if (typeof s.Vad !== 'function') process.exit(1); console.log('sherpa-onnx ok')"
+
+      # Publica com o gh em vez do electron-builder: ele sobe o .exe e o .blockmap em paralelo e
+      # os dois tentam criar a mesma release (422 "already_exists", e o .exe não subia).
+      # O latest.yml é o que o app instalado lê para saber que tem versão nova.
+      - name: Publicar a release
+        shell: bash
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          V="0.1.${{ github.run_number }}"
+          gh release create "v$V" dist/Miro-Setup.exe dist/Miro-Setup.exe.blockmap dist/latest.yml \
+            --target "${{ github.sha }}" --title "Miro $V (Windows)" \
+            --notes "App do computador. Instalar: \`irm https://srv1966497.hstgr.cloud/miro/instalar.ps1 | iex\` no PowerShell."

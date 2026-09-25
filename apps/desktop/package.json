@@ -8,7 +8,7 @@
   "scripts": {
     "start": "electron .",
     "build": "node --check src/main.js && node --check src/preload.cjs",
-    "dist:win": "npx -y electron-builder@26.15.3 --win --publish always"
+    "dist:win": "npx -y electron-builder@26.15.3 --win --publish never"
   },
   "devDependencies": {
     "electron": "44.4.5"
