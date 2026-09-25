@@ -4,6 +4,8 @@ import type { ChatVoz } from '@robo/protocol';
 import { APP_CONFIG, type AppConfig } from '../config/app-config.js';
 import { SttError, SttService } from '../stt/stt.service.js';
 import { BancoVozesService } from '../vozes/banco.service.js';
+import { IdentidadeService } from '../identidade/identidade.service.js';
+import { comandoPeloNome } from '../vozes/chamado.js';
 import { VozesService } from '../vozes/vozes.service.js';
 import { TtsService } from '../tts/tts.service.js';
 import { ChatService } from './chat.service.js';
@@ -57,7 +59,30 @@ export class VoiceController {
     private readonly tts: TtsService,
     private readonly vozes: VozesService,
     private readonly banco: BancoVozesService,
+    private readonly identidade: IdentidadeService,
   ) {}
+
+  /**
+   * O app do computador ouviu uma frase curta que PODE ser "Miro, …" (o Whisper pequeno de lá
+   * só filtra). Aqui o grande confirma: se chamou, devolve o comando; se não, a frase é
+   * descartada — não vira conversa nem fica guardada.
+   */
+  @Post('voice/chamado')
+  @HttpCode(200)
+  async chamado(@Body() audio: unknown): Promise<{ chamou: boolean; nome: string; texto?: string; comando?: string }> {
+    if (!Buffer.isBuffer(audio) || !audio.length) throw new BadRequestException('mande o áudio no corpo (Content-Type audio/*)');
+    const nome = this.identidade.nome;
+    try {
+      const { text } = await this.stt.transcribe(audio, { dica: false });
+      const comando = comandoPeloNome(text, nome);
+      if (comando === null) return { chamou: false, nome };
+      this.log.log(`Chamado pelo nome no computador: "${text}"`);
+      return { chamou: true, nome, texto: text, comando };
+    } catch (err) {
+      if (err instanceof SttError && err.status === 422) return { chamou: false, nome };
+      throw err instanceof SttError ? new HttpException(err.message, err.status) : err;
+    }
+  }
 
   /**
    * De quem é esta voz, pelo banco. Roda em paralelo com a transcrição, então não atrasa a

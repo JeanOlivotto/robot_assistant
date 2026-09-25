@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState, type FormEvent, type PointerEvent } from 'react';
 import type { ChatMessage } from '@robo/protocol';
 import { desktop } from '../lib/desktop';
+import { escutar } from '../lib/escuta';
+import { convidar } from '../lib/meeting';
 import { GRAVANDO_KEY } from './Meeting';
 import { configureSpeech, speak, stopSpeaking } from '../lib/speech';
 import { useRobo } from '../lib/useRobo';
@@ -109,6 +111,9 @@ function BolhaLogada({ token, andando }: { token: string; andando: 'esquerda' | 
     }
   });
   const vistoAte = useRef(Date.now()); // o histórico que já existia não vira balão
+  /** Você falou "Miro, …": a próxima resposta sai em voz mesmo com a voz desligada. */
+  const falarProxima = useRef(false);
+  const [atento, setAtento] = useState(false); // ouviu algo parecido com o nome e está confirmando
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -150,7 +155,8 @@ function BolhaLogada({ token, andando }: { token: string; andando: 'esquerda' | 
     // Se você abriu o balão para conversar, ele continua "seu": não some sozinho.
     setBalao((b) => ({ msg: ultima, desde: Date.now(), porClique: b?.porClique ?? false }));
     setEsperando(false);
-    if (voz) void speak(ultima.text);
+    if (voz || falarProxima.current) void speak(ultima.text);
+    falarProxima.current = false;
   }, [robo.messages, voz]);
 
   // Tamanho da janela acompanha o balão. O que abriu sozinho some depois de um tempo, contado de
@@ -176,6 +182,99 @@ function BolhaLogada({ token, andando }: { token: string; andando: 'esquerda' | 
   useEffect(() => {
     desktop?.ocupada?.(!!balao || esperando || emCima);
   }, [balao, esperando, emCima]);
+
+  /* ── "Miro, …" ── o ouvido do app (Electron) manda frases que podem ser o nome; o servidor confirma. */
+  useEffect(() => {
+    if (!desktop?.ouvinteAudio) return;
+    let parar: (() => void) | null = null;
+    fetch('/api/identidade', { headers: { Authorization: `Bearer ${token}` } })
+      .then((r) => r.json())
+      .then((i: { nome?: string }) => i.nome && desktop?.ouvinteNome?.(i.nome))
+      .catch(() => undefined);
+    desktop.aoOuvir?.((sim) => {
+      if (sim && !parar) {
+        escutar((a) => desktop?.ouvinteAudio?.(a))
+          .then((p) => (parar = p))
+          .catch(() => undefined);
+      } else if (!sim && parar) {
+        parar();
+        parar = null;
+      }
+    });
+    desktop.aoCandidato?.((c) => void confirmarChamado(c.wav));
+    desktop.ouvintePronta?.();
+    return () => parar?.();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [token]);
+
+  const confirmarChamado = async (wav: Uint8Array) => {
+    setAtento(true);
+    try {
+      const res = await fetch('/api/voice/chamado', {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'audio/wav' },
+        body: new Blob([new Uint8Array(wav)], { type: 'audio/wav' }),
+      });
+      const r = (await res.json()) as { chamou: boolean; comando?: string };
+      if (r.chamou) executar(r.comando ?? '');
+    } catch {
+      /* sem servidor agora: fica como se não tivesse ouvido */
+    } finally {
+      setAtento(false);
+    }
+  };
+
+  /** O que veio depois do nome: comando do computador (na hora) ou conversa com ele. */
+  const executar = (comando: string) => {
+    const c = comando
+      .toLowerCase()
+      .normalize('NFD')
+      .replace(/[̀-ͯ]/g, '');
+    const avisar = (texto: string) => {
+      setBalao({ msg: { id: 'local', from: 'robot', text: texto, ts: Date.now() } as ChatMessage, desde: Date.now(), porClique: false });
+      void speak(texto);
+    };
+    if (!c.trim()) {
+      // Só "Miro?": abre o balão para você falar ou digitar.
+      setBalao({ msg: null, desde: Date.now(), porClique: true });
+      void speak('Oi?');
+      return;
+    }
+    if (/\b(grava|gravar|comeca|inicia|abre)\b.*\breuni/.test(c)) {
+      desktop?.comando?.('reuniao:gravar');
+      return avisar('Gravando a reunião.');
+    }
+    if (/\b(encerra|termina|para|finaliza|fecha)\b.*\breuni/.test(c)) {
+      desktop?.comando?.('reuniao:encerrar');
+      return avisar('Encerrando. Te aviso quando a ata ficar pronta.');
+    }
+    if (/\blink\b|\bconvite\b/.test(c)) {
+      void convidar(token, '')
+        .then((l) => {
+          void navigator.clipboard?.writeText(l.url);
+          avisar('Link da reunião copiado. Vale doze horas.');
+        })
+        .catch(() => avisar('Não consegui gerar o link agora.'));
+      return;
+    }
+    if (/\b(abre|mostra)\b.*\bpainel\b/.test(c)) {
+      desktop?.painel('abrir');
+      return;
+    }
+    if (/^(esconde|some|sai)\b/.test(c)) {
+      desktop?.esconder?.();
+      return;
+    }
+    if (/\b(para de falar|cala|silencio|chega)\b/.test(c)) {
+      stopSpeaking();
+      return;
+    }
+    // O resto é conversa: vai para ele como se você tivesse digitado, e a resposta sai em voz.
+    if (robo.say(comando)) {
+      falarProxima.current = true;
+      setEsperando(true);
+    }
+  };
 
   /** Clique na carinha: abre o balão para conversar (com a última mensagem, se for recente) ou fecha. */
   const clicar = () => {
@@ -248,7 +347,7 @@ function BolhaLogada({ token, andando }: { token: string; andando: 'esquerda' | 
       )}
       <Carinha
         andando={andando}
-        face={robo.conn === 'open' ? (andando ? 'happy' : face) : null}
+        face={robo.conn === 'open' ? (atento ? 'surprised' : andando ? 'happy' : face) : null}
         onClick={clicar}
         dica={balao ? 'Fechar o balão' : 'Falar com o robô'}
       />

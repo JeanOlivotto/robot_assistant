@@ -11,7 +11,7 @@ import { ago } from './lib/format';
 import { enablePush, pushState, refreshPush, testPush, type PushState } from './lib/push';
 import { audioContext, closeMic } from './lib/mic';
 import { configureSpeech, speak, speechSupported, stopSpeaking, unlockAudio } from './lib/speech';
-import { DESKTOP } from './lib/desktop';
+import { DESKTOP, desktop } from './lib/desktop';
 import { useRobo } from './lib/useRobo';
 
 const TOKEN_KEY = 'robo.token';
@@ -80,6 +80,19 @@ function Main({ token, onLogout }: { token: string; onLogout(): void }) {
   const [convo, setConvo] = useState(false);
   const [cutucado, setCutucado] = useState(false);
   const [autoMeeting, setAutoMeeting] = useState(false);
+
+  // No painel do computador: "Miro, grava a reunião" / "encerra a reunião" chegam por aqui.
+  useEffect(() => {
+    if (DESKTOP !== 'painel') return;
+    desktop?.aoComando?.((acao) => {
+      if (acao === 'reuniao:gravar') {
+        setTab('reuniao');
+        setAutoMeeting(true);
+      } else if (acao === 'reuniao:encerrar') {
+        window.dispatchEvent(new Event('robo:encerrar-reuniao'));
+      }
+    });
+  }, []);
   const proximos = robo.agenda.filter((i) => i.end > now).length;
 
   useEffect(() => {
@@ -282,7 +295,10 @@ function Main({ token, onLogout }: { token: string; onLogout(): void }) {
       )}
       {tab === 'agenda' && <Agenda items={robo.agenda} />}
       {tab === 'pendencias' && <Tasks token={token} />}
-      {tab === 'reuniao' && <MeetingView token={token} autoStart={autoMeeting} onAutoStarted={() => setAutoMeeting(false)} />}
+      {/* Sempre montada (só escondida): trocar de aba no meio da gravação matava a reunião. */}
+      <div hidden={tab !== 'reuniao'}>
+        <MeetingView token={token} autoStart={autoMeeting} onAutoStarted={() => setAutoMeeting(false)} />
+      </div>
 
       {convo && (
         <VoiceConversation

@@ -18,6 +18,22 @@ contextBridge.exposeInMainWorld('roboDesktop', {
   /** Reunião: cria a fonte "som do computador" (o que sai no fone) e devolve o nome dela. */
   somDoSistema: () => ipcRenderer.invoke('reuniao:som'),
   soltarSomDoSistema: () => ipcRenderer.send('reuniao:soltar-som'),
+  /* "Miro, …": a bolha capta o microfone e manda o áudio; o ouvido (processo principal) devolve
+     as frases candidatas para o servidor confirmar. */
+  ouvintePronta: () => ipcRenderer.send('ouvinte:pronta'),
+  ouvinteAudio: (amostras) => ipcRenderer.send('ouvinte:audio', amostras),
+  ouvinteNome: (nome) => ipcRenderer.send('ouvinte:nome', nome),
+  aoOuvir: (cb) => ipcRenderer.on('ouvinte:ligado', (_e, sim) => cb(!!sim)),
+  aoCandidato: (cb) => ipcRenderer.on('ouvinte:candidato', (_e, c) => cb(c)),
+  aoOuvinteEstado: (cb) => ipcRenderer.on('ouvinte:estado', (_e, e) => cb(String(e))),
+  /** Comando de voz para o painel ("reuniao:gravar", "reuniao:encerrar"). */
+  comando: (acao) => ipcRenderer.send('painel:comando', acao),
+  /** No painel: recebe os comandos (e avisa que está pronto para eles). */
+  aoComando: (cb) => {
+    ipcRenderer.on('comando', (_e, acao) => cb(String(acao)));
+    ipcRenderer.send('painel:pronto');
+  },
+  esconder: () => ipcRenderer.send('esconder'),
   vozMudou: (ligada) => ipcRenderer.send('voz', ligada),
   aoMudarVoz: (cb) => ipcRenderer.on('voz', (_e, ligada) => cb(!!ligada)),
   /** A carinha está andando para outro monitor ('esquerda' | 'direita'), ou parou (null). */

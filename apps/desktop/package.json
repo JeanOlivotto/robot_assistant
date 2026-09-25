@@ -11,5 +11,8 @@
   },
   "devDependencies": {
     "electron": "44.4.5"
+  },
+  "dependencies": {
+    "sherpa-onnx-node": "1.13.8"
   }
 }

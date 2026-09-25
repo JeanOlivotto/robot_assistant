@@ -527,6 +527,13 @@ export function MeetingView({
   const finishRef = useRef(finish);
   finishRef.current = finish;
 
+  // "Miro, encerra a reunião" (comando de voz no computador).
+  useEffect(() => {
+    const encerrar = () => void finishRef.current();
+    window.addEventListener('robo:encerrar-reuniao', encerrar);
+    return () => window.removeEventListener('robo:encerrar-reuniao', encerrar);
+  }, []);
+
   const cancel = () => {
     recorder.current?.stop();
     recorder.current = null;

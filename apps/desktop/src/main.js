@@ -13,6 +13,7 @@ import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { BrowserWindow, Menu, Tray, app, globalShortcut, ipcMain, screen, session, shell } from 'electron';
+import { Ouvinte } from './ouvinte.js';
 
 const AQUI = dirname(fileURLToPath(import.meta.url));
 const BASE = (process.env.ROBO_URL || 'https://srv1966497.hstgr.cloud').replace(/\/+$/, '');
@@ -51,6 +52,8 @@ let passear = true; // passeia pela tela sozinho (bandeja liga/desliga)
 let ocupada = false; // balão aberto ou mouse em cima: fica quieta
 let arrastadaEm = 0;
 let dormindo = false; // o robô está dormindo: a carinha não se mexe até alguém acordá-lo
+let ouvir = true; // escuta o "Miro, …" (bandeja liga/desliga)
+let nomeDele = 'Miro';
 let conferirMonitor = () => {};
 let painel = null;
 let bandeja = null;
@@ -105,6 +108,7 @@ function cantoInicial() {
   const salvo = lerEstado();
   if (salvo.relativo && Number.isFinite(salvo.relativo.fx)) relativo = salvo.relativo;
   if (typeof salvo.passear === 'boolean') passear = salvo.passear;
+  if (typeof salvo.ouvir === 'boolean') ouvir = salvo.ouvir;
   return cantoNo(screen.getPrimaryDisplay().workArea);
 }
 
@@ -217,6 +221,7 @@ function criarPainel() {
   painel.on('show', () => setTimeout(() => painel?.setBounds(lugarDoPainel()), 60));
   painel.once('ready-to-show', () => ajustarNoBspwm(painel, {}));
   // Fechar esconde: o painel guarda a conversa aberta e volta na hora.
+  painel.webContents.on('did-start-loading', () => (painelPronto = false));
   painel.on('close', (e) => {
     if (app.saindo) return;
     e.preventDefault();
@@ -352,6 +357,66 @@ ipcMain.handle('reuniao:som', () => prepararSomDoSistema());
 ipcMain.on('reuniao:soltar-som', () => soltarSomDoSistema());
 app.on('will-quit', () => soltarSomDoSistema());
 
+/* ── "Miro, …": o ouvido (ouvinte.js) ────────────────────────────────── */
+
+const ouvinte = new Ouvinte({
+  pasta: join(app.getPath('userData'), 'ouvido'),
+  aoCandidato: (c) => bolha?.webContents.send('ouvinte:candidato', c),
+  aoEstado: (e) => {
+    console.log(`[ouvido] ${e}`);
+    bolha?.webContents.send('ouvinte:estado', e);
+  },
+});
+
+/** Liga ou desliga a escuta: prepara os modelos (baixa na 1ª vez) e avisa a bolha para abrir o microfone. */
+async function aplicarOuvir() {
+  if (ouvir) {
+    try {
+      await ouvinte.preparar();
+    } catch {
+      bolha?.webContents.send('ouvinte:ligado', false);
+      return;
+    }
+  }
+  // ROBO_SEM_MICROFONE: o ouvido liga, mas a bolha não abre o microfone (teste com frases gravadas).
+  bolha?.webContents.send('ouvinte:ligado', ouvir && !process.env.ROBO_SEM_MICROFONE);
+  atualizarBandeja();
+}
+
+const DEBUG_OUVIDO = !!process.env.ROBO_DEBUG_OUVIDO;
+let recebidas = 0;
+ipcMain.on('ouvinte:audio', (_e, amostras) => {
+  if (DEBUG_OUVIDO && recebidas++ % 50 === 0) console.log(`[ouvido] áudio: ${amostras?.constructor?.name} ${amostras?.length} (ouvir=${ouvir}, pronto=${ouvinte.pronto})`);
+  if (ouvir && amostras instanceof Float32Array) ouvinte.alimentar(amostras);
+});
+ipcMain.on('ouvinte:nome', (_e, nome) => {
+  if (typeof nome === 'string' && nome.trim()) {
+    nomeDele = nome.trim();
+    ouvinte.nome = nomeDele;
+    atualizarBandeja();
+  }
+});
+ipcMain.on('ouvinte:pronta', () => void aplicarOuvir()); // a bolha carregou: diz se é para ouvir
+
+/*
+ * Comandos que a bolha ouviu e que o painel executa (a reunião grava lá). Se o painel ainda não
+ * existe, ele nasce escondido e recebe o comando quando o app dele terminar de carregar.
+ */
+let comandosPendentes = [];
+let painelPronto = false;
+ipcMain.on('painel:comando', (_e, acao) => {
+  if (typeof acao !== 'string') return;
+  if (!painel) criarPainel();
+  if (painelPronto) painel.webContents.send('comando', acao);
+  else comandosPendentes.push(acao);
+});
+ipcMain.on('painel:pronto', () => {
+  painelPronto = true;
+  for (const a of comandosPendentes) painel?.webContents.send('comando', a);
+  comandosPendentes = [];
+});
+ipcMain.on('esconder', () => visivel && alternarVisivel());
+
 /* ── seguir o monitor em uso, andando ────────────────────────────────── */
 
 function pararDeAndar() {
@@ -472,6 +537,16 @@ function atualizarBandeja() {
         click: (item) => {
           vozLigada = item.checked;
           bolha?.webContents.send('voz', vozLigada);
+        },
+      },
+      {
+        label: `Ouvir "${nomeDele}, …"`,
+        type: 'checkbox',
+        checked: ouvir,
+        click: (item) => {
+          ouvir = item.checked;
+          salvarEstado({ ouvir });
+          void aplicarOuvir();
         },
       },
       {

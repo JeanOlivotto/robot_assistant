@@ -28,6 +28,16 @@ interface RoboDesktopBridge {
   /** O Electron avisa (menu da bandeja) que a voz foi ligada/desligada. */
   aoMudarVoz(cb: (ligada: boolean) => void): void;
   vozMudou(ligada: boolean): void;
+  /* "Miro, …" */
+  ouvintePronta?(): void;
+  ouvinteAudio?(amostras: Float32Array): void;
+  ouvinteNome?(nome: string): void;
+  aoOuvir?(cb: (sim: boolean) => void): void;
+  aoCandidato?(cb: (c: { wav: Uint8Array; texto: string }) => void): void;
+  aoOuvinteEstado?(cb: (e: string) => void): void;
+  comando?(acao: 'reuniao:gravar' | 'reuniao:encerrar'): void;
+  aoComando?(cb: (acao: string) => void): void;
+  esconder?(): void;
   /** Andando para outro monitor (acompanha o monitor em uso), ou parou (null). */
   aoAndar?(cb: (lado: 'esquerda' | 'direita' | null) => void): void;
 }

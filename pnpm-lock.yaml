@@ -173,6 +173,10 @@ importers:
         version: 8.21.3
 
   apps/desktop:
+    dependencies:
+      sherpa-onnx-node:
+        specifier: 1.13.8
+        version: 1.13.8
     devDependencies:
       electron:
         specifier: 44.4.5
