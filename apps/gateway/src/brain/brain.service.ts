@@ -312,15 +312,39 @@ export class BrainService {
   }
 
   /** Responde à conversa (a última mensagem do histórico é a do dono). */
-  async reply(history: ChatMessage[], opts: { spoken?: boolean } = {}): Promise<BrainReply> {
+  async reply(history: ChatMessage[], opts: { spoken?: boolean; maquina?: string } = {}): Promise<BrainReply> {
     if (!this.llm.enabled) {
       return { text: 'Meu cérebro ainda está desligado... falta a chave da IA no servidor (LLM_API_KEY).', face: 'sad' };
     }
+    // Pedido feito de um computador: é nele que as ferramentas agem, se ele não disser outro. As
+    // respostas saem uma de cada vez (fila do chat), então dá para guardar aqui durante esta.
+    this.maquinaDoPedido = opts.maquina && this.braco.escolher(opts.maquina)?.nome === opts.maquina ? opts.maquina : undefined;
+    try {
+      return await this.responder(history, opts);
+    } finally {
+      this.maquinaDoPedido = undefined;
+    }
+  }
+
+  /** O computador de onde veio o pedido em curso (só enquanto responde a ele). */
+  private maquinaDoPedido: string | undefined;
+
+  /** A máquina de uma ferramenta: a que ele nomeou, senão a de onde pediu, senão a que está usando. */
+  private maquinaAlvo(args: Record<string, unknown>): string | undefined {
+    return args.maquina ? String(args.maquina) : this.maquinaDoPedido;
+  }
+
+  private async responder(history: ChatMessage[], opts: { spoken?: boolean }): Promise<BrainReply> {
     const now = new Date();
     const messages: ChatCompletionMessageParam[] = [
       {
         role: 'system',
-        content: systemPrompt({ ...this.promptContext(now), spoken: opts.spoken, todayAgenda: await this.todayAgenda(now) }),
+        content: systemPrompt({
+          ...this.promptContext(now),
+          spoken: opts.spoken,
+          todayAgenda: await this.todayAgenda(now),
+          pedidoDoComputador: this.maquinaDoPedido,
+        }),
       },
       ...toLlmHistory(history.slice(-HISTORY), this.cfg.TZ_NAME),
     ];
@@ -709,7 +733,7 @@ export class BrainService {
       for (const [k, v] of Object.entries(cru as Record<string, unknown>)) argumentos[k] = String(v);
     }
 
-    const r = await this.braco.rodarAcao(acao, argumentos, args.maquina ? String(args.maquina) : undefined);
+    const r = await this.braco.rodarAcao(acao, argumentos, this.maquinaAlvo(args));
     if (!r.ok) return `a ação falhou: ${r.erro ?? 'sem detalhe'}`;
     return `pronto. saída:\n${r.saida.slice(0, 1200)}`;
   }
@@ -721,7 +745,7 @@ export class BrainService {
     if (!comando) return { result: 'erro: falta o comando' };
     const motivo = String(args.motivo ?? '').trim().slice(0, 120) || comando;
     // A máquina fica escolhida já na proposta: o dono aprova sabendo onde vai rodar.
-    const m = this.braco.escolher(args.maquina ? String(args.maquina) : undefined);
+    const m = this.braco.escolher(this.maquinaAlvo(args));
     if (!m) return { result: `erro: não achei a máquina "${String(args.maquina)}"` };
     return {
       result: `comando preparado para ${m.nome}, esperando o dono aprovar no botão: ${comando}`,

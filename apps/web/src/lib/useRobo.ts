@@ -6,6 +6,7 @@ import {
   type ChatMessage,
   type RobotView,
 } from '@robo/protocol';
+import { cabecalhosDeOnde, deOnde } from './origem';
 
 export type Conn = 'connecting' | 'open' | 'offline';
 
@@ -119,9 +120,9 @@ export function useRobo(token: string): Robo {
     };
   }, [token]);
 
-  const say = useCallback((text: string) => send(wsRef.current, { t: 'say', ts: Date.now(), text }), []);
+  const say = useCallback((text: string) => send(wsRef.current, { t: 'say', ts: Date.now(), text, ...deOnde() }), []);
   const confirm = useCallback(
-    (proposalId: string, ok: boolean) => void send(wsRef.current, { t: 'confirm', ts: Date.now(), proposal_id: proposalId, ok }),
+    (proposalId: string, ok: boolean) => void send(wsRef.current, { t: 'confirm', ts: Date.now(), proposal_id: proposalId, ok, ...deOnde() }),
     [],
   );
 
@@ -129,7 +130,7 @@ export function useRobo(token: string): Robo {
     async (audio: Blob) => {
       const res = await fetch('/api/voice', {
         method: 'POST',
-        headers: { Authorization: `Bearer ${token}`, 'Content-Type': audio.type || 'application/octet-stream' },
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': audio.type || 'application/octet-stream', ...cabecalhosDeOnde() },
         body: audio,
       });
       const body = (await res.json().catch(() => ({}))) as { text?: string; message?: string };

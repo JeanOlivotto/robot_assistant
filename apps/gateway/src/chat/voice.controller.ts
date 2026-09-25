@@ -1,4 +1,4 @@
-import { BadRequestException, Body, Controller, HttpCode, HttpException, Inject, Logger, Post, Query, UseGuards } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Headers, HttpCode, HttpException, Inject, Logger, Post, Query, UseGuards } from '@nestjs/common';
 import { AppTokenGuard } from '../auth/app-token.guard.js';
 import type { ChatVoz } from '@robo/protocol';
 import { APP_CONFIG, type AppConfig } from '../config/app-config.js';
@@ -132,12 +132,12 @@ export class VoiceController {
 
   /** Mensagem de voz do webapp: áudio no corpo (AAC do iPhone, Opus, WAV). A resposta chega pelo WebSocket. */
   @Post('voice')
-  async voice(@Body() audio: unknown): Promise<{ text: string; seconds: number }> {
+  async voice(@Body() audio: unknown, @Headers() h: Record<string, string | undefined>): Promise<{ text: string; seconds: number }> {
     if (!Buffer.isBuffer(audio) || !audio.length) throw new BadRequestException('mande o áudio no corpo (Content-Type audio/*)');
     try {
       const [{ text, seconds }, voz] = await Promise.all([this.stt.transcribe(audio), this.quemFalaAte(audio, 3000)]);
       if (!text) throw new SttError('não entendi nada nesse áudio', 422);
-      void this.chat.say(text, 'voice', { voz });
+      void this.chat.say(text, 'voice', { voz, ...deOnde(h) });
       return { text, seconds };
     } catch (err) {
       if (err instanceof SttError) throw new HttpException(err.message, err.status);
@@ -150,6 +150,7 @@ export class VoiceController {
   async converse(
     @Body() audio: unknown,
     @Query('s') session?: string,
+    @Headers() h: Record<string, string | undefined> = {},
   ): Promise<{ you: string; reply: string; face: string; action?: 'start_meeting' }> {
     if (!Buffer.isBuffer(audio) || !audio.length) throw new BadRequestException('mande o áudio no corpo (Content-Type audio/*)');
     try {
@@ -165,7 +166,7 @@ export class VoiceController {
       if (wantsMeeting(text)) {
         return { you: text, reply: 'Bora! Tô abrindo o modo reunião e já começo a gravar. Pode falar!', face: 'happy', action: 'start_meeting' };
       }
-      const reply = await this.chat.ask(text, 'voice', { since: this.sessions.since(session), spoken: true, voz });
+      const reply = await this.chat.ask(text, 'voice', { since: this.sessions.since(session), spoken: true, voz, ...deOnde(h) });
       // Onde vai o tempo de cada fala da ligação (transcrição, voz, cérebro) — é por aqui que se afina.
       this.log.log(`Ligação: transcrição ${tStt} ms, ouvir+voz ${tOuvir} ms, cérebro ${Date.now() - t0 - tOuvir} ms`);
       return {
@@ -192,4 +193,16 @@ export class VoiceController {
       face: reply?.face ?? 'neutral',
     };
   }
+}
+
+/** De onde veio o áudio (o app manda X-Miro-Origem e, no computador, X-Miro-Maquina). */
+function deOnde(h: Record<string, string | undefined>): { origem?: string; maquina?: string } {
+  const ler = (v: string | undefined, max: number) => {
+    try {
+      return v ? decodeURIComponent(v).slice(0, max) : undefined;
+    } catch {
+      return undefined;
+    }
+  };
+  return { origem: ler(h['x-miro-origem'], 64), maquina: ler(h['x-miro-maquina'], 60) };
 }

@@ -29,6 +29,8 @@ export interface PromptContext {
   /** O que a máquina do dono sabe fazer agora (vazio = o braço está desligado). */
   /** Computadores do dono conectados agora (o primeiro é o que ele está usando). */
   maquinas?: { nome: string; sistema: string; acoes: { nome: string; descricao: string; params: string[] }[] }[];
+  /** O pedido em curso veio deste computador (pelo app dele): agir nele, se não disser outro. */
+  pedidoDoComputador?: string;
   /** Computadores dele que já conectaram e estão desligados agora. */
   desligadas?: { nome: string; sistema: string; podeLigar: boolean }[];
   /** O que ele ficou de fazer e ainda não fez, na ordem que concluir_pendencia usa. */
@@ -111,6 +113,10 @@ ${
     : ''
 }
 ${c.maquinas?.length ? maquinasDoDono(c.maquinas, owner) : ''}${
+  c.pedidoDoComputador
+    ? `\n${owner} está falando com você AGORA pelo computador "${c.pedidoDoComputador}": o que ele pedir para fazer no computador é nesse, a não ser que ele diga outro.\n`
+    : ''
+}${
   c.desligadas?.length
     ? `\nComputadores de ${owner} DESLIGADOS agora: ${c.desligadas.map((m) => `"${m.nome}" (${m.sistema}${m.podeLigar ? '' : ', sem como ligar'})`).join(', ')}.
 Se ele pedir para ligar um, use ligar_computador. Desligado, não dá para rodar nada nele até ligar e abrir o app.\n`

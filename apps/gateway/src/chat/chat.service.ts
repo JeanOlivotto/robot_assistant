@@ -32,6 +32,10 @@ export interface AskOptions {
   spoken?: boolean;
   /** De quem é a voz (mensagem falada), pelo banco de vozes. */
   voz?: ChatVoz;
+  /** O aparelho que pediu: a resposta vai marcada para ele (só ele abre balão e fala). */
+  origem?: string;
+  /** Pediu de um computador (o nome dele): é nele que o Miro age, se não disser outro. */
+  maquina?: string;
 }
 
 const PROPOSAL_TTL_MS = 30 * 60_000;
@@ -133,8 +137,8 @@ export class ChatService implements OnModuleInit, OnModuleDestroy {
     return this.enqueue(() => this.handlePhoto(photo, image, mime, caption));
   }
 
-  async confirm(proposalId: string, ok: boolean): Promise<void> {
-    await this.enqueue(() => this.handleConfirm(proposalId, ok));
+  async confirm(proposalId: string, ok: boolean, origem?: string): Promise<void> {
+    await this.enqueue(() => this.handleConfirm(proposalId, ok, origem));
   }
 
   /** O robô fala. `expectsReply` liga a espera (a cara vai mudando se ninguém responder). */
@@ -142,14 +146,24 @@ export class ChatService implements OnModuleInit, OnModuleDestroy {
     text: string,
     face: Face,
     kind: MessageKind,
-    opts: { proposal?: Proposal; expectsReply?: boolean; replyVia?: MessageVia } = {},
+    opts: { proposal?: Proposal; expectsReply?: boolean; replyVia?: MessageVia; para?: string } = {},
   ): ChatMessage {
-    const msg: ChatMessage = { id: randomUUID(), from: 'robot', text, ts: Date.now(), kind, face, proposal: opts.proposal };
+    const msg: ChatMessage = {
+      id: randomUUID(),
+      from: 'robot',
+      text,
+      ts: Date.now(),
+      kind,
+      face,
+      proposal: opts.proposal,
+      ...(opts.para ? { para: opts.para } : {}),
+    };
     this.push(msg);
     this.said$.next({ message: msg, replyVia: opts.replyVia });
     this.react$.next({ face, ms: 5000 });
     this.setState({
-      preview: deviceText(text, LIMITS.PREVIEW_MAX_BYTES),
+      // Resposta a quem perguntou de outro aparelho não vira balão na telinha da mesa (só a cara reage).
+      preview: opts.para ? this.state.preview : deviceText(text, LIMITS.PREVIEW_MAX_BYTES),
       waitingSince: opts.expectsReply ? msg.ts : this.state.waitingSince,
     });
     return msg;
@@ -204,7 +218,7 @@ export class ChatService implements OnModuleInit, OnModuleDestroy {
     // "sim"/"não" (digitado ou falado) com uma proposta aberta vale como o botão
     const pending = this.store.pendingProposals();
     if (pending.length === 1 && (YES.test(text) || NO.test(text))) {
-      return this.handleConfirm(pending[0]!.proposal!.id, YES.test(text));
+      return this.handleConfirm(pending[0]!.proposal!.id, YES.test(text), opts.origem);
     }
 
     // "entra em modo hacker" / "sai do modo hacker": muda a cor do rosto e responde na hora.
@@ -213,6 +227,7 @@ export class ChatService implements OnModuleInit, OnModuleDestroy {
       this.mode$.next(hacker ? 'hacker' : 'normal');
       return this.robotSay(hacker ? 'Modo hacker.' : 'Voltando ao normal.', hacker ? 'thinking' : 'neutral', 'reply', {
         replyVia: via,
+        para: opts.origem,
       });
     }
 
@@ -243,7 +258,7 @@ export class ChatService implements OnModuleInit, OnModuleDestroy {
     this.setState({ thinking: true, waitingSince: 0 });
     if (wasWaiting) this.react$.next({ face: 'love', ms: 2000 }); // finalmente respondeu!
     try {
-      const reply = await this.brain.reply(this.context(opts.since), { spoken: opts.spoken ?? via === 'siri' });
+      const reply = await this.brain.reply(this.context(opts.since), { spoken: opts.spoken ?? via === 'siri', maquina: opts.maquina });
       let proposal: Proposal | undefined;
       if (reply.proposal) {
         this.cancelPending('substituída por outra proposta');
@@ -260,15 +275,15 @@ export class ChatService implements OnModuleInit, OnModuleDestroy {
             };
       }
       this.setState({ thinking: false });
-      return this.robotSay(reply.text, reply.face, 'reply', { proposal, expectsReply: !!proposal, replyVia: via });
+      return this.robotSay(reply.text, reply.face, 'reply', { proposal, expectsReply: !!proposal, replyVia: via, para: opts.origem });
     } catch (err) {
       this.log.error(`Cérebro falhou: ${(err as Error).message}`);
       this.setState({ thinking: false });
-      return this.robotSay('Minha cabeça travou agora. Repete daqui a pouco.', 'sad', 'reply', { replyVia: via });
+      return this.robotSay('Minha cabeça travou agora. Repete daqui a pouco.', 'sad', 'reply', { replyVia: via, para: opts.origem });
     }
   }
 
-  private async handleConfirm(proposalId: string, ok: boolean): Promise<ChatMessage | undefined> {
+  private async handleConfirm(proposalId: string, ok: boolean, para?: string): Promise<ChatMessage | undefined> {
     const msg = this.store.findByProposal(proposalId);
     const p = msg?.proposal;
     if (!msg || !p || p.status !== 'pending') return undefined;
@@ -276,10 +291,10 @@ export class ChatService implements OnModuleInit, OnModuleDestroy {
     if (!ok) {
       this.updateProposal(msg, { status: 'cancelled' });
       this.settleWaiting();
-      return this.robotSay(p.kind === 'command' ? 'Certo, não faço.' : 'Certo, não marquei.', 'neutral', 'reply');
+      return this.robotSay(p.kind === 'command' ? 'Certo, não faço.' : 'Certo, não marquei.', 'neutral', 'reply', { para });
     }
 
-    if (p.kind === 'command') return this.runApproved(msg, p);
+    if (p.kind === 'command') return this.runApproved(msg, p, para);
 
     this.setState({ thinking: true });
     try {
@@ -287,14 +302,14 @@ export class ChatService implements OnModuleInit, OnModuleDestroy {
       this.updateProposal(msg, { status: 'confirmed' });
       this.setState({ thinking: false });
       this.settleWaiting();
-      return this.robotSay(`Marcado: ${p.title}, ${this.timeFmt.format(p.start!)}.`, 'happy', 'reply');
+      return this.robotSay(`Marcado: ${p.title}, ${this.timeFmt.format(p.start!)}.`, 'happy', 'reply', { para });
     } catch (err) {
       const error = (err as Error).message;
       this.log.error(`Falha ao criar evento: ${error}`);
       this.updateProposal(msg, { status: 'failed', error });
       this.setState({ thinking: false });
       this.settleWaiting();
-      return this.robotSay(`Não consegui marcar: ${error}`, 'sad', 'reply');
+      return this.robotSay(`Não consegui marcar: ${error}`, 'sad', 'reply', { para });
     }
   }
 
@@ -313,7 +328,7 @@ export class ChatService implements OnModuleInit, OnModuleDestroy {
    * O dono aprovou no botão: aí sim o comando sai daqui para a máquina dele, e a saída
    * volta no chat. Sem esse "sim" nada roda — é o que separa um assistente de uma porta aberta.
    */
-  private async runApproved(msg: ChatMessage, p: Proposal): Promise<ChatMessage | undefined> {
+  private async runApproved(msg: ChatMessage, p: Proposal, para?: string): Promise<ChatMessage | undefined> {
     this.setState({ thinking: true });
     const r = await this.braco.rodarComando(p.comando ?? '', p.maquina);
     this.setState({ thinking: false });
@@ -321,10 +336,10 @@ export class ChatService implements OnModuleInit, OnModuleDestroy {
     this.settleWaiting();
     this.log.log(`Comando aprovado (${r.ok ? 'ok' : 'falhou'}): ${p.comando}`);
 
-    if (!r.ok) return this.robotSay(`Não rolou: ${r.erro ?? 'a máquina recusou'}`, 'sad', 'reply');
+    if (!r.ok) return this.robotSay(`Não rolou: ${r.erro ?? 'a máquina recusou'}`, 'sad', 'reply', { para });
     const saida = r.saida.trim();
     const curta = saida.length > 400 ? `${saida.slice(0, 400)}…` : saida;
-    return this.robotSay(curta ? `Feito.\n\n${curta}` : 'Feito.', 'happy', 'reply');
+    return this.robotSay(curta ? `Feito.\n\n${curta}` : 'Feito.', 'happy', 'reply', { para });
   }
 
   private cancelPending(reason: string): void {

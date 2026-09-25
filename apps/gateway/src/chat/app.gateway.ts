@@ -111,8 +111,8 @@ export class AppGateway implements OnModuleInit, OnModuleDestroy {
         return;
       }
       const msg = parsed.data;
-      if (msg.t === 'say') void this.chat.say(msg.text);
-      else if (msg.t === 'confirm') void this.chat.confirm(msg.proposal_id, msg.ok);
+      if (msg.t === 'say') void this.chat.say(msg.text, 'text', { origem: msg.origem, maquina: msg.maquina });
+      else if (msg.t === 'confirm') void this.chat.confirm(msg.proposal_id, msg.ok, msg.origem);
       else if (msg.t === 'presence') {
         this.visible.set(ws, msg.visible);
         if (msg.visible) this.chat.seen();

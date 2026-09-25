@@ -14,6 +14,7 @@ import { configureSpeech, speak, speechSupported, stopSpeaking, unlockAudio } fr
 import { DESKTOP, desktop } from './lib/desktop';
 import { useRobo } from './lib/useRobo';
 import { Computador } from './components/Computador';
+import { eParaMim } from './lib/origem';
 
 const TOKEN_KEY = 'robo.token';
 const SPEAK_KEY = 'robo.speak';
@@ -139,7 +140,9 @@ function Main({ token, onLogout }: { token: string; onLogout(): void }) {
     const fresh = robo.messages.filter((m) => m.from === 'robot' && m.ts > spokenUpTo.current);
     if (!fresh.length) return;
     spokenUpTo.current = Math.max(...fresh.map((m) => m.ts));
-    void speak(fresh[fresh.length - 1]!.text);
+    // Resposta a pergunta feita em outro aparelho: fica no chat, mas não fala aqui.
+    const minhas = fresh.filter(eParaMim);
+    if (minhas.length) void speak(minhas[minhas.length - 1]!.text);
   }, [robo.messages, speakOn, convo]);
 
   const toggleSpeak = () => {

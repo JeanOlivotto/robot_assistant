@@ -61,6 +61,11 @@ export const ChatMessage = z.object({
   proposal: Proposal.optional(),
   photo: ChatPhoto.optional(),
   voz: ChatVoz.optional(),
+  /**
+   * Resposta a um pedido feito deste aparelho (a `origem` que veio no say). Só ele abre balão e
+   * fala; os outros guardam no histórico em silêncio. Sem o campo: é para todos (lembrete, aviso).
+   */
+  para: z.string().max(64).optional(),
 });
 
 export const RobotView = z.object({
@@ -75,10 +80,17 @@ export const RobotView = z.object({
 
 /* ───────────── Webapp → Servidor ───────────── */
 
+/** De onde veio o pedido: um id por aparelho (fica no armazenamento do app) e, no computador, o nome dele. */
+const DeOnde = {
+  origem: z.string().max(64).optional(),
+  maquina: z.string().max(60).optional(),
+};
+
 export const Say = z.object({
   t: z.literal('say'),
   ts: epochMs,
   text: z.string().trim().min(1).max(2000),
+  ...DeOnde,
 });
 
 export const Confirm = z.object({
@@ -86,6 +98,7 @@ export const Confirm = z.object({
   ts: epochMs,
   proposal_id: z.string(),
   ok: z.boolean(),
+  ...DeOnde,
 });
 
 export const AppPing = z.object({ t: z.literal('ping'), ts: epochMs });

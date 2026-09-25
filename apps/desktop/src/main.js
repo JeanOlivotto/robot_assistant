@@ -11,6 +11,7 @@
  */
 import { execFile, spawn } from 'node:child_process';
 import { createWriteStream, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { hostname } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { BrowserWindow, Menu, Tray, app, desktopCapturer, globalShortcut, ipcMain, powerMonitor, screen, session, shell } from 'electron';
@@ -465,6 +466,8 @@ const braco = new Braco({
   pastaAcoes: join(app.getPath('userData'), 'acoes.json'),
   aoEstado: () => atualizarBandeja(),
 });
+// O nome com que o braço se apresenta: a página manda junto do pedido, e a ação roda aqui.
+ipcMain.on('maquina', (e) => (e.returnValue = hostname().slice(0, 60)));
 // A bolha entrega a senha do app depois do login: é com ela que o braço entra no servidor.
 ipcMain.on('braco:token', (_e, token) => {
   if (typeof token !== 'string' || token.length < 8) return;

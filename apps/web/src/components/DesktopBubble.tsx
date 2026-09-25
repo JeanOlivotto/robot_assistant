@@ -7,6 +7,7 @@ import { GRAVANDO_KEY } from './Meeting';
 import { configureSpeech, speak, stopSpeaking } from '../lib/speech';
 import { useRobo } from '../lib/useRobo';
 import { RobotFace } from './RobotFace';
+import { eParaMim } from '../lib/origem';
 
 const TOKEN_KEY = 'robo.token';
 const VOZ_KEY = 'robo.desktopVoz';
@@ -155,9 +156,12 @@ function BolhaLogada({ token, andando }: { token: string; andando: 'esquerda' | 
 
   // Mensagem nova do robô: abre o balão (e fala, se a voz estiver ligada).
   useEffect(() => {
-    const novas = robo.messages.filter((m) => m.from === 'robot' && m.ts > vistoAte.current);
+    const todas = robo.messages.filter((m) => m.from === 'robot' && m.ts > vistoAte.current);
+    if (!todas.length) return;
+    vistoAte.current = Math.max(...todas.map((m) => m.ts));
+    // Resposta a quem perguntou pelo celular (ou outro computador): fica no chat, sem balão aqui.
+    const novas = todas.filter(eParaMim);
     if (!novas.length) return;
-    vistoAte.current = Math.max(...novas.map((m) => m.ts));
     const ultima = novas[novas.length - 1]!;
     // Se você abriu o balão para conversar, ele continua "seu": não some sozinho.
     setBalao((b) => ({ msg: ultima, desde: Date.now(), porClique: b?.porClique ?? false }));

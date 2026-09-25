@@ -7,6 +7,7 @@
  * você falou ANTES de o robô perceber não se perde) e o corte imediato quando você fala por cima.
  */
 import { acquireMic, audioContext, micSupported, releaseMic } from './mic';
+import { cabecalhosDeOnde } from './origem';
 
 const RATE = 16000;
 const PRE_ROLL_MS = 900; // quanto do passado entra junto quando o turno abre
@@ -50,7 +51,7 @@ export async function converse(token: string, blob: Blob, session?: string): Pro
   const url = session ? `/api/voice/converse?s=${encodeURIComponent(session)}` : '/api/voice/converse';
   const res = await fetch(url, {
     method: 'POST',
-    headers: { Authorization: `Bearer ${token}`, 'Content-Type': blob.type || 'audio/wav' },
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': blob.type || 'audio/wav', ...cabecalhosDeOnde() },
     body: blob,
   });
   if (!res.ok) throw new Error((await res.text().catch(() => '')) || `HTTP ${res.status}`);
