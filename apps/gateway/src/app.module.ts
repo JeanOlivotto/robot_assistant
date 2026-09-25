@@ -23,6 +23,7 @@ import { AppAuthController } from './chat/app-auth.controller.js';
 import { AppGateway } from './chat/app.gateway.js';
 import { VoiceController } from './chat/voice.controller.js';
 import { VoiceSessionService } from './chat/voice-session.service.js';
+import { ChamadosService } from './chat/chamados.service.js';
 import { ChatService } from './chat/chat.service.js';
 import { ChatStore } from './chat/chat.store.js';
 import { APP_CONFIG, loadConfig } from './config/app-config.js';
@@ -70,6 +71,7 @@ import { WsRouter } from './ws/ws-router.service.js';
     ChatStore,
     ChatService,
     VoiceSessionService,
+    ChamadosService,
     RobotStateService,
     DeviceGateway,
     AppGateway,

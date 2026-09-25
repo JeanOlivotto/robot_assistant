@@ -9,6 +9,7 @@ import { APP_CONFIG, type AppConfig } from '../config/app-config.js';
 import { RobotStateService } from '../robot/robot-state.service.js';
 import { rejectUpgrade, WsRouter } from '../ws/ws-router.service.js';
 import { ChatService } from './chat.service.js';
+import { ChamadosService } from './chamados.service.js';
 
 const HEARTBEAT_MS = 30_000;
 
@@ -29,6 +30,7 @@ export class AppGateway implements OnModuleInit, OnModuleDestroy {
     private readonly chat: ChatService,
     private readonly robot: RobotStateService,
     private readonly calendar: CalendarService,
+    private readonly chamados: ChamadosService,
   ) {}
 
   onModuleInit(): void {
@@ -112,7 +114,11 @@ export class AppGateway implements OnModuleInit, OnModuleDestroy {
         return;
       }
       const msg = parsed.data;
-      if (msg.t === 'say') void this.chat.say(msg.text, 'text', { origem: msg.origem, maquina: msg.maquina });
+      if (msg.t === 'say') {
+        // Veio de um "Miro, …" do computador: é fala, com a voz de quem falou.
+        const chamado = this.chamados.retirar(msg.ref);
+        void this.chat.say(msg.text, chamado ? 'voice' : 'text', { origem: msg.origem, maquina: msg.maquina, ...(chamado?.voz ? { voz: chamado.voz } : {}) });
+      }
       else if (msg.t === 'confirm') void this.chat.confirm(msg.proposal_id, msg.ok, msg.origem);
       else if (msg.t === 'presence') {
         this.visible.set(ws, msg.visible);

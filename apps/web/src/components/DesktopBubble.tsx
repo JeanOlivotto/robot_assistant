@@ -166,7 +166,11 @@ function BolhaLogada({ token, andando }: { token: string; andando: 'esquerda' | 
     // Se você abriu o balão para conversar, ele continua "seu": não some sozinho.
     setBalao((b) => ({ msg: ultima, desde: Date.now(), porClique: b?.porClique ?? false }));
     setEsperando(false);
-    if (voz || falarProxima.current) void speak(ultima.text);
+    if (voz || falarProxima.current) {
+      // Respondendo a um "Miro, …" e terminou perguntando: ouve a resposta sem precisar do nome.
+      const perguntou = falarProxima.current && /\?\s*$/.test(ultima.text.trim());
+      void speak(ultima.text).finally(() => perguntou && desktop?.ouvinteAtento?.(8000));
+    }
     falarProxima.current = false;
   }, [robo.messages, voz]);
 
@@ -219,24 +223,24 @@ function BolhaLogada({ token, andando }: { token: string; andando: 'esquerda' | 
         parar = null;
       }
     });
-    desktop.aoCandidato?.((c) => void confirmarChamado(c.wav));
+    desktop.aoCandidato?.((c) => void confirmarChamado(c.wav, !!c.seguimento));
     desktop.ouvintePronta?.();
     return () => parar?.();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token]);
 
-  const confirmarChamado = async (wav: Uint8Array) => {
+  const confirmarChamado = async (wav: Uint8Array, seguimento = false) => {
     setAtento(true);
     const t0 = Date.now();
     try {
-      const res = await fetch('/api/voice/chamado', {
+      const res = await fetch(`/api/voice/chamado${seguimento ? '?seguimento=1' : ''}`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'audio/wav', ...cabecalhosDeOnde() },
         body: new Blob([new Uint8Array(wav)], { type: 'audio/wav' }),
       });
-      const r = (await res.json()) as { chamou: boolean; texto?: string; comando?: string };
-      console.log(`[miro] servidor (${Date.now() - t0} ms): "${r.texto ?? ''}" → ${r.chamou ? `chamou: "${r.comando ?? ''}"` : 'não era comigo'}`);
-      if (r.chamou) executar(r.comando ?? '');
+      const r = (await res.json()) as { chamou: boolean; texto?: string; comando?: string; ref?: string };
+      console.log(`[miro] servidor (${Date.now() - t0} ms)${seguimento ? ' [continuação]' : ''}: "${r.texto ?? ''}" → ${r.chamou ? `chamou: "${r.comando ?? ''}"` : 'não era comigo'}`);
+      if (r.chamou) executar(r.comando ?? '', r.ref);
     } catch (e) {
       console.log(`[miro] servidor falhou (${Date.now() - t0} ms): ${(e as Error).message}`);
       /* sem servidor agora: fica como se não tivesse ouvido */
@@ -246,7 +250,7 @@ function BolhaLogada({ token, andando }: { token: string; andando: 'esquerda' | 
   };
 
   /** O que veio depois do nome: comando do computador (na hora) ou conversa com ele. */
-  const executar = (comando: string) => {
+  const executar = (comando: string, ref?: string) => {
     const c = comando
       .toLowerCase()
       .normalize('NFD')
@@ -256,9 +260,9 @@ function BolhaLogada({ token, andando }: { token: string; andando: 'esquerda' | 
       void speak(texto);
     };
     if (!c.trim()) {
-      // Só "Miro?": abre o balão para você falar ou digitar.
+      // Só "Miro?": abre o balão e fica esperando a continuação — sem precisar chamar de novo.
       setBalao({ msg: null, desde: Date.now(), porClique: true });
-      void speak('Oi?');
+      void speak('Oi?').finally(() => desktop?.ouvinteAtento?.(8000));
       return;
     }
     if (/\b(grava|gravar|comeca|inicia|abre)\b.*\breuni/.test(c)) {
@@ -296,7 +300,7 @@ function BolhaLogada({ token, andando }: { token: string; andando: 'esquerda' | 
       return;
     }
     // O resto é conversa: vai para ele como se você tivesse digitado, e a resposta sai em voz.
-    if (robo.say(comando)) {
+    if (robo.say(comando, ref)) {
       falarProxima.current = true;
       setEsperando(true);
     } else {

@@ -23,6 +23,8 @@ contextBridge.exposeInMainWorld('roboDesktop', {
   ouvintePronta: () => ipcRenderer.send('ouvinte:pronta'),
   ouvinteAudio: (amostras) => ipcRenderer.send('ouvinte:audio', amostras),
   ouvinteNome: (nome) => ipcRenderer.send('ouvinte:nome', nome),
+  /** Por `ms`, a próxima fala vale como comando sem precisar do nome. */
+  ouvinteAtento: (ms) => ipcRenderer.send('ouvinte:atento', Number(ms)),
   /** Liga/desliga a escuta (sem argumento: inverte). */
   ouvinteAlternar: (sim) => ipcRenderer.send('ouvinte:alternar', typeof sim === 'boolean' ? sim : undefined),
   aoOuvir: (cb) => ipcRenderer.on('ouvinte:ligado', (_e, sim) => cb(!!sim)),

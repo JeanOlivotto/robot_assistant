@@ -223,7 +223,10 @@ export class ChatService implements OnModuleInit, OnModuleDestroy {
 
     // "sim"/"não" (digitado ou falado) com uma proposta aberta vale como o botão
     const pending = this.store.pendingProposals();
-    if (pending.length === 1 && (YES.test(text) || NO.test(text))) {
+    // Comando no computador só o dono aprova: "sim" de outra voz (ou de voz desconhecida) não vale.
+    const outraVoz = !!opts.voz && !(opts.voz.certeza === 'alta' && opts.voz.nome?.trim().toLowerCase() === (this.cfg.OWNER_NAME || '').trim().toLowerCase());
+    const aprovaComando = pending[0]?.proposal?.kind === 'command' && YES.test(text);
+    if (pending.length === 1 && (YES.test(text) || NO.test(text)) && !(aprovaComando && outraVoz)) {
       return this.handleConfirm(pending[0]!.proposal!.id, YES.test(text), opts.origem);
     }
 

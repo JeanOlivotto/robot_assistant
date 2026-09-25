@@ -33,8 +33,9 @@ interface RoboDesktopBridge {
   ouvinteAudio?(amostras: Float32Array): void;
   ouvinteNome?(nome: string): void;
   ouvinteAlternar?(sim?: boolean): void;
+  ouvinteAtento?(ms: number): void;
   aoOuvir?(cb: (sim: boolean) => void): void;
-  aoCandidato?(cb: (c: { wav: Uint8Array; texto: string }) => void): void;
+  aoCandidato?(cb: (c: { wav: Uint8Array; texto: string; seguimento?: boolean }) => void): void;
   aoOuvinteEstado?(cb: (e: string) => void): void;
   comando?(acao: 'reuniao:gravar' | 'reuniao:encerrar'): void;
   aoComando?(cb: (acao: string) => void): void;

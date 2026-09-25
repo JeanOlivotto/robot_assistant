@@ -10,6 +10,7 @@ import { VozesService } from '../vozes/vozes.service.js';
 import { TtsService } from '../tts/tts.service.js';
 import { ChatService } from './chat.service.js';
 import { VoiceSessionService } from './voice-session.service.js';
+import { ChamadosService } from './chamados.service.js';
 import { deOnde } from './de-onde.js';
 
 /**
@@ -66,24 +67,32 @@ export class VoiceController {
     private readonly vozes: VozesService,
     private readonly banco: BancoVozesService,
     private readonly identidade: IdentidadeService,
+    private readonly chamados: ChamadosService,
   ) {}
 
   /**
    * O app do computador ouviu uma frase curta que PODE ser "Miro, …" (o Whisper pequeno de lá
    * só filtra). Aqui o grande confirma: se chamou, devolve o comando; se não, a frase é
    * descartada — não vira conversa nem fica guardada.
+   * `seguimento=1`: é a continuação logo depois de um "Miro?" (ou de uma pergunta dele) — aí não
+   * precisa do nome, a frase inteira é o comando.
+   * Junto, descobre de quem é a voz: o `ref` devolvido vai no say, e o comando entra como fala
+   * daquela pessoa (quem não é o dono não mexe no computador).
    */
   @Post('voice/chamado')
   @HttpCode(200)
   async chamado(
     @Body() audio: unknown,
     @Headers() h: Record<string, string | undefined> = {},
-  ): Promise<{ chamou: boolean; nome: string; texto?: string; comando?: string }> {
+    @Query('seguimento') seguimento?: string,
+  ): Promise<{ chamou: boolean; nome: string; texto?: string; comando?: string; ref?: string }> {
     if (!Buffer.isBuffer(audio) || !audio.length) throw new BadRequestException('mande o áudio no corpo (Content-Type audio/*)');
     const nome = this.identidade.nome;
     try {
+      const voz = this.quemFalaAte(audio, 2500);
       const { text } = await this.stt.transcribe(audio, { dica: false });
-      const comando = comandoPeloNome(text, nome);
+      const peloNome = comandoPeloNome(text, nome);
+      const comando = peloNome ?? (seguimento === '1' && text.trim() ? text.trim() : null);
       if (comando === null) return { chamou: false, nome };
       // Dois computadores perto um do outro ouvem a mesma frase: atende quem chegou primeiro, o
       // outro fica quieto (antes os dois mandavam o comando e ele respondia duas vezes).
@@ -95,8 +104,9 @@ export class VoiceController {
         return { chamou: false, nome };
       }
       this.ultimoChamado = { em: agora, origem };
-      this.log.log(`Chamado pelo nome no computador: "${text}"`);
-      return { chamou: true, nome, texto: text, comando };
+      const quem = await voz;
+      this.log.log(`${peloNome === null ? 'Continuação' : 'Chamado pelo nome'} no computador: "${text}" (voz: ${quem?.nome ?? quem?.certeza ?? '?'})`);
+      return { chamou: true, nome, texto: text, comando, ref: this.chamados.guardar(quem) };
     } catch (err) {
       if (err instanceof SttError && err.status === 422) return { chamou: false, nome };
       throw err instanceof SttError ? new HttpException(err.message, err.status) : err;

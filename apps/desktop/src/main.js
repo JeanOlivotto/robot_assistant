@@ -433,6 +433,8 @@ ipcMain.on('ouvinte:nome', (_e, nome) => {
   }
 });
 ipcMain.on('ouvinte:pronta', () => void aplicarOuvir()); // a bolha carregou: diz se é para ouvir
+// "Miro?" sozinho, ou ele fez uma pergunta: a próxima frase vale sem o nome.
+ipcMain.on('ouvinte:atento', (_e, ms) => Number.isFinite(ms) && ouvinte.atento(ms));
 /* O botão de microfone do balão (e o "Miro, para de ouvir"): liga/desliga igual ao item da bandeja. */
 ipcMain.on('ouvinte:alternar', (_e, sim) => {
   ouvir = typeof sim === 'boolean' ? sim : !ouvir;

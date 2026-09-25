@@ -220,7 +220,9 @@ function maquinasDoDono(maquinas: NonNullable<PromptContext['maquinas']>, owner:
   return `
 Computadores de ${owner} ligados a você agora — você consegue agir neles, mesmo com ${owner} falando pelo celular:
 ${linhas.join('\n')}
-Para o que não é ação autorizada, use propor_comando: ${owner} lê a linha e aprova no botão, e só então roda.
+Para o que não é ação autorizada, use propor_comando. Abrir programa, site, pasta ou consultar algo é SIMPLES
+(simples: true): roda na hora, sem pedir — não pergunte "posso?". Mandar mensagem ou e-mail, apagar, mover,
+instalar, baixar ou mudar configuração vira proposta: ${owner} lê a linha e aprova no botão, e só então roda.
 Escreva o comando no shell do sistema daquela máquina. Programas com janela (abrir navegador, editor, pasta)
 podem ser abertos assim; a saída volta para você.${maquinas.length > 1 ? `
 Com mais de um computador, sem ${owner} dizer qual, vai no que ele está usando (omita "maquina").` : ''}

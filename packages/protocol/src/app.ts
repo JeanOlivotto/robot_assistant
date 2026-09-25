@@ -91,6 +91,8 @@ export const Say = z.object({
   ts: epochMs,
   text: z.string().trim().min(1).max(2000),
   ...DeOnde,
+  /** Veio de um "Miro, …" do computador (o id que o /api/voice/chamado devolveu): entra como fala. */
+  ref: z.string().max(64).optional(),
 });
 
 export const Confirm = z.object({

@@ -101,6 +101,15 @@ export class Ouvinte {
     this.rec = null;
     this.resto = new Float32Array(0);
     this.preparando = null;
+    this.atentoAte = 0;
+  }
+
+  /**
+   * Conversa em andamento: por `ms`, a próxima fala vale como comando mesmo sem o nome (depois de
+   * um "Miro?" sozinho, ou quando ele fez uma pergunta). Antes era preciso chamar de novo.
+   */
+  atento(ms) {
+    this.atentoAte = Date.now() + Math.max(0, Math.min(ms, 20_000));
   }
 
   get pronto() {
@@ -176,6 +185,13 @@ export class Ouvinte {
   #fala(samples) {
     const dur = samples.length / RATE;
     if (dur < FALA_MIN_S) return;
+    // Esperando a continuação: a frase inteira vai para o servidor, sem filtro de nome (uma só).
+    if (Date.now() < this.atentoAte && dur <= 15) {
+      this.atentoAte = 0;
+      console.log(`${new Date().toLocaleTimeString('pt-BR')} [ouvido] continuação de ${dur.toFixed(1)} s → servidor`);
+      this.aoCandidato({ wav: wav(samples), texto: '', seguimento: true });
+      return;
+    }
     if (dur > FALA_MAX_S) return void console.log(`${new Date().toLocaleTimeString('pt-BR')} [ouvido] fala de ${dur.toFixed(1)} s: longa demais, ignorada`);
     const st = this.rec.createStream();
     st.acceptWaveform({ sampleRate: RATE, samples });

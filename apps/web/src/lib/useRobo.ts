@@ -18,7 +18,7 @@ export interface Robo {
   messages: ChatMessage[];
   robot: RobotView | null;
   agenda: AgendaItem[];
-  say(text: string): boolean;
+  say(text: string, ref?: string): boolean;
   confirm(proposalId: string, ok: boolean): void;
   /** Manda uma mensagem de voz; devolve o texto entendido. A resposta chega pelo WebSocket. */
   sendVoice(audio: Blob): Promise<string>;
@@ -122,7 +122,10 @@ export function useRobo(token: string): Robo {
     };
   }, [token]);
 
-  const say = useCallback((text: string) => send(wsRef.current, { t: 'say', ts: Date.now(), text, ...deOnde() }), []);
+  const say = useCallback(
+    (text: string, ref?: string) => send(wsRef.current, { t: 'say', ts: Date.now(), text, ...deOnde(), ...(ref ? { ref } : {}) }),
+    [],
+  );
   const confirm = useCallback(
     (proposalId: string, ok: boolean) => void send(wsRef.current, { t: 'confirm', ts: Date.now(), proposal_id: proposalId, ok, ...deOnde() }),
     [],
