@@ -15,7 +15,7 @@ const require = createRequire(import.meta.url);
 
 const RATE = 16000;
 const JANELA = 512; // o que o detector de voz (Silero) espera por vez
-const FALA_MAX_S = 6; // comando é frase curta: fala longa nem passa pelo Whisper
+const FALA_MAX_S = 10; // comando é frase curta: fala longa nem passa pelo Whisper (6 s cortava "Miro, me lembra de…")
 const FALA_MIN_S = 0.35;
 
 /* Arquivo por arquivo (sem .tar.bz2, que o Windows não abre direito). ~104 MB, uma vez só. */
@@ -133,7 +133,7 @@ export class Ouvinte {
     this.sherpa = sherpa;
     this.vad = new sherpa.Vad(
       {
-        sileroVad: { model: join(this.pasta, 'silero_vad.onnx'), threshold: 0.5, minSilenceDuration: 0.4, minSpeechDuration: 0.25, maxSpeechDuration: 8, windowSize: JANELA },
+        sileroVad: { model: join(this.pasta, 'silero_vad.onnx'), threshold: 0.5, minSilenceDuration: 0.4, minSpeechDuration: 0.25, maxSpeechDuration: 12, windowSize: JANELA },
         sampleRate: RATE,
         numThreads: 1,
       },
@@ -175,13 +175,15 @@ export class Ouvinte {
 
   #fala(samples) {
     const dur = samples.length / RATE;
-    if (dur < FALA_MIN_S || dur > FALA_MAX_S) return;
+    if (dur < FALA_MIN_S) return;
+    if (dur > FALA_MAX_S) return void console.log(`${new Date().toLocaleTimeString('pt-BR')} [ouvido] fala de ${dur.toFixed(1)} s: longa demais, ignorada`);
     const st = this.rec.createStream();
     st.acceptWaveform({ sampleRate: RATE, samples });
     this.rec.decode(st);
     const texto = this.rec.getResult(st).text.trim();
     const candidata = podeSerChamado(texto, this.nome);
-    if (process.env.ROBO_DEBUG_OUVIDO) console.log(`[ouvido] fala de ${dur.toFixed(1)} s: "${texto}" → ${candidata ? 'candidata' : 'descartada'}`);
+    // Fica só no log local (robo.log): é o que permite entender um chamado que ele não atendeu.
+    console.log(`${new Date().toLocaleTimeString('pt-BR')} [ouvido] fala de ${dur.toFixed(1)} s: "${texto}" → ${candidata ? 'candidata' : 'descartada'}`);
     if (candidata) this.aoCandidato({ wav: wav(samples), texto });
   }
 }

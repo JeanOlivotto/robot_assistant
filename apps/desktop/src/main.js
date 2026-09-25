@@ -157,6 +157,11 @@ function criarBolha() {
   bolha.setAlwaysOnTop(true, 'floating');
   bolha.setVisibleOnAllWorkspaces(true);
   protegerNavegacao(bolha);
+  // O que a bolha registra sobre o "Miro, …" vai para o log do app (robo.log), para rastrear chamado perdido.
+  bolha.webContents.on('console-message', (e, _nivel, texto) => {
+    const msg = e?.message ?? texto;
+    if (typeof msg === 'string' && msg.startsWith('[miro]')) console.log(`${new Date().toLocaleTimeString('pt-BR')} ${msg}`);
+  });
   bolha.loadURL(`${BASE}/?desktop=bolha`);
   // Esconder (Super+K) tira a janela do mapa; ao voltar, o bspwm a trata como nova — com borda,
   // sem "fixa" e sem "por cima". Então os ajustes valem a cada vez que ela aparece.

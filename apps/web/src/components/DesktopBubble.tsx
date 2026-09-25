@@ -13,6 +13,8 @@ const VOZ_KEY = 'robo.desktopVoz';
 /** O balão some sozinho depois disso (mais tempo para texto longo), a não ser que o mouse esteja nele. */
 const BALAO_MIN_MS = 9000;
 const BALAO_POR_LETRA_MS = 45;
+/** Balão que você abriu fecha depois deste tempo parado (sem mouse em cima nem digitação). */
+const BALAO_PARADO_MS = 30_000;
 /** Mexeu mais que isso com o botão apertado: é arrastar, não clicar. */
 const ARRASTO_PX = 4;
 
@@ -163,13 +165,19 @@ function BolhaLogada({ token, andando }: { token: string; andando: 'esquerda' | 
 
   // Tamanho da janela acompanha o balão. O que abriu sozinho some depois de um tempo, contado de
   // quando APARECEU (antes contava da hora da mensagem, e o balão aberto no clique fechava na hora).
+  // O que VOCÊ abriu (clique, "Miro?") também fecha, só que com mais folga: depois de um tempo
+  // sem mouse em cima nem digitação. Mexer no balão recomeça a conta.
+  const mexeuEm = useRef(0);
   useEffect(() => {
     desktop?.modo(balao || esperando ? 'balao' : 'carinha');
-    if (!balao || balao.porClique || esperando) return;
-    const prazo = BALAO_MIN_MS + (balao.msg?.text.length ?? 0) * BALAO_POR_LETRA_MS;
+    if (!balao || esperando) return;
+    const leitura = BALAO_MIN_MS + (balao.msg?.text.length ?? 0) * BALAO_POR_LETRA_MS;
+    const prazo = balao.porClique ? Math.max(BALAO_PARADO_MS, leitura) : leitura;
     const id = setInterval(() => {
-      const mexendo = emCima || document.activeElement === inputRef.current || resposta.trim();
-      if (!mexendo && Date.now() - balao.desde > prazo) setBalao(null);
+      // Cursor piscando no campo não é mexer: só conta se esta janela ainda tem o foco.
+      const mexendo = emCima || !!resposta.trim() || (document.hasFocus() && document.activeElement === inputRef.current);
+      if (mexendo) mexeuEm.current = Date.now();
+      else if (Date.now() - Math.max(balao.desde, mexeuEm.current) > prazo) setBalao(null);
     }, 1000);
     return () => clearInterval(id);
   }, [balao, esperando, emCima, resposta]);
@@ -212,15 +220,18 @@ function BolhaLogada({ token, andando }: { token: string; andando: 'esquerda' | 
 
   const confirmarChamado = async (wav: Uint8Array) => {
     setAtento(true);
+    const t0 = Date.now();
     try {
       const res = await fetch('/api/voice/chamado', {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'audio/wav' },
         body: new Blob([new Uint8Array(wav)], { type: 'audio/wav' }),
       });
-      const r = (await res.json()) as { chamou: boolean; comando?: string };
+      const r = (await res.json()) as { chamou: boolean; texto?: string; comando?: string };
+      console.log(`[miro] servidor (${Date.now() - t0} ms): "${r.texto ?? ''}" → ${r.chamou ? `chamou: "${r.comando ?? ''}"` : 'não era comigo'}`);
       if (r.chamou) executar(r.comando ?? '');
-    } catch {
+    } catch (e) {
+      console.log(`[miro] servidor falhou (${Date.now() - t0} ms): ${(e as Error).message}`);
       /* sem servidor agora: fica como se não tivesse ouvido */
     } finally {
       setAtento(false);
@@ -281,6 +292,9 @@ function BolhaLogada({ token, andando }: { token: string; andando: 'esquerda' | 
     if (robo.say(comando)) {
       falarProxima.current = true;
       setEsperando(true);
+    } else {
+      console.log('[miro] sem conexão com o servidor: comando perdido');
+      avisar('Estou sem conexão agora. Tenta de novo daqui a pouco.');
     }
   };
 
