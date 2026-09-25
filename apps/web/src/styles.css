@@ -1855,3 +1855,9 @@ html.desktop-bolha #root {
     font-size: 12px;
   }
 }
+
+/* Pendências e PC encostavam nas bordas da tela: mesma margem da agenda. */
+.tasks {
+  box-sizing: border-box;
+  padding: 4px 16px calc(env(safe-area-inset-bottom) + 24px);
+}
