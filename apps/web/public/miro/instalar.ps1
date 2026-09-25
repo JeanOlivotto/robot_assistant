@@ -20,8 +20,27 @@ Write-Host 'Instalando...' -ForegroundColor Cyan
 Start-Process -FilePath $exe -ArgumentList '/S' -Wait
 Remove-Item $exe -ErrorAction SilentlyContinue
 
-$app = Join-Path $env:LOCALAPPDATA 'Programs\Miro\Miro.exe'
-if (-not (Test-Path $app)) { throw "O instalador terminou, mas nao achei $app" }
+# Onde ele instalou: o proprio instalador anota no registro (a pasta nao se chama necessariamente "Miro").
+function Achar-Miro {
+    $chaves = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*',
+              'HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*',
+              'HKLM:\Software\WOW6432Node\Microsoft\Windows\CurrentVersion\Uninstall\*'
+    foreach ($r in (Get-ItemProperty $chaves -ErrorAction SilentlyContinue | Where-Object { $_.DisplayName -like 'Miro*' })) {
+        $dir = $r.InstallLocation
+        if (-not $dir -and $r.UninstallString) { $dir = Split-Path ($r.UninstallString -replace '^"([^"]+)".*$', '$1') }
+        if ($dir -and (Test-Path (Join-Path $dir 'Miro.exe'))) { return (Join-Path $dir 'Miro.exe') }
+    }
+    # Sem registro: procura nas pastas de programas.
+    foreach ($base in "$env:LOCALAPPDATA\Programs", $env:ProgramFiles) {
+        $achado = Get-ChildItem -Path $base -Filter 'Miro.exe' -Recurse -Depth 2 -ErrorAction SilentlyContinue | Select-Object -First 1
+        if ($achado) { return $achado.FullName }
+    }
+    return $null
+}
+
+$app = Achar-Miro
+if (-not $app) { throw 'O instalador terminou, mas nao achei o Miro.exe. Procure "Miro" no Menu Iniciar.' }
+Write-Host "Instalado em $(Split-Path $app)"
 Start-Process -FilePath $app
 
 Write-Host ''
