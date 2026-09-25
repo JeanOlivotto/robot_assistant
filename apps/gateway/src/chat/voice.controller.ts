@@ -1,6 +1,7 @@
-import { BadRequestException, Body, Controller, HttpCode, HttpException, Logger, Post, Query, UseGuards } from '@nestjs/common';
+import { BadRequestException, Body, Controller, HttpCode, HttpException, Inject, Logger, Post, Query, UseGuards } from '@nestjs/common';
 import { AppTokenGuard } from '../auth/app-token.guard.js';
 import type { ChatVoz } from '@robo/protocol';
+import { APP_CONFIG, type AppConfig } from '../config/app-config.js';
 import { SttError, SttService } from '../stt/stt.service.js';
 import { BancoVozesService } from '../vozes/banco.service.js';
 import { VozesService } from '../vozes/vozes.service.js';
@@ -49,6 +50,7 @@ export class VoiceController {
   private readonly log = new Logger(VoiceController.name);
 
   constructor(
+    @Inject(APP_CONFIG) private readonly cfg: AppConfig,
     private readonly stt: SttService,
     private readonly chat: ChatService,
     private readonly sessions: VoiceSessionService,
@@ -79,6 +81,10 @@ export class VoiceController {
         this.banco.reforcar(r, emb);
         return { certeza: 'alta', nome: r.nome, score: r.score };
       }
+      // No app do próprio dono, "parecida com a do dono" é ele: perguntar "é você?" a cada fala curta
+      // (a assinatura de fala curta varia muito) cansava. Para os outros, segue confirmando.
+      const dono = (this.cfg.OWNER_NAME || '').trim().toLowerCase();
+      if (r?.certeza === 'duvida' && dono && r.nome.trim().toLowerCase() === dono) return { certeza: 'alta', nome: r.nome, score: r.score };
       this.banco.guardarPendente(emb);
       return r ? { certeza: 'duvida', nome: r.nome, score: r.score } : { certeza: 'desconhecida' };
     } catch {

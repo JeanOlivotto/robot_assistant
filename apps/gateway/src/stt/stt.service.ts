@@ -154,7 +154,10 @@ export class SttService {
     // Dica de vocabulário: sem ela o Whisper não conhece o nome do dono ("Jean" saía "Gia") — e é
     // esse nome que vai para o banco de vozes quando ele se apresenta. Curta de propósito: uma
     // frase inteira ("Conversa com Jean…") fazia ele escrever "Jeean"; "Nomes: Jean." não.
-    if (dica && this.cfg.OWNER_NAME) form.append('prompt', `Nomes: ${this.cfg.OWNER_NAME}.`);
+    // Sem dica de vocabulário: "Nomes: Jean." fazia o Whisper devolver a dica em fala curta ou
+    // silêncio ("Nome. Nome. Nome.", "SOU JEEAN") — o "sim" de um lembrete se perdeu assim. O nome
+    // do dono vem da confirmação ("é você, Jean?"), não da transcrição.
+    if (dica && this.cfg.OWNER_NAME && process.env.STT_DICA === '1') form.append('prompt', `Nomes: ${this.cfg.OWNER_NAME}.`);
 
     const started = Date.now();
     let res: Response;
@@ -246,5 +249,8 @@ export function ecoDaDica(texto: string): boolean {
     .replace(/[^a-z ]/g, ' ')
     .split(/\s+/)
     .filter(Boolean);
-  return palavras.length > 0 && palavras.length <= 4 && palavras[0]!.startsWith('nome');
+  if (!palavras.length) return false;
+  // "Nome. Nome. Nome. Nome. Nome." — só a palavra da dica, repetida quantas vezes for.
+  if (palavras.every((p) => p.startsWith('nome'))) return true;
+  return palavras.length <= 4 && palavras[0]!.startsWith('nome');
 }

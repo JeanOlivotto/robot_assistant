@@ -159,6 +159,24 @@ const TOOLS: ChatCompletionTool[] = [
   {
     type: 'function',
     function: {
+      name: 'editar_pendencias',
+      description:
+        'Muda a lista de pendências abertas (os números da lista no seu contexto): renomear uma, juntar várias numa ' +
+        'só com um texto novo, ou apagar uma que não vale mais.',
+      parameters: {
+        type: 'object',
+        properties: {
+          acao: { type: 'string', enum: ['renomear', 'juntar', 'apagar'] },
+          numeros: { type: 'array', items: { type: 'integer' }, description: 'os números das pendências na lista' },
+          texto: { type: 'string', description: 'o texto novo (para renomear ou juntar)' },
+        },
+        required: ['acao', 'numeros'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
       name: 'definir_identidade',
       description:
         'Guarda quem VOCÊ é, do seu jeito: o nome que você escolheu para si, e o que decidir sobre você (gostos, ' +
@@ -536,6 +554,7 @@ export class BrainService {
       if (name === 'propor_evento') return await this.proporEvento(args, now);
       if (name === 'anotar_pendencia') return { result: this.anotarPendencia(args) };
       if (name === 'concluir_pendencia') return { result: this.concluirPendencia(args) };
+      if (name === 'editar_pendencias') return { result: this.editarPendencias(args) };
       if (name === 'definir_identidade') return { result: this.definirIdentidade(args) };
       if (name === 'salvar_voz') return { result: this.salvarVoz(args, history) };
       if (name === 'renomear_voz') return { result: this.renomearVoz(args, voz) };
@@ -555,6 +574,29 @@ export class BrainService {
   private anotarPendencia(args: Record<string, unknown>): string {
     const t = this.tasks.add(String(args.texto ?? ''), { pessoa: args.pessoa ? String(args.pessoa) : undefined, origem: 'conversa' });
     return t ? `anotado: ${t.texto}. Você cobra isso sozinho mais tarde.` : 'erro: faltou dizer o que é';
+  }
+
+  private editarPendencias(args: Record<string, unknown>): string {
+    const abertas = this.tasks.open();
+    const nums = Array.isArray(args.numeros) ? args.numeros.map(Number) : [];
+    const alvo = nums.map((n) => abertas[n - 1]).filter((t): t is NonNullable<typeof t> => !!t);
+    if (!alvo.length || alvo.length !== nums.length) return 'erro: algum número não existe na lista de pendências';
+    const texto = String(args.texto ?? '').trim();
+    switch (args.acao) {
+      case 'renomear': {
+        const t = alvo.length === 1 ? this.tasks.renomear(alvo[0]!.id, texto) : null;
+        return t ? `renomeada: ${t.texto}` : 'erro: renomear é uma pendência por vez, com texto';
+      }
+      case 'juntar': {
+        const t = this.tasks.juntar(alvo.map((x) => x.id), texto);
+        return t ? `feito: ${alvo.length} pendências viraram uma só — "${t.texto}"` : 'erro: juntar precisa de 2+ pendências e do texto novo';
+      }
+      case 'apagar':
+        alvo.forEach((t) => this.tasks.drop(t.id));
+        return `apagada(s): ${alvo.map((t) => t.texto).join('; ')}`;
+      default:
+        return 'erro: ação deve ser renomear, juntar ou apagar';
+    }
   }
 
   /** O número é a posição na lista que foi para o prompt (tasks.open(), na mesma ordem). */

@@ -5,6 +5,7 @@ describe('ecoDaDica', () => {
   it('reconhece o Whisper devolvendo a dica em cima do silêncio', () => {
     expect(ecoDaDica('Nomes, Jeean. Nome.')).toBe(true);
     expect(ecoDaDica('Nomes: Jean.')).toBe(true);
+    expect(ecoDaDica('Nome. Nome. Nome. Nome. Nome.')).toBe(true); // o "sim" do lembrete virou isso
   });
   it('não confunde com fala de verdade', () => {
     expect(ecoDaDica('Meu nome é Jean.')).toBe(false);

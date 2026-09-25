@@ -69,3 +69,16 @@ describe('TaskService', () => {
     expect(new TaskService(cfg).open()).toHaveLength(1);
   });
 });
+
+describe('TaskService: renomear e juntar', () => {
+  it('juntar várias pendências deixa uma só, com o texto novo', () => {
+    const svc = new TaskService({ DATA_DIR: mkdtempSync(join(tmpdir(), 'robo-tasks-')) } as unknown as AppConfig);
+    const a = svc.add('Refazer notificações dos 600 contribuintes')!;
+    const b = svc.add('Abrir ticket de higienização da base')!;
+    svc.add('Comprar café');
+    const t = svc.juntar([a.id, b.id], 'Pendências de Itabirito')!;
+    expect(svc.open().map((x) => x.texto)).toEqual(['Pendências de Itabirito', 'Comprar café']);
+    expect(svc.renomear(t.id, 'Itabirito: notificações e higienização')?.texto).toBe('Itabirito: notificações e higienização');
+    expect(svc.juntar([a.id], 'só uma')).toBeNull(); // juntar precisa de duas
+  });
+});

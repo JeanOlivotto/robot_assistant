@@ -98,6 +98,31 @@ export class TaskService {
     return t;
   }
 
+  /** Troca o texto de uma pendência aberta ("renomeia"). */
+  renomear(id: string, texto: string): Task | null {
+    const t = this.tasks.find((x) => x.id === id && !x.doneAt);
+    const limpo = texto.trim().slice(0, 160);
+    if (!t || limpo.length < 3) return null;
+    t.texto = limpo;
+    this.save();
+    return t;
+  }
+
+  /** Várias pendências viram uma só (com o texto dado); as outras saem da lista. */
+  juntar(ids: string[], texto: string): Task | null {
+    const alvo = this.tasks.filter((t) => ids.includes(t.id) && !t.doneAt);
+    const limpo = texto.trim().slice(0, 160);
+    if (alvo.length < 2 || limpo.length < 3) return null;
+    const [primeira, ...resto] = alvo.sort((a, b) => a.createdAt - b.createdAt);
+    primeira!.texto = limpo;
+    const pessoas = [...new Set(alvo.map((t) => t.pessoa).filter(Boolean))];
+    primeira!.pessoa = pessoas.length === 1 ? pessoas[0] : undefined;
+    this.tasks = this.tasks.filter((t) => !resto.includes(t));
+    this.save();
+    this.log.log(`${alvo.length} pendências viraram uma: ${limpo}`);
+    return primeira!;
+  }
+
   /** Tira da lista de vez (não era tarefa, ou não vale mais). */
   drop(id: string): boolean {
     const antes = this.tasks.length;
