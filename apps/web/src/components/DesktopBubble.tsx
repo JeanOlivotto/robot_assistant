@@ -16,6 +16,8 @@ const BALAO_MIN_MS = 9000;
 const BALAO_POR_LETRA_MS = 45;
 /** Balão que você abriu fecha depois deste tempo parado (sem mouse em cima nem digitação). */
 const BALAO_PARADO_MS = 30_000;
+/** Depois de cada resposta falada, quanto tempo ele espera você continuar sem dizer o nome. */
+const CONVERSA_MS = 10_000;
 /** Mexeu mais que isso com o botão apertado: é arrastar, não clicar. */
 const ARRASTO_PX = 4;
 
@@ -119,6 +121,21 @@ function BolhaLogada({ token, andando }: { token: string; andando: 'esquerda' | 
   /** Você falou "Miro, …": a próxima resposta sai em voz mesmo com a voz desligada. */
   const falarProxima = useRef(false);
   const [atento, setAtento] = useState(false); // ouviu algo parecido com o nome e está confirmando
+  /* Conversa aberta: depois de cada resposta falada, ele fica ouvindo sem precisar do nome. */
+  const [conversando, setConversando] = useState(false);
+  const fimDaConversa = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const abrirConversa = () => {
+    if (!desktop?.ouvinteAtento) return;
+    desktop.ouvinteAtento(CONVERSA_MS);
+    setConversando(true);
+    if (fimDaConversa.current) clearTimeout(fimDaConversa.current);
+    fimDaConversa.current = setTimeout(() => setConversando(false), CONVERSA_MS);
+  };
+  const fecharConversa = () => {
+    desktop?.ouvinteAtento?.(0);
+    setConversando(false);
+    if (fimDaConversa.current) clearTimeout(fimDaConversa.current);
+  };
   /** O microfone está aberto para o "Miro, …" (null: este app não tem ouvido). */
   const [ouvindo, setOuvindo] = useState<boolean | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -167,9 +184,10 @@ function BolhaLogada({ token, andando }: { token: string; andando: 'esquerda' | 
     setBalao((b) => ({ msg: ultima, desde: Date.now(), porClique: b?.porClique ?? false }));
     setEsperando(false);
     if (voz || falarProxima.current) {
-      // Respondendo a um "Miro, …" e terminou perguntando: ouve a resposta sem precisar do nome.
-      const perguntou = falarProxima.current && /\?\s*$/.test(ultima.text.trim());
-      void speak(ultima.text).finally(() => perguntou && desktop?.ouvinteAtento?.(8000));
+      // Respondendo a um pedido falado: depois de falar, a conversa fica aberta — você continua
+      // sem repetir o nome (antes só depois de "Miro?" ou de uma pergunta dele).
+      const conversa = falarProxima.current;
+      void speak(ultima.text).finally(() => conversa && abrirConversa());
     }
     falarProxima.current = false;
   }, [robo.messages, voz]);
@@ -240,7 +258,10 @@ function BolhaLogada({ token, andando }: { token: string; andando: 'esquerda' | 
       });
       const r = (await res.json()) as { chamou: boolean; texto?: string; comando?: string; ref?: string };
       console.log(`[miro] servidor (${Date.now() - t0} ms)${seguimento ? ' [continuação]' : ''}: "${r.texto ?? ''}" → ${r.chamou ? `chamou: "${r.comando ?? ''}"` : 'não era comigo'}`);
-      if (r.chamou) executar(r.comando ?? '', r.ref);
+      if (r.chamou) {
+        if (seguimento) fecharConversa(); // aceitou: a próxima janela abre depois da resposta
+        executar(r.comando ?? '', r.ref, seguimento);
+      }
     } catch (e) {
       console.log(`[miro] servidor falhou (${Date.now() - t0} ms): ${(e as Error).message}`);
       /* sem servidor agora: fica como se não tivesse ouvido */
@@ -250,7 +271,7 @@ function BolhaLogada({ token, andando }: { token: string; andando: 'esquerda' | 
   };
 
   /** O que veio depois do nome: comando do computador (na hora) ou conversa com ele. */
-  const executar = (comando: string, ref?: string) => {
+  const executar = (comando: string, ref?: string, seguimento = false) => {
     const c = comando
       .toLowerCase()
       .normalize('NFD')
@@ -262,7 +283,12 @@ function BolhaLogada({ token, andando }: { token: string; andando: 'esquerda' | 
     if (!c.trim()) {
       // Só "Miro?": abre o balão e fica esperando a continuação — sem precisar chamar de novo.
       setBalao({ msg: null, desde: Date.now(), porClique: true });
-      void speak('Oi?').finally(() => desktop?.ouvinteAtento?.(8000));
+      void speak('Oi?').finally(abrirConversa);
+      return;
+    }
+    // Na conversa aberta, "obrigado"/"tchau"/"era só isso" encerra (sem mandar para o cérebro).
+    if (seguimento && /^(obrigad[oa]|valeu|tchau|ate mais|era so isso|so isso|nada|deixa|pode parar|chega)\b/.test(c.trim())) {
+      void speak('Beleza!');
       return;
     }
     if (/\b(grava|gravar|comeca|inicia|abre)\b.*\breuni/.test(c)) {
@@ -391,6 +417,7 @@ function BolhaLogada({ token, andando }: { token: string; andando: 'esquerda' | 
       <Carinha
         andando={andando}
         face={robo.conn === 'open' ? (atento ? 'surprised' : andando ? 'happy' : face) : null}
+        ouvindo={conversando}
         onClick={clicar}
         dica={balao ? 'Fechar o balão' : 'Falar com o Miro'}
         surdo={ouvindo === false}
@@ -412,6 +439,7 @@ function Carinha({
   onDoubleClick,
   dica,
   surdo = false,
+  ouvindo = false,
 }: {
   face: ChatMessage['face'] | null;
   andando: 'esquerda' | 'direita' | null;
@@ -420,6 +448,8 @@ function Carinha({
   dica: string;
   /** Não está ouvindo o "Miro, …": um microfone riscado no canto, para você lembrar. */
   surdo?: boolean;
+  /** Conversa aberta: pode falar sem o nome — ondinhas verdes em volta da carinha. */
+  ouvindo?: boolean;
 }) {
   const inicio = useRef<{ x: number; y: number; arrastou: boolean } | null>(null);
   const gravando = useGravando();
@@ -465,6 +495,7 @@ function Carinha({
           <i /> {tempo(Date.now() - gravando)}
         </span>
       )}
+      {ouvindo && <span className="carinha__ouvindo" title="Pode falar — estou ouvindo" aria-hidden="true" />}
       {surdo && (
         <span className="carinha__surdo" aria-hidden="true">
           <MicOffIcon />

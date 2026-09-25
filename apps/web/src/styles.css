@@ -1865,3 +1865,17 @@ html.desktop-bolha #root {
   background: var(--dim);
   box-shadow: none;
 }
+
+/* Conversa aberta ("pode falar sem o nome"): um anel verde pulsando em volta da carinha. */
+.carinha__ouvindo {
+  position: absolute;
+  inset: 6px;
+  border-radius: 22px;
+  border: 2px solid #4ade80;
+  pointer-events: none;
+  animation: ouvindo-pulsa 1.4s ease-in-out infinite;
+}
+@keyframes ouvindo-pulsa {
+  0%, 100% { opacity: 0.9; transform: scale(1); }
+  50% { opacity: 0.35; transform: scale(1.04); }
+}

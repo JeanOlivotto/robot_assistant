@@ -120,11 +120,12 @@ export class Ouvinte {
   }
 
   /**
-   * Conversa em andamento: por `ms`, a próxima fala vale como comando mesmo sem o nome (depois de
-   * um "Miro?" sozinho, ou quando ele fez uma pergunta). Antes era preciso chamar de novo.
+   * Conversa em andamento: por `ms`, toda fala vai para o servidor como possível continuação, sem
+   * precisar do nome (o servidor só aceita a voz do dono — em volta tem gente conversando).
+   * `atento(0)` fecha. A bolha abre depois de cada resposta falada e fecha quando uma é aceita.
    */
   atento(ms) {
-    this.atentoAte = Date.now() + Math.max(0, Math.min(ms, 20_000));
+    this.atentoAte = ms > 0 ? Date.now() + Math.min(ms, 30_000) : 0;
   }
 
   get pronto() {
@@ -200,9 +201,9 @@ export class Ouvinte {
   #fala(samples) {
     const dur = samples.length / RATE;
     if (dur < FALA_MIN_S) return;
-    // Esperando a continuação: a frase inteira vai para o servidor, sem filtro de nome (uma só).
-    if (Date.now() < this.atentoAte && dur <= 15) {
-      this.atentoAte = 0;
+    // Conversa aberta: a frase inteira vai para o servidor, sem filtro de nome. Vale pelo COMEÇO da
+    // fala — quem começou a falar no fim da janela não perde a frase.
+    if (Date.now() - dur * 1000 < this.atentoAte && dur <= 15) {
       console.log(`${new Date().toLocaleTimeString('pt-BR')} [ouvido] continuação de ${dur.toFixed(1)} s → servidor`);
       this.aoCandidato({ wav: wav(samples), texto: '', seguimento: true });
       return;

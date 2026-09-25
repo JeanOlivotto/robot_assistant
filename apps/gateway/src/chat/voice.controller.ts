@@ -48,6 +48,9 @@ function forSpeech(text: string): string {
     .trim();
 }
 
+/** O que o Whisper "ouve" no silêncio ou no ruído (vem de legenda de vídeo): não é o dono falando. */
+const ALUCINACAO = /^(legendas? (pela|por)|amara\.org|inscreva-se|obrigad[oa] por assistir|tchau,? tchau\.?$)/i;
+
 /** Chamados em computadores diferentes dentro deste intervalo são a mesma frase ouvida duas vezes. */
 const MESMO_CHAMADO_MS = 4000;
 
@@ -92,8 +95,19 @@ export class VoiceController {
       const voz = this.quemFalaAte(audio, 2500);
       const { text } = await this.stt.transcribe(audio, { dica: false });
       const peloNome = comandoPeloNome(text, nome);
-      const comando = peloNome ?? (seguimento === '1' && text.trim() ? text.trim() : null);
+      const falado = text.replace(/[[(][^\])]*[\])]/g, ' ').trim(); // "[música]" não é fala
+      const comando = peloNome ?? (seguimento === '1' && falado && !ALUCINACAO.test(falado) ? falado : null);
       if (comando === null) return { chamou: false, nome };
+      // Continuação sem o nome: só a voz do dono. Em volta tem gente conversando, e a conversa aberta
+      // não pode virar comando de qualquer um. Sem resposta do banco de vozes, confia.
+      if (peloNome === null) {
+        const quem = await voz;
+        const dono = (this.cfg.OWNER_NAME || '').trim().toLowerCase();
+        if (quem && !(quem.certeza === 'alta' && quem.nome?.trim().toLowerCase() === dono)) {
+          this.log.log(`Continuação "${text}" ignorada: voz de ${quem.nome ?? 'alguém que não conheço'}`);
+          return { chamou: false, nome };
+        }
+      }
       // Dois computadores perto um do outro ouvem a mesma frase: atende quem chegou primeiro, o
       // outro fica quieto (antes os dois mandavam o comando e ele respondia duas vezes).
       const { origem } = deOnde(h);
