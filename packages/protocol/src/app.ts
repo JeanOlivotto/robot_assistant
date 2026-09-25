@@ -22,6 +22,8 @@ export const Proposal = z.object({
   end: epochMs.optional(),
   /** Só em 'command': a linha que vai rodar, exatamente como foi proposta. */
   comando: z.string().optional(),
+  /** Só em 'command': em qual computador (quando há mais de um conectado). */
+  maquina: z.string().optional(),
   status: z.enum(PROPOSAL_STATUS),
   error: z.string().optional(),
 });

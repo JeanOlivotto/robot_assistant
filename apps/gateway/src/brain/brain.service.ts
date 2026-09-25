@@ -23,6 +23,8 @@ export interface ProposalDraft {
   end?: Date;
   /** Comando de terminal, quando a proposta é para a máquina do dono. */
   comando?: string;
+  /** Em qual máquina roda (o nome dela); sem isso, na que ele estiver usando na hora. */
+  maquina?: string;
 }
 
 export interface BrainReply {
@@ -234,6 +236,7 @@ const TOOLS: ChatCompletionTool[] = [
         type: 'object',
         properties: {
           acao: { type: 'string', description: 'o nome exato, como aparece na lista' },
+          maquina: { type: 'string', description: 'o nome da máquina, se houver mais de uma conectada (omitir = a que ele está usando)' },
           argumentos: {
             type: 'object',
             description: 'os parâmetros que a ação pede, ex.: {"projeto": "robot_assistant"}',
@@ -256,7 +259,11 @@ const TOOLS: ChatCompletionTool[] = [
       parameters: {
         type: 'object',
         properties: {
-          comando: { type: 'string', description: 'a linha de terminal, completa' },
+          comando: {
+            type: 'string',
+            description: 'a linha de terminal, completa — em sh no Linux, em PowerShell no Windows (veja o sistema da máquina no contexto)',
+          },
+          maquina: { type: 'string', description: 'o nome da máquina, se houver mais de uma conectada (omitir = a que ele está usando)' },
           motivo: { type: 'string', description: 'em uma frase, o que isso faz — o dono lê antes de aprovar' },
         },
         required: ['comando', 'motivo'],
@@ -499,7 +506,7 @@ export class BrainService {
       now,
       canWrite: this.calendar.writable,
       memories: this.memory.summaries(),
-      acoesDaMaquina: this.braco.acoes(),
+      maquinas: this.braco.maquinas(),
       pendencias: this.tasks.open().map((t) => (t.pessoa ? `${t.texto} (com ${t.pessoa})` : t.texto)),
       vozesConhecidas: this.banco.listar().map((v) => v.nome),
       conheceDono: !!this.cfg.OWNER_NAME && this.banco.conhece(this.cfg.OWNER_NAME),
@@ -684,7 +691,7 @@ export class BrainService {
       for (const [k, v] of Object.entries(cru as Record<string, unknown>)) argumentos[k] = String(v);
     }
 
-    const r = await this.braco.rodarAcao(acao, argumentos);
+    const r = await this.braco.rodarAcao(acao, argumentos, args.maquina ? String(args.maquina) : undefined);
     if (!r.ok) return `a ação falhou: ${r.erro ?? 'sem detalhe'}`;
     return `pronto. saída:\n${r.saida.slice(0, 1200)}`;
   }
@@ -695,9 +702,12 @@ export class BrainService {
     const comando = String(args.comando ?? '').trim();
     if (!comando) return { result: 'erro: falta o comando' };
     const motivo = String(args.motivo ?? '').trim().slice(0, 120) || comando;
+    // A máquina fica escolhida já na proposta: o dono aprova sabendo onde vai rodar.
+    const m = this.braco.escolher(args.maquina ? String(args.maquina) : undefined);
+    if (!m) return { result: `erro: não achei a máquina "${String(args.maquina)}"` };
     return {
-      result: `comando preparado, esperando o dono aprovar no botão: ${comando}`,
-      proposal: { title: motivo, comando },
+      result: `comando preparado para ${m.nome}, esperando o dono aprovar no botão: ${comando}`,
+      proposal: { title: motivo, comando, maquina: m.nome },
     };
   }
 

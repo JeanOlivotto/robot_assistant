@@ -17,55 +17,86 @@ export interface Resultado {
   erro?: string;
 }
 
+/** Sistema da máquina: define em que shell o comando roda (sh no Linux/Mac, PowerShell no Windows). */
+export type Sistema = 'linux' | 'windows' | 'mac';
+
+/** Uma máquina conectada: o app do computador (Linux ou Windows) ou o apps/braco avulso. */
+export interface Maquina {
+  nome: string;
+  sistema: Sistema;
+  acoes: Acao[];
+  /** Última vez que o dono mexeu nela (teclado/mouse): é a "que ele está usando". */
+  ativaEm: number;
+}
+
+interface Conexao extends Maquina {
+  ws: WebSocket;
+}
+
 const TIMEOUT_MS = 60_000;
 const SAIDA_MAX = 4000;
 
 /**
- * O braço: um agente rodando na máquina do dono (apps/braco). O gateway manda pedidos, ele
- * executa e devolve a saída. Duas formas: uma ação da lista que ele cadastrou, ou um comando
- * escrito na hora — e esse só chega aqui depois que o dono aprovou no chat.
+ * O braço: agentes rodando nas máquinas do dono (o app do computador, no Linux e no Windows, ou
+ * o apps/braco avulso). O gateway manda pedidos, a máquina executa e devolve a saída. Duas
+ * formas: uma ação da lista que ela anunciou, ou um comando escrito na hora — e esse só chega
+ * aqui depois que o dono aprovou no chat. Várias máquinas ao mesmo tempo: sem dizer qual, vai
+ * para a que ele está usando.
  */
 @Injectable()
 export class BracoService {
   private readonly log = new Logger(BracoService.name);
-  private ws: WebSocket | null = null;
-  private host = '';
-  private pendentes = new Map<string, { resolve(r: Resultado): void; timer: NodeJS.Timeout }>();
+  private readonly conexoes = new Map<WebSocket, Conexao>();
+  private pendentes = new Map<string, { ws: WebSocket; resolve(r: Resultado): void; timer: NodeJS.Timeout }>();
 
-  /** As ações que a máquina anunciou ao conectar. Vazio = braço desligado. */
-  readonly acoes$ = new BehaviorSubject<Acao[]>([]);
+  /** As máquinas conectadas agora (muda a cada entrada/saída). */
+  readonly maquinas$ = new BehaviorSubject<Maquina[]>([]);
 
   get online(): boolean {
-    return this.ws !== null;
+    return this.conexoes.size > 0;
   }
 
-  get maquina(): string {
-    return this.host;
+  maquinas(): Maquina[] {
+    return [...this.conexoes.values()]
+      .map(({ ws: _ws, ...m }) => m)
+      .sort((a, b) => b.ativaEm - a.ativaEm);
   }
 
+  /** Ações da máquina em uso (compatível com quem só conhece uma máquina). */
   acoes(): Acao[] {
-    return this.acoes$.value;
+    return this.escolher()?.acoes ?? [];
   }
 
-  /** O agente conectou e disse o que sabe fazer. */
-  conectou(ws: WebSocket, host: string, acoes: Acao[]): void {
-    this.desconectou(); // um braço por vez: o novo toma o lugar
-    this.ws = ws;
-    this.host = host;
-    this.acoes$.next(acoes);
-    this.log.log(`Braço conectado em ${host} — ${acoes.length} ação(ões): ${acoes.map((a) => a.nome).join(', ')}`);
+  /** Uma máquina conectou e disse quem é e o que sabe fazer. Mesmo nome = a conexão nova toma o lugar. */
+  conectou(ws: WebSocket, nome: string, acoes: Acao[], sistema: Sistema = 'linux'): void {
+    for (const [outro, c] of this.conexoes) if (c.nome === nome && outro !== ws) this.desconectou(outro);
+    this.conexoes.set(ws, { ws, nome, sistema, acoes, ativaEm: Date.now() });
+    this.maquinas$.next(this.maquinas());
+    this.log.log(`Máquina conectada: ${nome} (${sistema}) — ${acoes.length} ação(ões)${acoes.length ? `: ${acoes.map((a) => a.nome).join(', ')}` : ''}`);
   }
 
-  desconectou(): void {
-    if (this.ws) this.log.log(`Braço de ${this.host} saiu`);
-    this.ws = null;
-    this.host = '';
-    this.acoes$.next([]);
-    for (const [, p] of this.pendentes) {
-      clearTimeout(p.timer);
-      p.resolve({ ok: false, saida: '', erro: 'o braço desconectou no meio' });
+  /** O dono está mexendo nessa máquina: ela passa a ser a padrão. */
+  ativa(ws: WebSocket): void {
+    const c = this.conexoes.get(ws);
+    if (c) c.ativaEm = Date.now();
+  }
+
+  /** Sem argumento: desliga todas (usado nos testes e no fim). */
+  desconectou(ws?: WebSocket): void {
+    const alvo = ws ? [ws] : [...this.conexoes.keys()];
+    for (const w of alvo) {
+      const c = this.conexoes.get(w);
+      if (!c) continue;
+      this.conexoes.delete(w);
+      this.log.log(`Máquina ${c.nome} saiu`);
+      for (const [id, p] of this.pendentes) {
+        if (p.ws !== w) continue;
+        clearTimeout(p.timer);
+        this.pendentes.delete(id);
+        p.resolve({ ok: false, saida: '', erro: 'a máquina desconectou no meio' });
+      }
     }
-    this.pendentes.clear();
+    this.maquinas$.next(this.maquinas());
   }
 
   /** Chegou a resposta de um pedido. */
@@ -77,32 +108,51 @@ export class BracoService {
     p.resolve({ ...r, saida: (r.saida ?? '').slice(0, SAIDA_MAX) });
   }
 
+  /**
+   * A máquina pelo nome (sem diferença de maiúsculas; basta um pedaço, "win" acha "PC-WIN"), ou a
+   * que o dono está usando. Null se não há nenhuma ou o nome não bate.
+   */
+  escolher(nome?: string): Maquina | null {
+    const todas = this.maquinas();
+    const n = nome?.trim().toLowerCase();
+    if (!n) return todas[0] ?? null;
+    return todas.find((m) => m.nome.toLowerCase() === n) ?? todas.find((m) => m.nome.toLowerCase().includes(n) || m.sistema === n) ?? null;
+  }
+
   /** Roda uma ação da lista. */
-  rodarAcao(nome: string, args: Record<string, string> = {}): Promise<Resultado> {
-    if (!this.acoes().some((a) => a.nome === nome)) {
-      return Promise.resolve({ ok: false, saida: '', erro: `a máquina não conhece a ação "${nome}"` });
+  rodarAcao(nome: string, args: Record<string, string> = {}, maquina?: string): Promise<Resultado> {
+    const m = this.escolher(maquina);
+    if (!m) return Promise.resolve(this.semMaquina(maquina));
+    if (!m.acoes.some((a) => a.nome === nome)) {
+      return Promise.resolve({ ok: false, saida: '', erro: `a máquina ${m.nome} não conhece a ação "${nome}"` });
     }
-    return this.enviar({ acao: nome, args });
+    return this.enviar(m.nome, { acao: nome, args });
   }
 
   /** Roda um comando escrito na hora. Só chame depois do dono aprovar. */
-  rodarComando(cmd: string): Promise<Resultado> {
-    return this.enviar({ cmd });
+  rodarComando(cmd: string, maquina?: string): Promise<Resultado> {
+    const m = this.escolher(maquina);
+    if (!m) return Promise.resolve(this.semMaquina(maquina));
+    return this.enviar(m.nome, { cmd });
   }
 
-  private enviar(corpo: { acao?: string; args?: Record<string, string>; cmd?: string }): Promise<Resultado> {
-    const ws = this.ws;
-    if (!ws) return Promise.resolve({ ok: false, saida: '', erro: 'a máquina não está conectada' });
+  private semMaquina(nome?: string): Resultado {
+    if (!this.online) return { ok: false, saida: '', erro: 'a máquina não está conectada' };
+    return { ok: false, saida: '', erro: `não achei a máquina "${nome}" (conectadas: ${this.maquinas().map((m) => m.nome).join(', ')})` };
+  }
 
+  private enviar(nome: string, corpo: { acao?: string; args?: Record<string, string>; cmd?: string }): Promise<Resultado> {
+    const c = [...this.conexoes.values()].find((x) => x.nome === nome);
+    if (!c) return Promise.resolve({ ok: false, saida: '', erro: 'a máquina não está conectada' });
     const id = randomUUID();
     return new Promise<Resultado>((resolve) => {
       const timer = setTimeout(() => {
         this.pendentes.delete(id);
         resolve({ ok: false, saida: '', erro: 'a máquina demorou demais para responder' });
       }, TIMEOUT_MS);
-      this.pendentes.set(id, { resolve, timer });
-      ws.send(JSON.stringify({ t: 'run', id, ...corpo }));
-      this.log.log(`Pedido ao braço: ${corpo.acao ?? corpo.cmd}`);
+      this.pendentes.set(id, { ws: c.ws, resolve, timer });
+      c.ws.send(JSON.stringify({ t: 'run', id, ...corpo }));
+      this.log.log(`Pedido para ${c.nome}: ${corpo.acao ?? corpo.cmd}`);
     });
   }
 }

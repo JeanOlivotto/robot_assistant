@@ -36,6 +36,8 @@ contextBridge.exposeInMainWorld('roboDesktop', {
     ipcRenderer.send('painel:pronto');
   },
   esconder: () => ipcRenderer.send('esconder'),
+  /** Depois do login: o braço (executar coisas no computador) entra no servidor com a mesma senha. */
+  bracoToken: (token) => ipcRenderer.send('braco:token', String(token)),
   vozMudou: (ligada) => ipcRenderer.send('voz', ligada),
   aoMudarVoz: (cb) => ipcRenderer.on('voz', (_e, ligada) => cb(!!ligada)),
   /** A carinha está andando para outro monitor ('esquerda' | 'direita'), ou parou (null). */

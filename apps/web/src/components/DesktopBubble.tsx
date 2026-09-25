@@ -124,6 +124,7 @@ function BolhaLogada({ token, andando }: { token: string; andando: 'esquerda' | 
 
   useEffect(() => {
     void configureSpeech(token);
+    desktop?.bracoToken?.(token); // o braço do app entra no servidor com a mesma senha
   }, [token]);
 
   // Menu da bandeja também liga/desliga a voz — e ela precisa saber como a voz começou.

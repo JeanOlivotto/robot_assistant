@@ -249,7 +249,7 @@ export class ChatService implements OnModuleInit, OnModuleDestroy {
         this.cancelPending('substituída por outra proposta');
         const d = reply.proposal;
         proposal = d.comando
-          ? { id: randomUUID(), kind: 'command', title: d.title, comando: d.comando, status: 'pending' }
+          ? { id: randomUUID(), kind: 'command', title: d.title, comando: d.comando, maquina: d.maquina, status: 'pending' }
           : {
               id: randomUUID(),
               kind: 'event',
@@ -315,7 +315,7 @@ export class ChatService implements OnModuleInit, OnModuleDestroy {
    */
   private async runApproved(msg: ChatMessage, p: Proposal): Promise<ChatMessage | undefined> {
     this.setState({ thinking: true });
-    const r = await this.braco.rodarComando(p.comando ?? '');
+    const r = await this.braco.rodarComando(p.comando ?? '', p.maquina);
     this.setState({ thinking: false });
     this.updateProposal(msg, { status: r.ok ? 'confirmed' : 'failed', error: r.erro });
     this.settleWaiting();

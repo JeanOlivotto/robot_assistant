@@ -10,6 +10,8 @@ import { BracoService } from './braco.service.js';
 const Hello = z.object({
   t: z.literal('hello'),
   host: z.string().max(60),
+  /** O app do computador diz o sistema; o apps/braco avulso (sem o campo) roda em Linux. */
+  sistema: z.enum(['linux', 'windows', 'mac']).default('linux'),
   acoes: z
     .array(z.object({ nome: z.string().max(40), descricao: z.string().max(160), params: z.array(z.string().max(30)).default([]) }))
     .max(40),
@@ -23,9 +25,15 @@ const Result = z.object({
   erro: z.string().max(500).optional(),
 });
 
-const Entrada = z.discriminatedUnion('t', [Hello, Result]);
+/** O dono está mexendo nesta máquina (teclado/mouse): comandos sem máquina escolhida vão para ela. */
+const Ativo = z.object({ t: z.literal('ativo') });
 
-/** Porta de entrada do braço (apps/braco) em /braco. Um agente por vez. */
+const Entrada = z.discriminatedUnion('t', [Hello, Result, Ativo]);
+
+/**
+ * Porta de entrada do braço em /braco: o app do computador (entra com a mesma senha do app) ou o
+ * apps/braco avulso (BRACO_TOKEN). Várias máquinas ao mesmo tempo, uma conexão por nome.
+ */
 @Injectable()
 export class BracoGateway implements OnModuleInit {
   private readonly log = new Logger(BracoGateway.name);
@@ -39,11 +47,9 @@ export class BracoGateway implements OnModuleInit {
 
   onModuleInit(): void {
     this.router.register('/braco', (req, socket, head, url) => {
-      if (!this.cfg.BRACO_TOKEN) {
-        this.log.warn('Braço recusado: BRACO_TOKEN não configurado no servidor');
-        return rejectUpgrade(socket);
-      }
-      if (!tokenEquals(url.searchParams.get('token'), this.cfg.BRACO_TOKEN)) {
+      const token = url.searchParams.get('token');
+      const vale = (esperado: string) => !!esperado && tokenEquals(token, esperado);
+      if (!vale(this.cfg.BRACO_TOKEN) && !vale(this.cfg.APP_TOKEN)) {
         this.log.warn(`Braço recusado (token inválido) de ${req.socket.remoteAddress}`);
         return rejectUpgrade(socket);
       }
@@ -54,7 +60,7 @@ export class BracoGateway implements OnModuleInit {
   private onConnection(ws: WebSocket, req: IncomingMessage): void {
     const ip = req.socket.remoteAddress ?? '?';
     ws.on('message', (data: RawData) => this.onText(ws, data, ip));
-    ws.on('close', () => this.braco.desconectou());
+    ws.on('close', () => this.braco.desconectou(ws));
     ws.on('error', (err) => this.log.warn(`Braço: ${err.message}`));
   }
 
@@ -71,7 +77,10 @@ export class BracoGateway implements OnModuleInit {
       return;
     }
     const msg = parsed.data;
-    if (msg.t === 'hello') this.braco.conectou(ws, `${msg.host} (${ip})`, msg.acoes);
+    if (msg.t === 'hello') {
+      this.log.log(`Máquina ${msg.host} entrou de ${ip}`);
+      this.braco.conectou(ws, msg.host, msg.acoes, msg.sistema);
+    } else if (msg.t === 'ativo') this.braco.ativa(ws);
     else this.braco.resultado(msg.id, { ok: msg.ok, saida: msg.saida, erro: msg.erro });
   }
 }

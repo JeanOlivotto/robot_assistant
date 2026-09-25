@@ -73,4 +73,61 @@ describe('BracoService', () => {
     const r = await promessa;
     expect(r.saida.length).toBe(4000);
   });
+
+  describe('várias máquinas (o app no Linux e no Windows ao mesmo tempo)', () => {
+    it('sem dizer qual, vai para a que o dono está usando', async () => {
+      const svc = new BracoService();
+      const linux = fakeWs();
+      const win = fakeWs();
+      svc.conectou(linux.ws, 'arch', [], 'linux');
+      vi.spyOn(Date, 'now').mockReturnValue(Date.now() + 1000);
+      svc.conectou(win.ws, 'DESKTOP-WIN', [], 'windows');
+      expect(svc.maquinas().map((m) => m.nome)).toEqual(['DESKTOP-WIN', 'arch']);
+
+      void svc.rodarComando('Get-Date');
+      expect(win.enviados[0]).toMatchObject({ t: 'run', cmd: 'Get-Date' });
+      expect(linux.enviados).toEqual([]);
+
+      // Ele voltou a mexer no Linux: agora é a padrão.
+      vi.spyOn(Date, 'now').mockReturnValue(Date.now() + 5000);
+      svc.ativa(linux.ws);
+      void svc.rodarComando('date');
+      expect(linux.enviados[0]).toMatchObject({ cmd: 'date' });
+      vi.restoreAllMocks();
+    });
+
+    it('escolhe pelo nome (ou pedaço dele, ou pelo sistema)', () => {
+      const svc = new BracoService();
+      svc.conectou(fakeWs().ws, 'arch', [], 'linux');
+      svc.conectou(fakeWs().ws, 'DESKTOP-WIN', [], 'windows');
+      expect(svc.escolher('desktop-win')?.nome).toBe('DESKTOP-WIN');
+      expect(svc.escolher('win')?.nome).toBe('DESKTOP-WIN');
+      expect(svc.escolher('linux')?.nome).toBe('arch');
+      expect(svc.escolher('notebook')).toBeNull();
+    });
+
+    it('uma cair não derruba a outra, e reconectar com o mesmo nome substitui', async () => {
+      const svc = new BracoService();
+      const a = fakeWs();
+      const b = fakeWs();
+      svc.conectou(a.ws, 'arch', [], 'linux');
+      svc.conectou(b.ws, 'DESKTOP-WIN', [], 'windows');
+      svc.desconectou(a.ws);
+      expect(svc.maquinas().map((m) => m.nome)).toEqual(['DESKTOP-WIN']);
+
+      const b2 = fakeWs();
+      svc.conectou(b2.ws, 'DESKTOP-WIN', [], 'windows');
+      expect(svc.maquinas()).toHaveLength(1);
+      void svc.rodarComando('dir');
+      expect(b2.enviados).toHaveLength(1);
+      expect(b.enviados).toHaveLength(0);
+    });
+
+    it('máquina com nome errado: diz quais estão conectadas', async () => {
+      const svc = new BracoService();
+      svc.conectou(fakeWs().ws, 'arch', [], 'linux');
+      const r = await svc.rodarComando('ls', 'notebook');
+      expect(r).toMatchObject({ ok: false, erro: expect.stringContaining('conectadas: arch') });
+    });
+  });
 });

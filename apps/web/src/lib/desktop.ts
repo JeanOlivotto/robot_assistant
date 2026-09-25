@@ -39,6 +39,7 @@ interface RoboDesktopBridge {
   comando?(acao: 'reuniao:gravar' | 'reuniao:encerrar'): void;
   aoComando?(cb: (acao: string) => void): void;
   esconder?(): void;
+  bracoToken?(token: string): void;
   /** Andando para outro monitor (acompanha o monitor em uso), ou parou (null). */
   aoAndar?(cb: (lado: 'esquerda' | 'direita' | null) => void): void;
 }

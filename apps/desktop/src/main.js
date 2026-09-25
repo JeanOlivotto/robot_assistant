@@ -13,7 +13,8 @@ import { execFile, spawn } from 'node:child_process';
 import { createWriteStream, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { BrowserWindow, Menu, Tray, app, desktopCapturer, globalShortcut, ipcMain, screen, session, shell } from 'electron';
+import { BrowserWindow, Menu, Tray, app, desktopCapturer, globalShortcut, ipcMain, powerMonitor, screen, session, shell } from 'electron';
+import { Braco } from './braco.js';
 import { Ouvinte } from './ouvinte.js';
 
 const AQUI = dirname(fileURLToPath(import.meta.url));
@@ -76,6 +77,7 @@ let arrastadaEm = 0;
 let dormindo = false; // o robô está dormindo: a carinha não se mexe até alguém acordá-lo
 let ouvir = true; // escuta o "Miro, …" (o microfone do balão e a bandeja ligam/desligam)
 let nomeDele = 'Miro';
+let usarComputador = true; // o braço: ele pode rodar coisas aqui (com a sua aprovação no chat)
 let conferirMonitor = () => {};
 let painel = null;
 let bandeja = null;
@@ -131,6 +133,7 @@ function cantoInicial() {
   if (salvo.relativo && Number.isFinite(salvo.relativo.fx)) relativo = salvo.relativo;
   if (typeof salvo.passear === 'boolean') passear = salvo.passear;
   if (typeof salvo.ouvir === 'boolean') ouvir = salvo.ouvir;
+  if (typeof salvo.usarComputador === 'boolean') usarComputador = salvo.usarComputador;
   return cantoNo(screen.getPrimaryDisplay().workArea);
 }
 
@@ -455,6 +458,25 @@ ipcMain.on('painel:pronto', () => {
 });
 ipcMain.on('esconder', () => visivel && alternarVisivel());
 
+/* ── o braço: ele faz coisas neste computador (braco.js) ─────────────── */
+
+const braco = new Braco({
+  servidor: BASE,
+  pastaAcoes: join(app.getPath('userData'), 'acoes.json'),
+  aoEstado: () => atualizarBandeja(),
+});
+// A bolha entrega a senha do app depois do login: é com ela que o braço entra no servidor.
+ipcMain.on('braco:token', (_e, token) => {
+  if (typeof token !== 'string' || token.length < 8) return;
+  if (usarComputador) braco.ligar(token);
+  else braco.token = token;
+});
+// Você mexendo aqui (teclado/mouse no último minuto): pedido sem máquina escolhida vem para esta.
+setInterval(() => {
+  if (powerMonitor.getSystemIdleTime() < 60) braco.ativo();
+}, 15_000);
+app.on('will-quit', () => braco.desligar());
+
 /* ── seguir o monitor em uso, andando ────────────────────────────────── */
 
 function pararDeAndar() {
@@ -600,6 +622,18 @@ function atualizarBandeja() {
           ouvir = item.checked;
           salvarEstado({ ouvir });
           void aplicarOuvir();
+        },
+      },
+      {
+        label: `Deixar o ${nomeDele} usar este computador${usarComputador ? (braco.conectado ? ' (conectado)' : ' (conectando…)') : ''}`,
+        type: 'checkbox',
+        checked: usarComputador,
+        click: (item) => {
+          usarComputador = item.checked;
+          salvarEstado({ usarComputador });
+          if (usarComputador) braco.ligar();
+          else braco.desligar();
+          atualizarBandeja();
         },
       },
       {

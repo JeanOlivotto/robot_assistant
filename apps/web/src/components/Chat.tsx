@@ -25,7 +25,10 @@ function ProposalCard({ p, onConfirm }: { p: Proposal; onConfirm(ok: boolean): v
       <div className="proposal-title">{p.title}</div>
       {p.kind === 'command' ? (
         /* Proposta de comando: a linha exata aparece aqui — você aprova o que está vendo. */
-        <code className="proposal-comando">{p.comando}</code>
+        <>
+          <code className="proposal-comando">{p.comando}</code>
+          {p.maquina && <div className="proposal-when">no computador {p.maquina}</div>}
+        </>
       ) : (
         <div className="proposal-when">
           {dayLabel(p.start!)} · {hhmm(p.start!)} – {hhmm(p.end!)}
