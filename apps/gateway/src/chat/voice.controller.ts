@@ -47,10 +47,15 @@ function forSpeech(text: string): string {
     .trim();
 }
 
+/** Chamados em computadores diferentes dentro deste intervalo são a mesma frase ouvida duas vezes. */
+const MESMO_CHAMADO_MS = 4000;
+
 @Controller('api')
 @UseGuards(AppTokenGuard)
 export class VoiceController {
   private readonly log = new Logger(VoiceController.name);
+  /** O último "Miro, …" atendido (e de qual aparelho), para não atender a mesma frase duas vezes. */
+  private ultimoChamado: { em: number; origem?: string } | null = null;
 
   constructor(
     @Inject(APP_CONFIG) private readonly cfg: AppConfig,
@@ -70,13 +75,26 @@ export class VoiceController {
    */
   @Post('voice/chamado')
   @HttpCode(200)
-  async chamado(@Body() audio: unknown): Promise<{ chamou: boolean; nome: string; texto?: string; comando?: string }> {
+  async chamado(
+    @Body() audio: unknown,
+    @Headers() h: Record<string, string | undefined> = {},
+  ): Promise<{ chamou: boolean; nome: string; texto?: string; comando?: string }> {
     if (!Buffer.isBuffer(audio) || !audio.length) throw new BadRequestException('mande o áudio no corpo (Content-Type audio/*)');
     const nome = this.identidade.nome;
     try {
       const { text } = await this.stt.transcribe(audio, { dica: false });
       const comando = comandoPeloNome(text, nome);
       if (comando === null) return { chamou: false, nome };
+      // Dois computadores perto um do outro ouvem a mesma frase: atende quem chegou primeiro, o
+      // outro fica quieto (antes os dois mandavam o comando e ele respondia duas vezes).
+      const { origem } = deOnde(h);
+      const agora = Date.now();
+      const ultimo = this.ultimoChamado;
+      if (ultimo && agora - ultimo.em < MESMO_CHAMADO_MS && (!origem || origem !== ultimo.origem)) {
+        this.log.log(`Chamado "${text}" ignorado: outro computador já atendeu`);
+        return { chamou: false, nome };
+      }
+      this.ultimoChamado = { em: agora, origem };
       this.log.log(`Chamado pelo nome no computador: "${text}"`);
       return { chamou: true, nome, texto: text, comando };
     } catch (err) {

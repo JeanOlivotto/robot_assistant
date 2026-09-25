@@ -6,6 +6,7 @@ import {
   type ChatMessage,
   type RobotView,
 } from '@robo/protocol';
+import { versaoDoServidor } from './atualizar';
 import { cabecalhosDeOnde, deOnde } from './origem';
 
 export type Conn = 'connecting' | 'open' | 'offline';
@@ -71,6 +72,7 @@ export function useRobo(token: string): Robo {
         const msg = parsed.data;
         switch (msg.t) {
           case 'snapshot':
+            versaoDoServidor(msg.rev);
             setMessages(msg.messages);
             setRobot(msg.robot);
             setAgenda(msg.agenda);

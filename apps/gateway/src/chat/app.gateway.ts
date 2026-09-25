@@ -94,6 +94,7 @@ export class AppGateway implements OnModuleInit, OnModuleDestroy {
       messages: this.chat.history(100),
       robot: this.robot.view$.value,
       agenda: this.calendar.appAgenda$.value,
+      rev: process.env.GIT_SHA ?? 'dev',
     });
 
     ws.on('message', (data, isBinary) => {

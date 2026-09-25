@@ -7,7 +7,7 @@ import { GRAVANDO_KEY } from './Meeting';
 import { configureSpeech, speak, stopSpeaking } from '../lib/speech';
 import { useRobo } from '../lib/useRobo';
 import { RobotFace } from './RobotFace';
-import { eParaMim } from '../lib/origem';
+import { cabecalhosDeOnde, eParaMim } from '../lib/origem';
 
 const TOKEN_KEY = 'robo.token';
 const VOZ_KEY = 'robo.desktopVoz';
@@ -231,7 +231,7 @@ function BolhaLogada({ token, andando }: { token: string; andando: 'esquerda' | 
     try {
       const res = await fetch('/api/voice/chamado', {
         method: 'POST',
-        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'audio/wav' },
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'audio/wav', ...cabecalhosDeOnde() },
         body: new Blob([new Uint8Array(wav)], { type: 'audio/wav' }),
       });
       const r = (await res.json()) as { chamou: boolean; texto?: string; comando?: string };

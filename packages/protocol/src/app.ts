@@ -116,6 +116,8 @@ export const Snapshot = z.object({
   messages: z.array(ChatMessage),
   robot: RobotView,
   agenda: z.array(AgendaItem),
+  /** Versão do servidor (commit): mudou desde que a página abriu = tem app novo, recarregar. */
+  rev: z.string().max(40).optional(),
 });
 
 /** Mensagem nova ou atualizada (mesmo id = substitui, ex.: proposta confirmada). */

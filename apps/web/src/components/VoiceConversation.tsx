@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { type Speaking, speakStream, stopSpeaking } from '../lib/speech';
+import { ocupado } from '../lib/atualizar';
 import { VoiceSession, converse, startCall } from '../lib/voicechat';
 
 type Phase = 'connecting' | 'speaking' | 'listening' | 'thinking' | 'paused' | 'error';
@@ -37,10 +38,12 @@ export function VoiceConversation({
 
   useEffect(() => {
     closed.current = false;
+    ocupado.chamada = true; // sem recarregar a página (versão nova) no meio da ligação
     void start();
     const t = setInterval(() => setElapsed(Math.floor((Date.now() - startedAt.current) / 1000)), 1000);
     return () => {
       closed.current = true;
+      ocupado.chamada = false;
       clearInterval(t);
       talking.current?.stop();
       stopSpeaking();
