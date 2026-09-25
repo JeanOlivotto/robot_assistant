@@ -99,7 +99,7 @@ export class ChatService implements OnModuleInit, OnModuleDestroy {
     // Projeto pedido ao programador ficou pronto (ou deu errado): conta para quem pediu.
     this.braco.trabalhos$.subscribe(({ projeto, maquina, para, r }) => {
       const texto = r.ok
-        ? `Pronto, o projeto ${projeto}: ${r.saida.trim()}`
+        ? `Projeto ${projeto}: ${r.saida.trim()}`
         : `Não consegui terminar o projeto ${projeto} em ${maquina}: ${r.erro ?? 'deu erro'}${r.saida ? `\n\n${r.saida.trim().slice(0, 300)}` : ''}`;
       this.robotSay(texto, r.ok ? 'happy' : 'sad', 'reply', { para });
     });
