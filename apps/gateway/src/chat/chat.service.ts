@@ -133,8 +133,14 @@ export class ChatService implements OnModuleInit, OnModuleDestroy {
    * Foto do app (já guardada em disco): entra na conversa na hora, e a resposta vem depois que o
    * modelo de visão descrever — a descrição fica na mensagem, para o robô lembrar da foto depois.
    */
-  sayPhoto(photo: { id: string; w: number; h: number }, image: Buffer, mime: string, caption: string): Promise<ChatMessage | undefined> {
-    return this.enqueue(() => this.handlePhoto(photo, image, mime, caption));
+  sayPhoto(
+    photo: { id: string; w: number; h: number },
+    image: Buffer,
+    mime: string,
+    caption: string,
+    de: Pick<AskOptions, 'origem' | 'maquina'> = {},
+  ): Promise<ChatMessage | undefined> {
+    return this.enqueue(() => this.handlePhoto(photo, image, mime, caption, de));
   }
 
   async confirm(proposalId: string, ok: boolean, origem?: string): Promise<void> {
@@ -239,6 +245,7 @@ export class ChatService implements OnModuleInit, OnModuleDestroy {
     image: Buffer,
     mime: string,
     caption: string,
+    de: Pick<AskOptions, 'origem' | 'maquina'> = {},
   ): Promise<ChatMessage | undefined> {
     const wasWaiting = this.state.waitingSince > 0;
     const msg: ChatMessage = { id: randomUUID(), from: 'user', text: caption, ts: Date.now(), photo };
@@ -250,7 +257,7 @@ export class ChatService implements OnModuleInit, OnModuleDestroy {
     // Guarda o que ele viu junto da foto: é o que entra no histórico dali em diante.
     this.push({ ...msg, photo: { ...photo, desc: desc ?? undefined } });
     if (!desc) this.log.warn('Nenhum modelo de visão descreveu a foto');
-    return this.answer('text', {}, wasWaiting);
+    return this.answer('text', de, wasWaiting);
   }
 
   /** O cérebro responde ao que está no histórico (a última mensagem é do dono). */

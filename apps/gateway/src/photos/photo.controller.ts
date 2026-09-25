@@ -15,6 +15,7 @@ import {
 import { AppTokenGuard } from '../auth/app-token.guard.js';
 import { ChatService } from '../chat/chat.service.js';
 import { PhotoService } from './photo.service.js';
+import { deOnde } from '../chat/de-onde.js';
 
 const MAX_SIDE = 4096;
 
@@ -38,6 +39,7 @@ export class PhotoController {
     @Query('w') w?: string,
     @Query('h') h?: string,
     @Query('caption') caption = '',
+    @Headers() cabecalhos: Record<string, string | undefined> = {},
   ): { id: string } {
     const mime = type.split(';')[0]!.trim().toLowerCase();
     if (!Buffer.isBuffer(image) || !image.length) throw new BadRequestException('mande a foto no corpo (Content-Type image/jpeg)');
@@ -47,7 +49,7 @@ export class PhotoController {
       throw new BadRequestException('w e h (largura e altura em px) são obrigatórios');
     }
     const id = this.photos.save(image, mime);
-    void this.chat.sayPhoto({ id, w: width, h: height }, image, mime, caption.trim().slice(0, 1000));
+    void this.chat.sayPhoto({ id, w: width, h: height }, image, mime, caption.trim().slice(0, 1000), deOnde(cabecalhos));
     return { id };
   }
 

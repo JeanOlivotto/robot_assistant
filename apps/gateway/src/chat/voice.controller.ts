@@ -10,6 +10,7 @@ import { VozesService } from '../vozes/vozes.service.js';
 import { TtsService } from '../tts/tts.service.js';
 import { ChatService } from './chat.service.js';
 import { VoiceSessionService } from './voice-session.service.js';
+import { deOnde } from './de-onde.js';
 
 /**
  * Texto do atalho da Siri. Tolerante de propósito: {"text": ...} é o certo, mas aceita a primeira
@@ -193,16 +194,4 @@ export class VoiceController {
       face: reply?.face ?? 'neutral',
     };
   }
-}
-
-/** De onde veio o áudio (o app manda X-Miro-Origem e, no computador, X-Miro-Maquina). */
-function deOnde(h: Record<string, string | undefined>): { origem?: string; maquina?: string } {
-  const ler = (v: string | undefined, max: number) => {
-    try {
-      return v ? decodeURIComponent(v).slice(0, max) : undefined;
-    } catch {
-      return undefined;
-    }
-  };
-  return { origem: ler(h['x-miro-origem'], 64), maquina: ler(h['x-miro-maquina'], 60) };
 }

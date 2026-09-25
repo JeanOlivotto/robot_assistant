@@ -1,5 +1,6 @@
 /** Fotos do chat: reduzir no celular antes de subir, enviar e buscar para mostrar. */
 import { useEffect, useState } from 'react';
+import { cabecalhosDeOnde } from './origem';
 
 const MAX_SIDE = 1280; /* o bastante para ler texto numa foto; sobe rápido no 4G */
 const QUALITY = 0.85;
@@ -46,7 +47,7 @@ export async function sendPhoto(token: string, p: ReadyPhoto, caption: string): 
   const q = new URLSearchParams({ w: String(p.w), h: String(p.h), caption });
   const res = await fetch(`/api/chat/photo?${q}`, {
     method: 'POST',
-    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'image/jpeg' },
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'image/jpeg', ...cabecalhosDeOnde() },
     body: p.blob,
   });
   if (!res.ok) {
