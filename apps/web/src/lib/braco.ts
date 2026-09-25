@@ -22,6 +22,8 @@ export interface Desligada {
   nome: string;
   sistema: Sistema;
   podeLigar: boolean;
+  /** O robô (quem manda o sinal) está na mesma rede? null = não dá para saber ainda. */
+  mesmaRede: boolean | null;
 }
 
 export type NovaAcao = Pick<Acao, 'descricao' | 'comando' | 'sistema' | 'maquina'>;

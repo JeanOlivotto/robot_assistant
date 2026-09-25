@@ -11,6 +11,7 @@
 #include "esp_netif.h"
 #include "esp_system.h"
 #include "esp_websocket_client.h"
+#include "esp_wifi.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "lwip/sockets.h"
@@ -53,12 +54,26 @@ void ws_client_send_json(const char *json)
 static void send_hello(void)
 {
     const hal_caps_t *caps = hal_caps();
-    char buf[256];
+    /* A rede local em que o robô está: é por ela que o servidor sabe se o "ligar o PC" alcança o computador. */
+    char rede[128] = "";
+    esp_netif_ip_info_t ip;
+    esp_netif_t *sta = esp_netif_get_handle_from_ifkey("WIFI_STA_DEF");
+    if (sta && esp_netif_get_ip_info(sta, &ip) == ESP_OK && ip.ip.addr) {
+        wifi_ap_record_t ap = {0};
+        char ssid[33] = "";
+        if (esp_wifi_sta_get_ap_info(&ap) == ESP_OK) {
+            for (int i = 0, j = 0; ap.ssid[i] && j < 32; i++)
+                if (ap.ssid[i] >= 0x20 && ap.ssid[i] != '"' && ap.ssid[i] != '\\') ssid[j++] = (char)ap.ssid[i];
+        }
+        snprintf(rede, sizeof(rede), ",\"rede\":{\"ip\":\"" IPSTR "\",\"mask\":\"" IPSTR "\",\"ssid\":\"%s\"}", IP2STR(&ip.ip),
+                 IP2STR(&ip.netmask), ssid);
+    }
+    char buf[384];
     snprintf(buf, sizeof(buf),
              "{\"t\":\"" ROBO_MSG_HELLO "\",\"ts\":%lld,\"dev\":\"%s\",\"fw\":\"%s\",\"chip\":\"%s\","
-             "\"caps\":{\"codec\":[],\"wake\":\"none\",\"lcd\":{\"w\":%u,\"h\":%u}}}",
+             "\"caps\":{\"codec\":[],\"wake\":\"none\",\"lcd\":{\"w\":%u,\"h\":%u}}%s}",
              (long long)net_epoch_ms(), ROBO_DEVICE_NAME, esp_app_get_description()->version, caps->chip_name,
-             caps->lcd_w, caps->lcd_h);
+             caps->lcd_w, caps->lcd_h, rede);
     ws_client_send_json(buf);
 }
 

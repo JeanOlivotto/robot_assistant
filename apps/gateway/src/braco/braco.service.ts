@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { Injectable, Logger, Optional } from '@nestjs/common';
 import { BehaviorSubject, Subject } from 'rxjs';
 import type { WebSocket } from 'ws';
-import { AcoesService, montar, paramsDe } from './acoes.service.js';
+import { AcoesService, mesmaRede, montar, paramsDe, type Rede } from './acoes.service.js';
 
 /** Uma ação que a máquina sabe fazer sem aprovação: cadastrada no painel ou anunciada por ela (acoes.json). */
 export interface Acao {
@@ -59,6 +59,8 @@ export class BracoService {
   readonly wol$ = new Subject<string>();
   /** O robô da mesa está conectado (é ele quem manda o sinal de ligar). O DeviceGateway atualiza. */
   roboNaRede = false;
+  /** Em que rede local o robô está (fw 0.16.1+), com o nome do Wi-Fi. */
+  redeDoRobo: (Rede & { ssid?: string }) | null = null;
 
   get online(): boolean {
     return this.conexoes.size > 0;
@@ -81,8 +83,8 @@ export class BracoService {
   }
 
   /** Uma máquina conectou e disse quem é e o que sabe fazer. Mesmo nome = a conexão nova toma o lugar. */
-  conectou(ws: WebSocket, nome: string, acoes: Acao[], sistema: Sistema = 'linux', mac?: string): void {
-    this.cadastro?.lembrar({ nome, sistema, mac });
+  conectou(ws: WebSocket, nome: string, acoes: Acao[], sistema: Sistema = 'linux', mac?: string, rede?: Rede): void {
+    this.cadastro?.lembrar({ nome, sistema, mac, rede });
     for (const [outro, c] of this.conexoes) if (c.nome === nome && outro !== ws) this.desconectou(outro);
     this.conexoes.set(ws, { ws, nome, sistema, acoes, ativaEm: Date.now() });
     this.maquinas$.next(this.maquinas());
@@ -159,9 +161,11 @@ export class BracoService {
   }
 
   /** Computadores que já conectaram e estão desligados agora (com MAC: dá para ligar). */
-  desligadas(): { nome: string; sistema: Sistema; podeLigar: boolean }[] {
+  desligadas(): { nome: string; sistema: Sistema; podeLigar: boolean; mesmaRede: boolean | null }[] {
     const ligadas = new Set(this.maquinas().map((m) => m.nome));
-    return (this.cadastro?.conhecidas() ?? []).filter((m) => !ligadas.has(m.nome)).map((m) => ({ nome: m.nome, sistema: m.sistema, podeLigar: !!m.mac }));
+    return (this.cadastro?.conhecidas() ?? [])
+      .filter((m) => !ligadas.has(m.nome))
+      .map((m) => ({ nome: m.nome, sistema: m.sistema, podeLigar: !!m.mac, mesmaRede: mesmaRede(this.redeDoRobo ?? undefined, m.rede) }));
   }
 
   /**
@@ -180,6 +184,14 @@ export class BracoService {
     if (!this.roboNaRede) return { ok: false, texto: 'o robô da mesa está desconectado, e é ele quem manda o sinal para ligar' };
     this.wol$.next(alvo.mac);
     this.log.log(`Ligar ${alvo.nome} (${alvo.mac}) pelo robô`);
+    // Redes diferentes: o broadcast do robô não atravessa o roteador. Manda assim mesmo (vai que
+    // repassa), mas não promete.
+    if (mesmaRede(this.redeDoRobo ?? undefined, alvo.rede) === false) {
+      return {
+        ok: false,
+        texto: `mandei o sinal, mas o robô está em outra rede (Wi-Fi ${this.redeDoRobo?.ssid || '?'}, ${this.redeDoRobo?.ip}) e ${alvo.nome} em ${alvo.rede?.ip}: o sinal de ligar não atravessa de uma rede para a outra. Para funcionar, o robô precisa estar no mesmo Wi-Fi/rede do PC`,
+      };
+    }
     return { ok: true, texto: `sinal enviado para ligar ${alvo.nome}; costuma levar um minuto (só funciona se o Wake-on-LAN estiver ligado na BIOS dele)` };
   }
 

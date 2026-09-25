@@ -74,13 +74,14 @@ function rodar(comando) {
  */
 const VIRTUAL = /^(lo|docker|br-|veth|virbr|vmnet|vbox|tun|tap|wg|zt|tailscale)|virtual|vmware|hyper-v|vethernet|loopback|bluetooth/i;
 const COM_FIO = /^(en|eth)|ethernet/i;
-export function macDaPlaca(interfaces = networkInterfaces()) {
+export function placaDeRede(interfaces = networkInterfaces()) {
   const placas = Object.entries(interfaces)
-    .filter(([nome, ends]) => !VIRTUAL.test(nome) && ends?.some((e) => !e.internal && e.family === 'IPv4'))
-    .map(([nome, ends]) => ({ nome, mac: ends.find((e) => e.mac && e.mac !== '00:00:00:00:00:00')?.mac }))
-    .filter((p) => p.mac);
-  return (placas.find((p) => COM_FIO.test(p.nome)) ?? placas[0])?.mac;
+    .map(([nome, ends]) => ({ nome, v4: ends?.find((e) => !e.internal && e.family === 'IPv4') }))
+    .filter((p) => !VIRTUAL.test(p.nome) && p.v4?.mac && p.v4.mac !== '00:00:00:00:00:00')
+    .map((p) => ({ nome: p.nome, mac: p.v4.mac, ip: p.v4.address, mask: p.v4.netmask }));
+  return placas.find((p) => COM_FIO.test(p.nome)) ?? placas[0];
 }
+export const macDaPlaca = (interfaces) => placaDeRede(interfaces)?.mac;
 
 export class Braco {
   /**
@@ -148,7 +149,10 @@ export class Braco {
           t: 'hello',
           host: hostname().slice(0, 60),
           sistema: SISTEMA,
-          mac: macDaPlaca(),
+          ...(() => {
+            const p = placaDeRede();
+            return p ? { mac: p.mac, rede: { ip: p.ip, mask: p.mask } } : {};
+          })(),
           acoes: acoes.map((a) => ({ nome: a.nome, descricao: a.descricao ?? a.nome, params: a.params ?? [] })),
         }),
       );

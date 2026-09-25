@@ -26,6 +26,7 @@ export class BracoController {
       maquinas: this.braco.maquinas().map(({ nome, sistema, ativaEm }) => ({ nome, sistema, ativaEm })),
       desligadas: this.braco.desligadas(),
       roboNaRede: this.braco.roboNaRede,
+      redeDoRobo: this.braco.redeDoRobo,
       acoes: this.acoes.listar(),
     };
   }

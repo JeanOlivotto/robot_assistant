@@ -93,6 +93,7 @@ export function Computador({ token }: { token: string }) {
                 <span>{m.nome}</span>
                 <span className="tasks__meta">
                   {NOME_SISTEMA[m.sistema]} · desligado{!m.podeLigar && ' (abra o app nele uma vez para dar para ligar daqui)'}
+                  {m.podeLigar && m.mesmaRede === false && ' · o robô está em outra rede: o sinal de ligar não chega'}
                 </span>
               </div>
               {m.podeLigar && (

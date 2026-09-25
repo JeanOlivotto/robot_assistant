@@ -19,6 +19,8 @@ const Hello = z.object({
     .pipe(z.string().regex(/^([0-9a-f]{2}:){5}[0-9a-f]{2}$/))
     .optional()
     .catch(undefined),
+  /** IP e máscara dessa placa: para saber se o robô está na mesma rede (senão o sinal não chega). */
+  rede: z.object({ ip: z.string().max(15), mask: z.string().max(15) }).optional().catch(undefined),
   acoes: z
     .array(z.object({ nome: z.string().max(40), descricao: z.string().max(160), params: z.array(z.string().max(30)).default([]) }))
     .max(40),
@@ -86,7 +88,7 @@ export class BracoGateway implements OnModuleInit {
     const msg = parsed.data;
     if (msg.t === 'hello') {
       this.log.log(`Máquina ${msg.host} entrou de ${ip}`);
-      this.braco.conectou(ws, msg.host, msg.acoes, msg.sistema, msg.mac);
+      this.braco.conectou(ws, msg.host, msg.acoes, msg.sistema, msg.mac, msg.rede);
     } else if (msg.t === 'ativo') this.braco.ativa(ws);
     else this.braco.resultado(msg.id, { ok: msg.ok, saida: msg.saida, erro: msg.erro });
   }

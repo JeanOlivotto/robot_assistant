@@ -216,6 +216,8 @@ export class DeviceGateway implements OnModuleInit, OnModuleDestroy {
     this.log.log(`${this.label(s)} conectou — fw ${hello.fw}, chip ${hello.chip}, ip ${s.ip}`);
     this.robot.setOnline(true);
     this.braco.roboNaRede = true;
+    this.braco.redeDoRobo = hello.rede ?? null;
+    if (hello.rede) this.log.log(`${this.label(s)} na rede local ${hello.rede.ip}/${hello.rede.mask} (Wi-Fi ${hello.rede.ssid})`);
 
     const now = Date.now();
     this.send(s, {

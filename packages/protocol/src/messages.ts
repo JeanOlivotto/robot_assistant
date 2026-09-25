@@ -78,6 +78,8 @@ export const Hello = z.object({
     wake: z.enum(WAKE_MODES),
     lcd: z.object({ w: z.number().int(), h: z.number().int() }).optional(),
   }),
+  /** A rede local do robô (fw 0.16.1+): o servidor usa para saber se o Wake-on-LAN alcança o PC. */
+  rede: z.object({ ip: z.string().max(15), mask: z.string().max(15), ssid: z.string().max(32) }).optional(),
 });
 
 export const Ping = z.object({ t: z.literal('ping'), ts: epochMs });

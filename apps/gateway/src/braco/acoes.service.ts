@@ -32,7 +32,23 @@ export interface MaquinaConhecida {
   sistema: Sistema;
   /** Placa de rede com fio de preferência, "aa:bb:cc:dd:ee:ff". */
   mac?: string;
+  /** IP e máscara dessa placa na última vez que conectou. */
+  rede?: Rede;
   vistaEm: number;
+}
+
+export interface Rede {
+  ip: string;
+  mask: string;
+}
+
+const ip32 = (ip: string) => ip.split('.').reduce((n, p) => (n << 8) + (Number(p) & 255), 0) >>> 0;
+
+/** Os dois estão na mesma sub-rede (o broadcast do robô chega no PC)? Null se falta informação. */
+export function mesmaRede(a?: Rede, b?: Rede): boolean | null {
+  if (!a?.ip || !b?.ip) return null;
+  const m = ip32(a.mask || '255.255.255.0');
+  return ((ip32(a.ip) & m) >>> 0) === ((ip32(b.ip) & m) >>> 0);
 }
 
 /** Os {param} do comando, na ordem em que aparecem, sem repetir. */
@@ -97,7 +113,7 @@ export class AcoesService {
   /** Uma máquina conectou: guarda (ou atualiza) o nome, o sistema e o MAC dela. */
   lembrar(m: Omit<MaquinaConhecida, 'vistaEm'>): void {
     const antiga = this.maquinas.find((x) => x.nome === m.nome);
-    const nova = { ...antiga, ...m, mac: m.mac ?? antiga?.mac, vistaEm: Date.now() };
+    const nova = { ...antiga, ...m, mac: m.mac ?? antiga?.mac, rede: m.rede ?? antiga?.rede, vistaEm: Date.now() };
     this.maquinas = [...this.maquinas.filter((x) => x.nome !== m.nome), nova];
     this.gravar(this.fileMaquinas, this.maquinas);
   }

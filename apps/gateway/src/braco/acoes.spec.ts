@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import type { WebSocket } from 'ws';
 import type { AppConfig } from '../config/app-config.js';
-import { AcoesService, escapar, montar, nomeDe, paramsDe } from './acoes.service.js';
+import { AcoesService, escapar, mesmaRede, montar, nomeDe, paramsDe } from './acoes.service.js';
 import { BracoService } from './braco.service.js';
 
 const novoCadastro = () => new AcoesService({ DATA_DIR: mkdtempSync(join(tmpdir(), 'acoes-')) } as AppConfig);
@@ -76,7 +76,7 @@ describe('ações do painel', () => {
 
       expect(svc.ligar('arch')).toMatchObject({ ok: true, texto: expect.stringContaining('já está ligado') });
       svc.desconectou(ws);
-      expect(svc.desligadas()).toEqual([{ nome: 'arch', sistema: 'linux', podeLigar: true }]);
+      expect(svc.desligadas()).toEqual([{ nome: 'arch', sistema: 'linux', podeLigar: true, mesmaRede: null }]);
 
       expect(svc.ligar()).toMatchObject({ ok: false, texto: expect.stringContaining('robô da mesa') });
       svc.roboNaRede = true;
@@ -95,5 +95,20 @@ describe('ações do painel', () => {
       expect(svc.ligar('notebook').texto).toContain('não conheço');
     });
   });
-});
 
+  it('mesma rede: compara pela máscara; redes diferentes não prometem ligar', () => {
+    expect(mesmaRede({ ip: '192.168.0.60', mask: '255.255.255.0' }, { ip: '192.168.0.25', mask: '255.255.255.0' })).toBe(true);
+    expect(mesmaRede({ ip: '10.0.0.8', mask: '255.255.255.0' }, { ip: '192.168.0.25', mask: '255.255.255.0' })).toBe(false);
+    expect(mesmaRede(undefined, { ip: '192.168.0.25', mask: '255.255.255.0' })).toBeNull();
+
+    const c = novoCadastro();
+    const svc = new BracoService(c);
+    const { ws } = fakeWs();
+    svc.conectou(ws, 'arch', [], 'linux', '74:56:3c:f4:8d:1e', { ip: '192.168.0.25', mask: '255.255.255.0' });
+    svc.desconectou(ws);
+    svc.roboNaRede = true;
+    svc.redeDoRobo = { ip: '10.0.0.8', mask: '255.255.255.0', ssid: 'Previnity' };
+    expect(svc.ligar('arch')).toMatchObject({ ok: false, texto: expect.stringContaining('outra rede') });
+    expect(svc.desligadas()[0]!.mesmaRede).toBe(false);
+  });
+});
