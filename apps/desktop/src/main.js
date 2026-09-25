@@ -10,7 +10,7 @@
  * Linux (bspwm) e Windows: o que é de um só está marcado com LINUX / WINDOWS.
  */
 import { execFile, spawn } from 'node:child_process';
-import { createWriteStream, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { createWriteStream, mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { hostname } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -47,7 +47,13 @@ if (WINDOWS) app.setAppUserModelId('com.jeanolivotto.miro'); // sem isso o Windo
 if (app.isPackaged) {
   try {
     mkdirSync(app.getPath('userData'), { recursive: true });
-    const log = createWriteStream(join(app.getPath('userData'), 'robo.log'));
+    const arquivo = join(app.getPath('userData'), 'robo.log');
+    try {
+      if (statSync(arquivo).size > 2_000_000) renameSync(arquivo, `${arquivo}.1`); // guarda o antigo
+    } catch {
+      /* primeiro log */
+    }
+    const log = createWriteStream(arquivo, { flags: 'a' }); // continua entre aberturas
     for (const nivel of ['log', 'error']) {
       const original = console[nivel];
       console[nivel] = (...args) => {

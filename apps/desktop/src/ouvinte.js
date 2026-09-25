@@ -15,7 +15,9 @@ const require = createRequire(import.meta.url);
 
 const RATE = 16000;
 const JANELA = 512; // o que o detector de voz (Silero) espera por vez
-const FALA_MAX_S = 10; // comando é frase curta: fala longa nem passa pelo Whisper (6 s cortava "Miro, me lembra de…")
+/* Com música ou TV ao fundo o detector junta tudo num trecho longo (até 12 s): antes era jogado
+   fora inteiro, e o "Miro" no meio ia junto. Agora passa pelo Whisper do mesmo jeito. */
+const FALA_MAX_S = 13;
 const FALA_MIN_S = 0.35;
 
 /* Arquivo por arquivo (sem .tar.bz2, que o Windows não abre direito). ~104 MB, uma vez só. */
@@ -29,7 +31,7 @@ const ARQUIVOS = {
 
 /* O tiny ouve o "Miro" do dono de vários jeitos; estas contam como "pode ser" (o servidor decide). */
 const SUSPEITAS = ['primeiro', 'primeira', 'imiro', 'emiro', 'omiro', 'eimiro'];
-const CHAMAMENTOS = ['ei', 'o', 'oi', 'e', 'hey', 'ai', 'eai', 'fala'];
+const CHAMAMENTOS = ['ei', 'o', 'oi', 'e', 'hey', 'ai', 'eai', 'fala', 'ok', 'okay', 'ola', 'alo', 'opa', 'beleza', 'bom', 'dia', 'boa', 'tarde', 'noite', 'escuta', 'olha', 'entao'];
 /* Palavras comuns a duas letras do nome: começar frase com elas é falar, não chamar ("Muito obrigado"). */
 const COMUNS = ['muito', 'mesmo', 'minha', 'menos', 'mundo', 'meio', 'mais', 'ruim', 'isso', 'nisso', 'disso', 'aqui', 'cara', 'caro'];
 
@@ -50,19 +52,32 @@ function dist(a, b) {
   return d[a.length][b.length];
 }
 
-/** Filtro frouxo de propósito: melhor mandar uma a mais para o servidor do que perder o chamado. */
+function parece(w, n) {
+  if (!w || COMUNS.includes(w)) return false;
+  const sem = w.replace(/^(ei|oi|o|e|a)(?=.{3,})/, '');
+  return SUSPEITAS.includes(w) || dist(w, n) <= 2 || dist(sem, n) <= 1;
+}
+
+/**
+ * Filtro frouxo de propósito: melhor mandar uma a mais para o servidor (que decide com o Whisper
+ * grande) do que perder o chamado. Olha o começo de cada frase (depois de "ei", "ok", "beleza"…)
+ * e a última palavra ("que horas são, Miro?").
+ */
 export function podeSerChamado(texto, nome) {
   const n = norma(nome);
   if (!n) return false;
-  const palavras = norma(texto).split(' ').filter(Boolean);
-  let inicio = 0;
-  if (CHAMAMENTOS.includes(palavras[0]) && palavras.length > 1) inicio = 1;
-  for (const w of palavras.slice(inicio, inicio + 2)) {
-    if (COMUNS.includes(w)) continue;
-    const sem = w.replace(/^(ei|oi|o|e)(?=.{3,})/, '');
-    if (SUSPEITAS.includes(w) || dist(w, n) <= 2 || dist(sem, n) <= 1) return true;
+  const frases = String(texto)
+    .replace(/[[(][^\])]*[\])]/g, ' ') // "[música]" é anotação, não fala
+    .split(/[.!?]+/)
+    .map((f) => norma(f).split(' ').filter(Boolean))
+    .filter((p) => p.length);
+  for (const palavras of frases) {
+    let i = 0;
+    while (i < palavras.length - 1 && i < 3 && CHAMAMENTOS.includes(palavras[i])) i++;
+    if (palavras.slice(i, i + 2).some((w) => parece(w, n))) return true;
   }
-  return false;
+  const ultima = frases.at(-1)?.at(-1);
+  return parece(ultima, n);
 }
 
 /** PCM float → WAV 16 bits (o que o /api/voice/chamado recebe). */
