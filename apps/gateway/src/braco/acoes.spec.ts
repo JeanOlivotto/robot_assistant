@@ -64,4 +64,36 @@ describe('ações do painel', () => {
     expect(c.apagar(a.id)).toBe(true);
     expect(c.listar()).toEqual([]);
   });
+
+  describe('ligar pela rede (Wake-on-LAN)', () => {
+    it('lembra o MAC de quem conectou e pede ao robô para ligar quando estiver desligado', () => {
+      const c = novoCadastro();
+      const svc = new BracoService(c);
+      const pedidos: string[] = [];
+      svc.wol$.subscribe((mac) => pedidos.push(mac));
+      const { ws } = fakeWs();
+      svc.conectou(ws, 'arch', [], 'linux', '74:56:3c:f4:8d:1e');
+
+      expect(svc.ligar('arch')).toMatchObject({ ok: true, texto: expect.stringContaining('já está ligado') });
+      svc.desconectou(ws);
+      expect(svc.desligadas()).toEqual([{ nome: 'arch', sistema: 'linux', podeLigar: true }]);
+
+      expect(svc.ligar()).toMatchObject({ ok: false, texto: expect.stringContaining('robô da mesa') });
+      svc.roboNaRede = true;
+      expect(svc.ligar()).toMatchObject({ ok: true });
+      expect(pedidos).toEqual(['74:56:3c:f4:8d:1e']);
+    });
+
+    it('sem MAC ou nome desconhecido, explica em vez de fingir', () => {
+      const c = novoCadastro();
+      const svc = new BracoService(c);
+      svc.roboNaRede = true;
+      const { ws } = fakeWs();
+      svc.conectou(ws, 'velho', [], 'linux');
+      svc.desconectou(ws);
+      expect(svc.ligar('velho').texto).toContain('endereço de rede');
+      expect(svc.ligar('notebook').texto).toContain('não conheço');
+    });
+  });
 });
+

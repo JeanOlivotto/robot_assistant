@@ -12,6 +12,13 @@ const Hello = z.object({
   host: z.string().max(60),
   /** O app do computador diz o sistema; o apps/braco avulso (sem o campo) roda em Linux. */
   sistema: z.enum(['linux', 'windows', 'mac']).default('linux'),
+  /** MAC da placa de rede (para ligar pelo Wake-on-LAN quando estiver desligado). */
+  mac: z
+    .string()
+    .transform((m) => m.toLowerCase().replace(/-/g, ':'))
+    .pipe(z.string().regex(/^([0-9a-f]{2}:){5}[0-9a-f]{2}$/))
+    .optional()
+    .catch(undefined),
   acoes: z
     .array(z.object({ nome: z.string().max(40), descricao: z.string().max(160), params: z.array(z.string().max(30)).default([]) }))
     .max(40),
@@ -79,7 +86,7 @@ export class BracoGateway implements OnModuleInit {
     const msg = parsed.data;
     if (msg.t === 'hello') {
       this.log.log(`Máquina ${msg.host} entrou de ${ip}`);
-      this.braco.conectou(ws, msg.host, msg.acoes, msg.sistema);
+      this.braco.conectou(ws, msg.host, msg.acoes, msg.sistema, msg.mac);
     } else if (msg.t === 'ativo') this.braco.ativa(ws);
     else this.braco.resultado(msg.id, { ok: msg.ok, saida: msg.saida, erro: msg.erro });
   }

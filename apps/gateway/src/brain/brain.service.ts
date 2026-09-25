@@ -250,6 +250,19 @@ const TOOLS: ChatCompletionTool[] = [
   {
     type: 'function',
     function: {
+      name: 'ligar_computador',
+      description:
+        'Liga um computador do dono que está DESLIGADO ou suspenso (Wake-on-LAN, pelo robô da mesa). ' +
+        'Só quando ele pedir para ligar. Computador ligado não precisa disso.',
+      parameters: {
+        type: 'object',
+        properties: { maquina: { type: 'string', description: 'o nome do computador (omitir se só houver um desligado)' } },
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
       name: 'propor_comando',
       description:
         'Prepara um comando de terminal para a máquina do dono; ele vê a linha e aprova num botão ' +
@@ -507,6 +520,7 @@ export class BrainService {
       canWrite: this.calendar.writable,
       memories: this.memory.summaries(),
       maquinas: this.braco.maquinas(),
+      desligadas: this.braco.desligadas(),
       pendencias: this.tasks.open().map((t) => (t.pessoa ? `${t.texto} (com ${t.pessoa})` : t.texto)),
       vozesConhecidas: this.banco.listar().map((v) => v.nome),
       conheceDono: !!this.cfg.OWNER_NAME && this.banco.conhece(this.cfg.OWNER_NAME),
@@ -567,10 +581,14 @@ export class BrainService {
       if (name === 'renomear_voz') return { result: this.renomearVoz(args, voz) };
       if (name === 'esquecer_voz') return { result: this.esquecerVoz(args, voz) };
       // A máquina é do dono: outra pessoa reconhecida pela voz não mexe nela, peça o que pedir.
-      if ((name === 'usar_computador' || name === 'propor_comando') && this.vozDeOutro(voz)) {
+      if ((name === 'usar_computador' || name === 'propor_comando' || name === 'ligar_computador') && this.vozDeOutro(voz)) {
         return { result: `recusado: a voz é de ${voz!.nome}, e só ${this.cfg.OWNER_NAME || 'o dono'} mexe no computador dele` };
       }
       if (name === 'usar_computador') return { result: await this.usarComputador(args) };
+      if (name === 'ligar_computador') {
+        const r = this.braco.ligar(args.maquina ? String(args.maquina) : undefined);
+        return { result: r.ok ? r.texto : `não deu: ${r.texto}` };
+      }
       if (name === 'propor_comando') return this.proporComando(args);
       return { result: `erro: a ferramenta ${name} não existe` };
     } catch (err) {

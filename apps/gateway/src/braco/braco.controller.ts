@@ -1,4 +1,4 @@
-import { BadRequestException, Body, Controller, Delete, Get, NotFoundException, Param, Post, Put, UseGuards } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Delete, Get, HttpCode, NotFoundException, Param, Post, Put, UseGuards } from '@nestjs/common';
 import { z } from 'zod';
 import { AppTokenGuard } from '../auth/app-token.guard.js';
 import { AcoesService } from './acoes.service.js';
@@ -24,8 +24,24 @@ export class BracoController {
   estado() {
     return {
       maquinas: this.braco.maquinas().map(({ nome, sistema, ativaEm }) => ({ nome, sistema, ativaEm })),
+      desligadas: this.braco.desligadas(),
+      roboNaRede: this.braco.roboNaRede,
       acoes: this.acoes.listar(),
     };
+  }
+
+  /** Botão "Ligar" da aba PC: Wake-on-LAN pelo robô. */
+  @Post('ligar/:nome')
+  @HttpCode(200)
+  ligar(@Param('nome') nome: string) {
+    return this.braco.ligar(nome);
+  }
+
+  /** Tira da lista um computador que não existe mais. */
+  @Delete('maquinas/:nome')
+  esquecer(@Param('nome') nome: string) {
+    if (!this.acoes.esquecer(nome)) throw new NotFoundException('computador não encontrado');
+    return { ok: true };
   }
 
   @Post('acoes')

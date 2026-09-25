@@ -13,6 +13,7 @@
 #include "esp_websocket_client.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "lwip/sockets.h"
 #include "hal.h"
 #include "face.h"
 #include "net.h"
@@ -155,6 +156,52 @@ static void on_music(const cJSON *msg)
     app_set_music(&m);
 }
 
+/*
+ * Wake-on-LAN: o servidor pediu para ligar um computador da casa. O "pacote mágico" é 6×0xFF e o
+ * MAC 16 vezes, em UDP broadcast — vai para 255.255.255.255 e para o broadcast da sub-rede (alguns
+ * roteadores só repassam um dos dois), nas portas 9 e 7, três vezes: é UDP, pode perder um.
+ */
+static void on_wol(const cJSON *msg)
+{
+    unsigned m[6];
+    if (sscanf(str_or(msg, "mac", ""), "%2x:%2x:%2x:%2x:%2x:%2x", &m[0], &m[1], &m[2], &m[3], &m[4], &m[5]) != 6) {
+        ESP_LOGW(TAG, "wol: MAC inválido");
+        return;
+    }
+    uint8_t pkt[102];
+    memset(pkt, 0xFF, 6);
+    for (int i = 0; i < 16; i++)
+        for (int j = 0; j < 6; j++) pkt[6 + i * 6 + j] = (uint8_t)m[j];
+
+    int sock = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+    if (sock < 0) {
+        ESP_LOGW(TAG, "wol: sem socket");
+        return;
+    }
+    int sim = 1;
+    setsockopt(sock, SOL_SOCKET, SO_BROADCAST, &sim, sizeof(sim));
+
+    uint32_t destinos[2] = {IPADDR_BROADCAST, 0};
+    esp_netif_ip_info_t ip;
+    esp_netif_t *sta = esp_netif_get_handle_from_ifkey("WIFI_STA_DEF");
+    if (sta && esp_netif_get_ip_info(sta, &ip) == ESP_OK && ip.ip.addr) destinos[1] = ip.ip.addr | ~ip.netmask.addr;
+
+    int enviados = 0;
+    for (int vez = 0; vez < 3; vez++) {
+        for (int d = 0; d < 2; d++) {
+            if (!destinos[d]) continue;
+            for (int porta = 9; porta >= 7; porta -= 2) {
+                struct sockaddr_in to = {.sin_family = AF_INET, .sin_port = htons(porta), .sin_addr.s_addr = destinos[d]};
+                if (sendto(sock, pkt, sizeof(pkt), 0, (struct sockaddr *)&to, sizeof(to)) == sizeof(pkt)) enviados++;
+            }
+        }
+        vTaskDelay(pdMS_TO_TICKS(100));
+    }
+    close(sock);
+    ESP_LOGI(TAG, "wol: pacote mágico para %02x:%02x:%02x:%02x:%02x:%02x (%d envios)", m[0], m[1], m[2], m[3], m[4], m[5], enviados);
+    app_push_say("ligando o PC...", 4000);
+}
+
 static void handle_message(const char *json, size_t len)
 {
     cJSON *msg = cJSON_ParseWithLength(json, len);
@@ -190,6 +237,8 @@ static void handle_message(const char *json, size_t len)
     } else if (strcmp(t, ROBO_MSG_OTA) == 0) {
         ota_offer(str_or(msg, "version", ""), str_or(msg, "url", ""), str_or(msg, "sha256", ""),
                   (int)num_or(msg, "size", 0));
+    } else if (strcmp(t, ROBO_MSG_WOL) == 0) {
+        on_wol(msg);
     } else if (strcmp(t, ROBO_MSG_PONG) == 0 || strcmp(t, ROBO_MSG_STATE) == 0) {
         /* pong: só serve de tráfego; state: o rosto ainda é decidido localmente */
     } else {

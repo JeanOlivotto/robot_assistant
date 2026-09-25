@@ -1,5 +1,17 @@
 import { type FormEvent, useEffect, useState } from 'react';
-import { type Acao, apagarAcao, criarAcao, editarAcao, estadoDoBraco, type Maquina, NOME_SISTEMA, type Sistema } from '../lib/braco';
+import {
+  type Acao,
+  apagarAcao,
+  criarAcao,
+  type Desligada,
+  editarAcao,
+  esquecerMaquina,
+  estadoDoBraco,
+  ligarMaquina,
+  type Maquina,
+  NOME_SISTEMA,
+  type Sistema,
+} from '../lib/braco';
 
 const EXEMPLO: Record<Sistema, string> = {
   linux: 'code ~/Projects/Jean/{projeto}',
@@ -13,6 +25,8 @@ const EXEMPLO: Record<Sistema, string> = {
  */
 export function Computador({ token }: { token: string }) {
   const [maquinas, setMaquinas] = useState<Maquina[]>([]);
+  const [desligadas, setDesligadas] = useState<Desligada[]>([]);
+  const [aviso, setAviso] = useState('');
   const [acoes, setAcoes] = useState<Acao[]>([]);
   const [erro, setErro] = useState('');
   const [editando, setEditando] = useState<Acao | 'nova' | null>(null);
@@ -21,6 +35,7 @@ export function Computador({ token }: { token: string }) {
     estadoDoBraco(token)
       .then((e) => {
         setMaquinas(e.maquinas);
+        setDesligadas(e.desligadas ?? []);
         setAcoes(e.acoes);
         setErro('');
       })
@@ -33,6 +48,18 @@ export function Computador({ token }: { token: string }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token]);
 
+  const ligar = (nome: string) => {
+    setAviso(`Ligando ${nome}…`);
+    void ligarMaquina(token, nome)
+      .then((r) => setAviso(r.ok ? `Sinal enviado. ${nome} costuma aparecer aqui em um ou dois minutos.` : `Não deu: ${r.texto}`))
+      .catch((e: Error) => setAviso(e.message));
+  };
+
+  const esquecer = (nome: string) => {
+    if (!confirm(`Tirar ${nome} da lista? Se ele abrir o app de novo, volta sozinho.`)) return;
+    void esquecerMaquina(token, nome).then(recarregar);
+  };
+
   const apagar = (a: Acao) => {
     if (!confirm(`Apagar a ação "${a.descricao}"?`)) return;
     void apagarAcao(token, a.id)
@@ -42,9 +69,9 @@ export function Computador({ token }: { token: string }) {
 
   return (
     <div className="tasks pc">
-      <h4 className="tasks__titulo pc__titulo">Computadores ligados</h4>
-      {!maquinas.length ? (
-        <p className="hint">Nenhum agora. Abra o app do computador (com "Deixar o Miro usar este computador" ligado na bandeja).</p>
+      <h4 className="tasks__titulo pc__titulo">Computadores</h4>
+      {!maquinas.length && !desligadas.length ? (
+        <p className="hint">Nenhum ainda. Abra o app do computador (com "Deixar o Miro usar este computador" ligado na bandeja).</p>
       ) : (
         <ul className="tasks__lista">
           {maquinas.map((m, i) => (
@@ -59,8 +86,28 @@ export function Computador({ token }: { token: string }) {
               </div>
             </li>
           ))}
+          {desligadas.map((m) => (
+            <li key={m.nome} className="tasks__item">
+              <span className="pc__ponto pc__ponto--off" aria-hidden="true" />
+              <div className="tasks__texto">
+                <span>{m.nome}</span>
+                <span className="tasks__meta">
+                  {NOME_SISTEMA[m.sistema]} · desligado{!m.podeLigar && ' (abra o app nele uma vez para dar para ligar daqui)'}
+                </span>
+              </div>
+              {m.podeLigar && (
+                <button type="button" className="mini-btn" onClick={() => ligar(m.nome)}>
+                  Ligar
+                </button>
+              )}
+              <button type="button" className="tasks__drop" aria-label="Tirar da lista" title="Tirar da lista" onClick={() => esquecer(m.nome)}>
+                ✕
+              </button>
+            </li>
+          ))}
         </ul>
       )}
+      {aviso && <p className="hint pc__hint">{aviso}</p>}
 
       <h4 className="tasks__titulo pc__titulo">Ações sem aprovação</h4>
       <p className="hint pc__hint">

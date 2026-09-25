@@ -1861,3 +1861,7 @@ html.desktop-bolha #root {
   box-sizing: border-box;
   padding: 4px 16px calc(env(safe-area-inset-bottom) + 24px);
 }
+.pc__ponto--off {
+  background: var(--dim);
+  box-shadow: none;
+}

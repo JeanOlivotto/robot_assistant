@@ -10,7 +10,7 @@
  */
 import { spawn } from 'node:child_process';
 import { readFileSync } from 'node:fs';
-import { homedir, hostname } from 'node:os';
+import { homedir, hostname, networkInterfaces } from 'node:os';
 
 const WINDOWS = process.platform === 'win32';
 const SISTEMA = WINDOWS ? 'windows' : process.platform === 'darwin' ? 'mac' : 'linux';
@@ -65,6 +65,21 @@ function rodar(comando) {
     p.on('error', (err) => terminar({ ok: false, saida, erro: err.message }));
     p.on('exit', (code) => terminar(code === 0 ? { ok: true, saida: saida.trim() || '(sem saída)' } : { ok: false, saida, erro: `terminou com código ${code}` }));
   });
+}
+
+/*
+ * O MAC da placa de rede de verdade (para o Miro ligar este computador pela rede quando estiver
+ * desligado). Com fio primeiro — Wake-on-LAN pelo Wi-Fi quase nunca funciona —, e nada de
+ * docker, VPN, ponte ou máquina virtual.
+ */
+const VIRTUAL = /^(lo|docker|br-|veth|virbr|vmnet|vbox|tun|tap|wg|zt|tailscale)|virtual|vmware|hyper-v|vethernet|loopback|bluetooth/i;
+const COM_FIO = /^(en|eth)|ethernet/i;
+export function macDaPlaca(interfaces = networkInterfaces()) {
+  const placas = Object.entries(interfaces)
+    .filter(([nome, ends]) => !VIRTUAL.test(nome) && ends?.some((e) => !e.internal && e.family === 'IPv4'))
+    .map(([nome, ends]) => ({ nome, mac: ends.find((e) => e.mac && e.mac !== '00:00:00:00:00:00')?.mac }))
+    .filter((p) => p.mac);
+  return (placas.find((p) => COM_FIO.test(p.nome)) ?? placas[0])?.mac;
 }
 
 export class Braco {
@@ -133,6 +148,7 @@ export class Braco {
           t: 'hello',
           host: hostname().slice(0, 60),
           sistema: SISTEMA,
+          mac: macDaPlaca(),
           acoes: acoes.map((a) => ({ nome: a.nome, descricao: a.descricao ?? a.nome, params: a.params ?? [] })),
         }),
       );

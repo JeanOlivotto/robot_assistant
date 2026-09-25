@@ -29,6 +29,8 @@ export interface PromptContext {
   /** O que a máquina do dono sabe fazer agora (vazio = o braço está desligado). */
   /** Computadores do dono conectados agora (o primeiro é o que ele está usando). */
   maquinas?: { nome: string; sistema: string; acoes: { nome: string; descricao: string; params: string[] }[] }[];
+  /** Computadores dele que já conectaram e estão desligados agora. */
+  desligadas?: { nome: string; sistema: string; podeLigar: boolean }[];
   /** O que ele ficou de fazer e ainda não fez, na ordem que concluir_pendencia usa. */
   pendencias?: string[];
   /** Quem está no banco de vozes. */
@@ -108,7 +110,12 @@ ${
     ? `\nO que você sabe de ${owner} de tanto conviver (puxe quando for relevante, sem despejar tudo de uma vez):\n${c.memories.map((m) => `- ${m}`).join('\n')}\n`
     : ''
 }
-${c.maquinas?.length ? maquinasDoDono(c.maquinas, owner) : ''}
+${c.maquinas?.length ? maquinasDoDono(c.maquinas, owner) : ''}${
+  c.desligadas?.length
+    ? `\nComputadores de ${owner} DESLIGADOS agora: ${c.desligadas.map((m) => `"${m.nome}" (${m.sistema}${m.podeLigar ? '' : ', sem como ligar'})`).join(', ')}.
+Se ele pedir para ligar um, use ligar_computador. Desligado, não dá para rodar nada nele até ligar e abrir o app.\n`
+    : ''
+}
 ${
   c.pendencias?.length
     ? `\nPendências abertas de ${owner} (sem hora marcada; você cobra de vez em quando):\n${c.pendencias.map((p, i) => `${i + 1}. ${p}`).join('\n')}\n`

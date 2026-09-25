@@ -18,6 +18,12 @@ export interface Acao {
   criadaEm: number;
 }
 
+export interface Desligada {
+  nome: string;
+  sistema: Sistema;
+  podeLigar: boolean;
+}
+
 export type NovaAcao = Pick<Acao, 'descricao' | 'comando' | 'sistema' | 'maquina'>;
 
 async function api<T>(token: string, path: string, init: RequestInit = {}): Promise<T> {
@@ -29,7 +35,12 @@ async function api<T>(token: string, path: string, init: RequestInit = {}): Prom
   return (await res.json()) as T;
 }
 
-export const estadoDoBraco = (token: string) => api<{ maquinas: Maquina[]; acoes: Acao[] }>(token, '');
+export const estadoDoBraco = (token: string) =>
+  api<{ maquinas: Maquina[]; desligadas: Desligada[]; roboNaRede: boolean; acoes: Acao[] }>(token, '');
+export const ligarMaquina = (token: string, nome: string) =>
+  api<{ ok: boolean; texto: string }>(token, `/ligar/${encodeURIComponent(nome)}`, { method: 'POST' });
+export const esquecerMaquina = (token: string, nome: string) =>
+  api<{ ok: true }>(token, `/maquinas/${encodeURIComponent(nome)}`, { method: 'DELETE' });
 export const criarAcao = (token: string, a: NovaAcao) => api<Acao>(token, '/acoes', { method: 'POST', body: JSON.stringify(a) });
 export const editarAcao = (token: string, id: string, a: NovaAcao) => api<Acao>(token, `/acoes/${id}`, { method: 'PUT', body: JSON.stringify(a) });
 export const apagarAcao = (token: string, id: string) => api<{ ok: true }>(token, `/acoes/${id}`, { method: 'DELETE' });

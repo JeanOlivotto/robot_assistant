@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { Injectable, Logger, Optional } from '@nestjs/common';
-import { BehaviorSubject } from 'rxjs';
+import { BehaviorSubject, Subject } from 'rxjs';
 import type { WebSocket } from 'ws';
 import { AcoesService, montar, paramsDe } from './acoes.service.js';
 
@@ -55,6 +55,10 @@ export class BracoService {
 
   /** As máquinas conectadas agora (muda a cada entrada/saída). */
   readonly maquinas$ = new BehaviorSubject<Maquina[]>([]);
+  /** Pedido de Wake-on-LAN (o MAC): o DeviceGateway repassa para o robô, que está na rede da casa. */
+  readonly wol$ = new Subject<string>();
+  /** O robô da mesa está conectado (é ele quem manda o sinal de ligar). O DeviceGateway atualiza. */
+  roboNaRede = false;
 
   get online(): boolean {
     return this.conexoes.size > 0;
@@ -77,7 +81,8 @@ export class BracoService {
   }
 
   /** Uma máquina conectou e disse quem é e o que sabe fazer. Mesmo nome = a conexão nova toma o lugar. */
-  conectou(ws: WebSocket, nome: string, acoes: Acao[], sistema: Sistema = 'linux'): void {
+  conectou(ws: WebSocket, nome: string, acoes: Acao[], sistema: Sistema = 'linux', mac?: string): void {
+    this.cadastro?.lembrar({ nome, sistema, mac });
     for (const [outro, c] of this.conexoes) if (c.nome === nome && outro !== ws) this.desconectou(outro);
     this.conexoes.set(ws, { ws, nome, sistema, acoes, ativaEm: Date.now() });
     this.maquinas$.next(this.maquinas());
@@ -151,6 +156,31 @@ export class BracoService {
     const m = this.escolher(maquina);
     if (!m) return Promise.resolve(this.semMaquina(maquina));
     return this.enviar(m.nome, { cmd });
+  }
+
+  /** Computadores que já conectaram e estão desligados agora (com MAC: dá para ligar). */
+  desligadas(): { nome: string; sistema: Sistema; podeLigar: boolean }[] {
+    const ligadas = new Set(this.maquinas().map((m) => m.nome));
+    return (this.cadastro?.conhecidas() ?? []).filter((m) => !ligadas.has(m.nome)).map((m) => ({ nome: m.nome, sistema: m.sistema, podeLigar: !!m.mac }));
+  }
+
+  /**
+   * Liga um computador desligado (ou suspenso) pela rede: o robô manda o pacote mágico. Sem nome,
+   * o único desligado que dá para ligar. Devolve o que dizer ao dono.
+   */
+  ligar(nome?: string): { ok: boolean; texto: string } {
+    const n = nome?.trim().toLowerCase();
+    const conhecidas = this.cadastro?.conhecidas() ?? [];
+    const alvo = n
+      ? (conhecidas.find((m) => m.nome.toLowerCase() === n) ?? conhecidas.find((m) => m.nome.toLowerCase().includes(n) || m.sistema === n))
+      : conhecidas.filter((m) => m.mac && !this.maquinas().some((x) => x.nome === m.nome)).at(0);
+    if (!alvo) return { ok: false, texto: n ? `não conheço o computador "${nome}"` : 'não tem computador desligado que eu saiba ligar' };
+    if (this.maquinas().some((m) => m.nome === alvo.nome)) return { ok: true, texto: `${alvo.nome} já está ligado` };
+    if (!alvo.mac) return { ok: false, texto: `não sei o endereço de rede de ${alvo.nome} (ele precisa abrir o app uma vez com a versão nova)` };
+    if (!this.roboNaRede) return { ok: false, texto: 'o robô da mesa está desconectado, e é ele quem manda o sinal para ligar' };
+    this.wol$.next(alvo.mac);
+    this.log.log(`Ligar ${alvo.nome} (${alvo.mac}) pelo robô`);
+    return { ok: true, texto: `sinal enviado para ligar ${alvo.nome}; costuma levar um minuto (só funciona se o Wake-on-LAN estiver ligado na BIOS dele)` };
   }
 
   private semMaquina(nome?: string): Resultado {

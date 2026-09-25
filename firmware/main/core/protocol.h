@@ -40,6 +40,7 @@
 #define ROBO_MSG_MUSIC "music"
 #define ROBO_MSG_OTA "ota"
 #define ROBO_MSG_MODE "mode"
+#define ROBO_MSG_WOL "wol"
 
 typedef enum {
     ROBO_STATE_IDLE,

@@ -248,6 +248,16 @@ export const SetMode = z.object({
   v: z.enum(MODES),
 });
 
+/**
+ * Liga um computador pela rede (Wake-on-LAN): o robô, que está sempre no Wi-Fi da casa, manda o
+ * "pacote mágico" em broadcast para esse MAC. O servidor sozinho não alcança a rede local.
+ */
+export const Wol = z.object({
+  t: z.literal('wol'),
+  ts: epochMs,
+  mac: z.string().regex(/^([0-9a-f]{2}:){5}[0-9a-f]{2}$/),
+});
+
 export const ServerMessage = z.discriminatedUnion('t', [
   HelloAck,
   Pong,
@@ -260,6 +270,7 @@ export const ServerMessage = z.discriminatedUnion('t', [
   Music,
   Ota,
   SetMode,
+  Wol,
 ]);
 
 export type Hello = z.infer<typeof Hello>;
@@ -275,6 +286,7 @@ export type DeviceSay = z.infer<typeof DeviceSay>;
 export type Music = z.infer<typeof Music>;
 export type Ota = z.infer<typeof Ota>;
 export type SetMode = z.infer<typeof SetMode>;
+export type Wol = z.infer<typeof Wol>;
 export type OtaStatus = z.infer<typeof OtaStatus>;
 export type ServerMessage = z.infer<typeof ServerMessage>;
 

@@ -26,6 +26,15 @@ export interface AcaoCadastrada {
 
 export type NovaAcao = Pick<AcaoCadastrada, 'descricao' | 'comando' | 'sistema' | 'maquina'>;
 
+/** Computador que já conectou alguma vez: guardado para dar para ligar (Wake-on-LAN) quando está desligado. */
+export interface MaquinaConhecida {
+  nome: string;
+  sistema: Sistema;
+  /** Placa de rede com fio de preferência, "aa:bb:cc:dd:ee:ff". */
+  mac?: string;
+  vistaEm: number;
+}
+
 /** Os {param} do comando, na ordem em que aparecem, sem repetir. */
 export function paramsDe(comando: string): string[] {
   return [...new Set([...comando.matchAll(/\{(\w+)\}/g)].map((m) => m[1]!))];
@@ -62,15 +71,43 @@ export function montar(a: Pick<AcaoCadastrada, 'comando' | 'sistema'>, args: Rec
 export class AcoesService {
   private readonly log = new Logger(AcoesService.name);
   private readonly file: string;
+  private readonly fileMaquinas: string;
   private acoes: AcaoCadastrada[] = [];
+  private maquinas: MaquinaConhecida[] = [];
 
   constructor(@Inject(APP_CONFIG) cfg: AppConfig) {
     this.file = rootPath(`${cfg.DATA_DIR}/acoes.json`);
+    this.fileMaquinas = rootPath(`${cfg.DATA_DIR}/maquinas.json`);
     try {
       this.acoes = JSON.parse(readFileSync(this.file, 'utf8')) as AcaoCadastrada[];
     } catch {
       /* nenhuma ainda */
     }
+    try {
+      this.maquinas = JSON.parse(readFileSync(this.fileMaquinas, 'utf8')) as MaquinaConhecida[];
+    } catch {
+      /* nenhuma conectou ainda */
+    }
+  }
+
+  conhecidas(): MaquinaConhecida[] {
+    return [...this.maquinas].sort((a, b) => b.vistaEm - a.vistaEm);
+  }
+
+  /** Uma máquina conectou: guarda (ou atualiza) o nome, o sistema e o MAC dela. */
+  lembrar(m: Omit<MaquinaConhecida, 'vistaEm'>): void {
+    const antiga = this.maquinas.find((x) => x.nome === m.nome);
+    const nova = { ...antiga, ...m, mac: m.mac ?? antiga?.mac, vistaEm: Date.now() };
+    this.maquinas = [...this.maquinas.filter((x) => x.nome !== m.nome), nova];
+    this.gravar(this.fileMaquinas, this.maquinas);
+  }
+
+  esquecer(nome: string): boolean {
+    const antes = this.maquinas.length;
+    this.maquinas = this.maquinas.filter((m) => m.nome !== nome);
+    if (this.maquinas.length === antes) return false;
+    this.gravar(this.fileMaquinas, this.maquinas);
+    return true;
   }
 
   listar(): AcaoCadastrada[] {
@@ -126,11 +163,15 @@ export class AcoesService {
   }
 
   private salvar(): void {
+    this.gravar(this.file, this.acoes);
+  }
+
+  private gravar(file: string, dados: unknown): void {
     try {
-      mkdirSync(dirname(this.file), { recursive: true });
-      writeFileSync(this.file, JSON.stringify(this.acoes, null, 2));
+      mkdirSync(dirname(file), { recursive: true });
+      writeFileSync(file, JSON.stringify(dados, null, 2));
     } catch (err) {
-      this.log.error(`Não salvei as ações: ${(err as Error).message}`);
+      this.log.error(`Não salvei ${file}: ${(err as Error).message}`);
     }
   }
 }

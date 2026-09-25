@@ -5,6 +5,7 @@ import type { Subscription } from 'rxjs';
 import { WebSocket, WebSocketServer, type RawData } from 'ws';
 import { DeviceMessage, ServerMessage, type AgendaItem, type Hello } from '@robo/protocol';
 import { AlertService } from '../alerts/alert.service.js';
+import { BracoService } from '../braco/braco.service.js';
 import { tokenEquals } from '../auth/token.js';
 import { CalendarService } from '../calendar/calendar.service.js';
 import { ChatService, type ChatState } from '../chat/chat.service.js';
@@ -63,6 +64,7 @@ export class DeviceGateway implements OnModuleInit, OnModuleDestroy {
     private readonly spotify: SpotifyService,
     private readonly firmware: FirmwareService,
     private readonly presence: PresenceService,
+    private readonly braco: BracoService,
   ) {}
 
   onModuleInit(): void {
@@ -83,6 +85,8 @@ export class DeviceGateway implements OnModuleInit, OnModuleDestroy {
       this.robot.say$.subscribe((s) => this.broadcast({ t: 'say', ts: Date.now(), text: s.text, ms: s.ms })),
       this.chat.mode$.subscribe((v) => this.broadcast({ t: 'mode', ts: Date.now(), v })),
       this.spotify.music$.subscribe((m) => this.broadcast(this.musicMsg(m))),
+      // Ligar um computador da casa: só o robô está na rede local para mandar o pacote mágico.
+      this.braco.wol$.subscribe((mac) => this.broadcast({ t: 'wol', ts: Date.now(), mac })),
       // Firmware novo publicado agora: quem está conectado atualiza sem esperar reconectar.
       this.firmware.published$.subscribe(() => {
         for (const s of this.sessions) this.offerOta(s);
@@ -146,7 +150,10 @@ export class DeviceGateway implements OnModuleInit, OnModuleDestroy {
       clearTimeout(helloTimer);
       this.sessions.delete(s);
       this.log.log(`${this.label(s)} desconectou (código ${code})`);
-      if (![...this.sessions].some((x) => x.hello)) this.robot.setOnline(false);
+      if (![...this.sessions].some((x) => x.hello)) {
+        this.robot.setOnline(false);
+        this.braco.roboNaRede = false;
+      }
     });
 
     ws.on('error', (err) => this.log.warn(`${this.label(s)} erro: ${err.message}`));
@@ -208,6 +215,7 @@ export class DeviceGateway implements OnModuleInit, OnModuleDestroy {
     s.hello = hello;
     this.log.log(`${this.label(s)} conectou — fw ${hello.fw}, chip ${hello.chip}, ip ${s.ip}`);
     this.robot.setOnline(true);
+    this.braco.roboNaRede = true;
 
     const now = Date.now();
     this.send(s, {
