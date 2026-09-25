@@ -73,7 +73,7 @@ const Schema = z.object({
   ELEVENLABS_VOICE_ID: z.string().default(''),
   ELEVENLABS_MODEL: z.string().default('eleven_flash_v2_5'),
 
-  ROBOT_NAME: z.string().default('Robô'),
+  ROBOT_NAME: z.string().default('Miro'),
   OWNER_NAME: z.string().default(''),
 
   PROACTIVE: bool,

@@ -109,11 +109,11 @@ function Main({ token, onLogout }: { token: string; onLogout(): void }) {
   const onBell = async () => {
     const st = pushState();
     if (st === 'needs-install') {
-      setNotice('No iPhone: toque em Compartilhar → Adicionar à Tela de Início e abra o Robô por lá para ativar as notificações.');
+      setNotice('No iPhone: toque em Compartilhar → Adicionar à Tela de Início e abra o Miro por lá para ativar as notificações.');
       return;
     }
     if (st === 'unsupported') return setNotice('Este navegador não recebe notificações.');
-    if (st === 'denied') return setNotice('As notificações estão bloqueadas: libere em Ajustes → Notificações → Robô.');
+    if (st === 'denied') return setNotice('As notificações estão bloqueadas: libere em Ajustes → Notificações → Miro.');
     try {
       if (st === 'default') {
         await enablePush(token);
@@ -162,7 +162,7 @@ function Main({ token, onLogout }: { token: string; onLogout(): void }) {
   if (robo.conn !== 'open') status = 'reconectando…';
   else if (r?.thinking) status = 'pensando…';
   else if (r?.waiting_since) status = `esperando você ${ago(r.waiting_since, now)}`;
-  else if (!r?.online) status = 'robô desligado — o chat funciona igual';
+  else if (!r?.online) status = 'Miro desligado — o chat funciona igual';
   else status = 'na mesa, de olho em você';
 
   const face = r?.online ? r.face : r?.thinking ? 'thinking' : null;
@@ -181,13 +181,13 @@ function Main({ token, onLogout }: { token: string; onLogout(): void }) {
           type="button"
           className={`robo-avatar ${cutucado ? 'robo-avatar--cutucado' : ''}`}
           onClick={acordarRobo}
-          aria-label="Acordar o robô"
-          title="Acordar o robô"
+          aria-label="Acordar o Miro"
+          title="Acordar o Miro"
         >
           <RobotFace face={face} size={52} className={r?.online ? '' : 'face--offline'} />
         </button>
         <div className="who">
-          <strong>Robô</strong>
+          <strong>Miro</strong>
           <span className={`status ${robo.conn !== 'open' ? 'status--warn' : r?.waiting_since ? 'status--wait' : ''}`}>{status}</span>
         </div>
         {!DESKTOP && (

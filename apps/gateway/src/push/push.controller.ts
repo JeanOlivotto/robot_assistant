@@ -39,7 +39,7 @@ export class PushController {
   /** Manda uma notificação de teste para todos os aparelhos inscritos. */
   @Post('test')
   async test() {
-    const sent = await this.push.notify({ title: 'Robô', body: 'Oi! As notificações estão funcionando 🤖', tag: 'teste' });
+    const sent = await this.push.notify({ title: 'Miro', body: 'Oi! As notificações estão funcionando 🤖', tag: 'teste' });
     return { sent };
   }
 }

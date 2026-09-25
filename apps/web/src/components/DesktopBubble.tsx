@@ -114,6 +114,8 @@ function BolhaLogada({ token, andando }: { token: string; andando: 'esquerda' | 
   /** Você falou "Miro, …": a próxima resposta sai em voz mesmo com a voz desligada. */
   const falarProxima = useRef(false);
   const [atento, setAtento] = useState(false); // ouviu algo parecido com o nome e está confirmando
+  /** O microfone está aberto para o "Miro, …" (null: este app não tem ouvido). */
+  const [ouvindo, setOuvindo] = useState<boolean | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -192,6 +194,7 @@ function BolhaLogada({ token, andando }: { token: string; andando: 'esquerda' | 
       .then((i: { nome?: string }) => i.nome && desktop?.ouvinteNome?.(i.nome))
       .catch(() => undefined);
     desktop.aoOuvir?.((sim) => {
+      setOuvindo(sim);
       if (sim && !parar) {
         escutar((a) => desktop?.ouvinteAudio?.(a))
           .then((p) => (parar = p))
@@ -265,6 +268,11 @@ function BolhaLogada({ token, andando }: { token: string; andando: 'esquerda' | 
       desktop?.esconder?.();
       return;
     }
+    if (/\b(para|pare|parar) de (ouvir|escutar)\b|\bdesliga (o )?microfone\b|\bnao (me )?(ouve|escuta)\b/.test(c)) {
+      avisar('Parei de ouvir. Para voltar, clique em mim e no microfone.');
+      desktop?.ouvinteAlternar?.(false);
+      return;
+    }
     if (/\b(para de falar|cala|silencio|chega)\b/.test(c)) {
       stopSpeaking();
       return;
@@ -320,6 +328,16 @@ function BolhaLogada({ token, andando }: { token: string; andando: 'esquerda' | 
               <button type="button" onClick={() => desktop?.painel('abrir')} title="Abrir o painel (chat, agenda, reunião)">
                 ⤢
               </button>
+              {ouvindo !== null && (
+                <button
+                  type="button"
+                  onClick={() => desktop?.ouvinteAlternar?.(!ouvindo)}
+                  title={ouvindo ? 'Parar de ouvir o "Miro, …"' : 'Voltar a ouvir o "Miro, …"'}
+                  aria-pressed={ouvindo}
+                >
+                  {ouvindo ? <MicIcon /> : <MicOffIcon />}
+                </button>
+              )}
               <button type="button" onClick={trocarVoz} title={voz ? 'Parar de falar em voz alta' : 'Falar em voz alta'}>
                 {voz ? '🔊' : '🔇'}
               </button>
@@ -349,7 +367,8 @@ function BolhaLogada({ token, andando }: { token: string; andando: 'esquerda' | 
         andando={andando}
         face={robo.conn === 'open' ? (atento ? 'surprised' : andando ? 'happy' : face) : null}
         onClick={clicar}
-        dica={balao ? 'Fechar o balão' : 'Falar com o robô'}
+        dica={balao ? 'Fechar o balão' : 'Falar com o Miro'}
+        surdo={ouvindo === false}
       />
     </div>
   );
@@ -367,12 +386,15 @@ function Carinha({
   onClick,
   onDoubleClick,
   dica,
+  surdo = false,
 }: {
   face: ChatMessage['face'] | null;
   andando: 'esquerda' | 'direita' | null;
   onClick(): void;
   onDoubleClick?(): void;
   dica: string;
+  /** Não está ouvindo o "Miro, …": um microfone riscado no canto, para você lembrar. */
+  surdo?: boolean;
 }) {
   const inicio = useRef<{ x: number; y: number; arrastou: boolean } | null>(null);
   const gravando = useGravando();
@@ -418,6 +440,11 @@ function Carinha({
           <i /> {tempo(Date.now() - gravando)}
         </span>
       )}
+      {surdo && (
+        <span className="carinha__surdo" aria-hidden="true">
+          <MicOffIcon />
+        </span>
+      )}
       {andando && (
         <span className="carinha__pes" aria-hidden="true">
           <i />
@@ -434,4 +461,21 @@ function tempo(ms: number): string {
   const m = Math.floor((s % 3600) / 60);
   const ss = String(s % 60).padStart(2, '0');
   return h ? `${h}:${String(m).padStart(2, '0')}:${ss}` : `${m}:${ss}`;
+}
+
+function MicIcon() {
+  return (
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" aria-hidden="true">
+      <rect x="9" y="3" width="6" height="11" rx="3" />
+      <path d="M5 11a7 7 0 0 0 14 0M12 18v3" />
+    </svg>
+  );
+}
+
+function MicOffIcon() {
+  return (
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" aria-hidden="true">
+      <path d="M15 9.5V6a3 3 0 0 0-5.7-1.3M9 9v2a3 3 0 0 0 4.9 2.3M5 11a7 7 0 0 0 11.3 5.5M19 11a7 7 0 0 1-.6 2.8M12 18v3M3 3l18 18" />
+    </svg>
+  );
 }

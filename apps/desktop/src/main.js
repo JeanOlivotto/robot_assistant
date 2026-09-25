@@ -52,7 +52,7 @@ let passear = true; // passeia pela tela sozinho (bandeja liga/desliga)
 let ocupada = false; // balão aberto ou mouse em cima: fica quieta
 let arrastadaEm = 0;
 let dormindo = false; // o robô está dormindo: a carinha não se mexe até alguém acordá-lo
-let ouvir = true; // escuta o "Miro, …" (bandeja liga/desliga)
+let ouvir = true; // escuta o "Miro, …" (o microfone do balão e a bandeja ligam/desligam)
 let nomeDele = 'Miro';
 let conferirMonitor = () => {};
 let painel = null;
@@ -150,7 +150,7 @@ function criarBolha() {
     skipTaskbar: true,
     hasShadow: false,
     show: false,
-    title: 'Robô',
+    title: 'Miro',
     icon: ICONE,
     webPreferences: webPrefs(),
   });
@@ -207,7 +207,7 @@ function criarPainel() {
     minWidth: 340,
     minHeight: 420,
     show: false,
-    title: 'Robô',
+    title: 'Miro',
     icon: ICONE,
     backgroundColor: '#0b0e14',
     autoHideMenuBar: true,
@@ -397,6 +397,12 @@ ipcMain.on('ouvinte:nome', (_e, nome) => {
   }
 });
 ipcMain.on('ouvinte:pronta', () => void aplicarOuvir()); // a bolha carregou: diz se é para ouvir
+/* O botão de microfone do balão (e o "Miro, para de ouvir"): liga/desliga igual ao item da bandeja. */
+ipcMain.on('ouvinte:alternar', (_e, sim) => {
+  ouvir = typeof sim === 'boolean' ? sim : !ouvir;
+  salvarEstado({ ouvir });
+  void aplicarOuvir();
+});
 
 /*
  * Comandos que a bolha ouviu e que o painel executa (a reunião grava lá). Se o painel ainda não
@@ -525,9 +531,10 @@ function seguirMonitor() {
 
 function atualizarBandeja() {
   if (!bandeja) return;
+  bandeja.setToolTip(ouvir ? `${nomeDele} (ouvindo)` : nomeDele);
   bandeja.setContextMenu(
     Menu.buildFromTemplate([
-      { label: visivel ? `Esconder o robô (${ATALHO})` : `Mostrar o robô (${ATALHO})`, click: alternarVisivel },
+      { label: visivel ? `Esconder o ${nomeDele} (${ATALHO})` : `Mostrar o ${nomeDele} (${ATALHO})`, click: alternarVisivel },
       { label: painelAberto ? 'Fechar o painel' : 'Abrir o painel', click: () => (painelAberto ? fecharPainel() : abrirPainel()) },
       { type: 'separator' },
       {
@@ -567,7 +574,6 @@ function atualizarBandeja() {
 
 function criarBandeja() {
   bandeja = new Tray(ICONE_BANDEJA);
-  bandeja.setToolTip('Robô');
   bandeja.on('click', alternarVisivel);
   atualizarBandeja();
 }

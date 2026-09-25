@@ -1,4 +1,4 @@
-/* Service worker do Robô: recebe as notificações push mesmo com o app fechado. */
+/* Service worker do Miro: recebe as notificações push mesmo com o app fechado. */
 
 self.addEventListener('install', () => self.skipWaiting());
 self.addEventListener('activate', (event) => event.waitUntil(self.clients.claim()));
@@ -11,7 +11,7 @@ self.addEventListener('push', (event) => {
     data = { body: event.data ? event.data.text() : '' };
   }
   event.waitUntil(
-    self.registration.showNotification(data.title || 'Robô', {
+    self.registration.showNotification(data.title || 'Miro', {
       body: data.body || '',
       tag: data.tag,
       icon: '/icon-192.png',

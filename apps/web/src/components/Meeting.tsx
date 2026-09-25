@@ -557,7 +557,7 @@ export function MeetingView({
   if (phase === 'unavailable')
     return (
       <div className="meeting">
-        <p className="hint">O modo reunião precisa da transcrição (STT) e do cérebro (LLM) ligados no servidor. Fale com quem cuida do robô.</p>
+        <p className="hint">O modo reunião precisa da transcrição (STT) e do cérebro (LLM) ligados no servidor. Fale com quem cuida do Miro.</p>
       </div>
     );
 
@@ -801,7 +801,7 @@ export function MeetingView({
 
       {!guest && (phase === 'idle' || phase === 'done') && banco.length > 0 && (
         <div className="meeting__past">
-          <h4>Vozes que o robô reconhece</h4>
+          <h4>Vozes que o Miro reconhece</h4>
           {banco.map((v) => (
             <div key={v.id} className="voz-conhecida">
               <span>{v.nome}</span>
@@ -809,7 +809,7 @@ export function MeetingView({
                 type="button"
                 className="mini-btn mini-btn--perigo"
                 onClick={() => {
-                  if (!confirm(`Apagar a voz de ${v.nome}? O robô deixa de reconhecer essa pessoa.`)) return;
+                  if (!confirm(`Apagar a voz de ${v.nome}? O Miro deixa de reconhecer essa pessoa.`)) return;
                   void apagarVoz(token, v.id)
                     .then(carregarBanco)
                     .catch((e: Error) => setError(`Não consegui apagar: ${e.message}`));

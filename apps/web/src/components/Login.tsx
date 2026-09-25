@@ -21,7 +21,7 @@ export function Login({ onLogin }: { onLogin(token: string): void }) {
   return (
     <main className="login">
       <RobotFace face={state === 'wrong' ? 'sad' : state === 'checking' ? 'thinking' : 'neutral'} size={140} />
-      <h1>Oi! Eu sou o robô.</h1>
+      <h1>Oi! Eu sou o Miro.</h1>
       <form onSubmit={submit}>
         <input
           type="password"

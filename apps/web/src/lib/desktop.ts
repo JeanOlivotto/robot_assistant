@@ -32,6 +32,7 @@ interface RoboDesktopBridge {
   ouvintePronta?(): void;
   ouvinteAudio?(amostras: Float32Array): void;
   ouvinteNome?(nome: string): void;
+  ouvinteAlternar?(sim?: boolean): void;
   aoOuvir?(cb: (sim: boolean) => void): void;
   aoCandidato?(cb: (c: { wav: Uint8Array; texto: string }) => void): void;
   aoOuvinteEstado?(cb: (e: string) => void): void;

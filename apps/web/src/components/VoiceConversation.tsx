@@ -165,10 +165,10 @@ export function VoiceConversation({
             : hint || 'Deu ruim aqui.';
 
   return (
-    <div className="call" role="dialog" aria-label="Ligação com o robô">
+    <div className="call" role="dialog" aria-label="Ligação com o Miro">
       <header className="call__top">
         <div className="call__who">
-          <strong>Robô</strong>
+          <strong>Miro</strong>
           <span>{phase === 'connecting' ? 'chamando…' : mmss(elapsed)}</span>
         </div>
         <button type="button" className="call__x" onClick={onClose} aria-label="Encerrar ligação">

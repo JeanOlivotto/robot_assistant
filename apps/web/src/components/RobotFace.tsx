@@ -127,7 +127,7 @@ export function RobotFace({ face, size = 128, className = '' }: { face: Face | n
   const wanders = d.eyes === 'open' && !d.gaze;
 
   return (
-    <svg viewBox="0 0 128 128" width={size} height={size} className={`face ${className}`} role="img" aria-label={`robô ${name}`}>
+    <svg viewBox="0 0 128 128" width={size} height={size} className={`face ${className}`} role="img" aria-label={`Miro ${name}`}>
       <rect width="128" height="128" rx="24" fill={SCREEN} />
       <g transform={`translate(${gx} ${gy})`}>
         <g className={wanders ? 'face-wander' : undefined}>

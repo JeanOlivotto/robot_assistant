@@ -298,7 +298,7 @@ function Composer({
           ref={ref}
           rows={1}
           value={text}
-          placeholder={disabled ? 'Sem conexão…' : photo ? 'Legenda (opcional)…' : 'Fale com o robô…'}
+          placeholder={disabled ? 'Sem conexão…' : photo ? 'Legenda (opcional)…' : 'Fale com o Miro…'}
           onChange={(e) => setText(e.target.value)}
           onKeyDown={onKey}
           enterKeyHint="send"
