@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import type { WebSocket } from 'ws';
 import type { AppConfig } from '../config/app-config.js';
-import { AcoesService, escapar, mesmaRede, montar, nomeDe, paramsDe } from './acoes.service.js';
+import { AcoesService, broadcastDe, escapar, mesmaRede, montar, nomeDe, paramsDe } from './acoes.service.js';
 import { BracoService } from './braco.service.js';
 
 const novoCadastro = () => new AcoesService({ DATA_DIR: mkdtempSync(join(tmpdir(), 'acoes-')) } as AppConfig);
@@ -69,7 +69,7 @@ describe('ações do painel', () => {
     it('lembra o MAC de quem conectou e pede ao robô para ligar quando estiver desligado', () => {
       const c = novoCadastro();
       const svc = new BracoService(c);
-      const pedidos: string[] = [];
+      const pedidos: { mac: string; ips?: string[] }[] = [];
       svc.wol$.subscribe((mac) => pedidos.push(mac));
       const { ws } = fakeWs();
       svc.conectou(ws, 'arch', [], 'linux', '74:56:3c:f4:8d:1e');
@@ -81,7 +81,7 @@ describe('ações do painel', () => {
       expect(svc.ligar()).toMatchObject({ ok: false, texto: expect.stringContaining('robô da mesa') });
       svc.roboNaRede = true;
       expect(svc.ligar()).toMatchObject({ ok: true });
-      expect(pedidos).toEqual(['74:56:3c:f4:8d:1e']);
+      expect(pedidos).toEqual([{ mac: '74:56:3c:f4:8d:1e' }]);
     });
 
     it('sem MAC ou nome desconhecido, explica em vez de fingir', () => {
@@ -99,6 +99,8 @@ describe('ações do painel', () => {
   it('mesma rede: compara pela máscara; redes diferentes não prometem ligar', () => {
     expect(mesmaRede({ ip: '192.168.0.60', mask: '255.255.255.0' }, { ip: '192.168.0.25', mask: '255.255.255.0' })).toBe(true);
     expect(mesmaRede({ ip: '10.0.0.8', mask: '255.255.255.0' }, { ip: '192.168.0.25', mask: '255.255.255.0' })).toBe(false);
+    expect(broadcastDe({ ip: '192.168.0.25', mask: '255.255.255.0' })).toBe('192.168.0.255');
+    expect(broadcastDe({ ip: '10.1.2.3', mask: '255.255.0.0' })).toBe('10.1.255.255');
     expect(mesmaRede(undefined, { ip: '192.168.0.25', mask: '255.255.255.0' })).toBeNull();
 
     const c = novoCadastro();
@@ -108,7 +110,10 @@ describe('ações do painel', () => {
     svc.desconectou(ws);
     svc.roboNaRede = true;
     svc.redeDoRobo = { ip: '10.0.0.8', mask: '255.255.255.0', ssid: 'Previnity' };
-    expect(svc.ligar('arch')).toMatchObject({ ok: false, texto: expect.stringContaining('outra rede') });
+    const pedidos: { mac: string; ips?: string[] }[] = [];
+    svc.wol$.subscribe((w) => pedidos.push(w));
+    expect(svc.ligar('arch')).toMatchObject({ ok: true, texto: expect.stringContaining('outra rede') });
+    expect(pedidos[0]).toEqual({ mac: '74:56:3c:f4:8d:1e', ips: ['192.168.0.255', '192.168.0.25'] });
     expect(svc.desligadas()[0]!.mesmaRede).toBe(false);
   });
 });

@@ -258,6 +258,11 @@ export const Wol = z.object({
   t: z.literal('wol'),
   ts: epochMs,
   mac: z.string().regex(/^([0-9a-f]{2}:){5}[0-9a-f]{2}$/),
+  /**
+   * PC em outra sub-rede (o robô no Wi-Fi, o PC no cabo): além do broadcast local, manda para o
+   * broadcast da rede do PC e para o último IP dele — passa pelo roteador quando ele deixa.
+   */
+  ips: z.array(z.string().regex(/^\d{1,3}(\.\d{1,3}){3}$/)).max(4).optional(),
 });
 
 export const ServerMessage = z.discriminatedUnion('t', [

@@ -86,7 +86,7 @@ export class DeviceGateway implements OnModuleInit, OnModuleDestroy {
       this.chat.mode$.subscribe((v) => this.broadcast({ t: 'mode', ts: Date.now(), v })),
       this.spotify.music$.subscribe((m) => this.broadcast(this.musicMsg(m))),
       // Ligar um computador da casa: só o robô está na rede local para mandar o pacote mágico.
-      this.braco.wol$.subscribe((mac) => this.broadcast({ t: 'wol', ts: Date.now(), mac })),
+      this.braco.wol$.subscribe((w) => this.broadcast({ t: 'wol', ts: Date.now(), mac: w.mac, ...(w.ips ? { ips: w.ips } : {}) })),
       // Firmware novo publicado agora: quem está conectado atualiza sem esperar reconectar.
       this.firmware.published$.subscribe(() => {
         for (const s of this.sessions) this.offerOta(s);

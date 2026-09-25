@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { Injectable, Logger, Optional } from '@nestjs/common';
 import { BehaviorSubject, Subject } from 'rxjs';
 import type { WebSocket } from 'ws';
-import { AcoesService, mesmaRede, montar, paramsDe, type Rede } from './acoes.service.js';
+import { AcoesService, broadcastDe, mesmaRede, montar, paramsDe, type Rede } from './acoes.service.js';
 
 /** Uma ação que a máquina sabe fazer sem aprovação: cadastrada no painel ou anunciada por ela (acoes.json). */
 export interface Acao {
@@ -56,7 +56,7 @@ export class BracoService {
   /** As máquinas conectadas agora (muda a cada entrada/saída). */
   readonly maquinas$ = new BehaviorSubject<Maquina[]>([]);
   /** Pedido de Wake-on-LAN (o MAC): o DeviceGateway repassa para o robô, que está na rede da casa. */
-  readonly wol$ = new Subject<string>();
+  readonly wol$ = new Subject<{ mac: string; ips?: string[] }>();
   /** O robô da mesa está conectado (é ele quem manda o sinal de ligar). O DeviceGateway atualiza. */
   roboNaRede = false;
   /** Em que rede local o robô está (fw 0.16.1+), com o nome do Wi-Fi. */
@@ -182,14 +182,16 @@ export class BracoService {
     if (this.maquinas().some((m) => m.nome === alvo.nome)) return { ok: true, texto: `${alvo.nome} já está ligado` };
     if (!alvo.mac) return { ok: false, texto: `não sei o endereço de rede de ${alvo.nome} (ele precisa abrir o app uma vez com a versão nova)` };
     if (!this.roboNaRede) return { ok: false, texto: 'o robô da mesa está desconectado, e é ele quem manda o sinal para ligar' };
-    this.wol$.next(alvo.mac);
-    this.log.log(`Ligar ${alvo.nome} (${alvo.mac}) pelo robô`);
-    // Redes diferentes: o broadcast do robô não atravessa o roteador. Manda assim mesmo (vai que
-    // repassa), mas não promete.
-    if (mesmaRede(this.redeDoRobo ?? undefined, alvo.rede) === false) {
+    const outraRede = mesmaRede(this.redeDoRobo ?? undefined, alvo.rede) === false;
+    // Outra sub-rede: o broadcast local do robô não chega; vai também para o broadcast da rede do
+    // PC e para o último IP dele, que passam pelo roteador quando ele deixa.
+    const ips = outraRede && alvo.rede ? [broadcastDe(alvo.rede), alvo.rede.ip] : undefined;
+    this.wol$.next({ mac: alvo.mac, ips });
+    this.log.log(`Ligar ${alvo.nome} (${alvo.mac}) pelo robô${ips ? ` — outra rede, também para ${ips.join(', ')}` : ''}`);
+    if (outraRede) {
       return {
-        ok: false,
-        texto: `mandei o sinal, mas o robô está em outra rede (Wi-Fi ${this.redeDoRobo?.ssid || '?'}, ${this.redeDoRobo?.ip}) e ${alvo.nome} em ${alvo.rede?.ip}: o sinal de ligar não atravessa de uma rede para a outra. Para funcionar, o robô precisa estar no mesmo Wi-Fi/rede do PC`,
+        ok: true,
+        texto: `sinal enviado para ligar ${alvo.nome}, mas o robô está em outra rede (Wi-Fi ${this.redeDoRobo?.ssid || '?'}), então depende do roteador deixar passar; se em uns dois minutos não ligar, não chegou`,
       };
     }
     return { ok: true, texto: `sinal enviado para ligar ${alvo.nome}; costuma levar um minuto (só funciona se o Wake-on-LAN estiver ligado na BIOS dele)` };

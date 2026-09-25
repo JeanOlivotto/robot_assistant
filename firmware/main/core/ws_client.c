@@ -196,14 +196,25 @@ static void on_wol(const cJSON *msg)
     int sim = 1;
     setsockopt(sock, SOL_SOCKET, SO_BROADCAST, &sim, sizeof(sim));
 
-    uint32_t destinos[2] = {IPADDR_BROADCAST, 0};
+    /* Broadcast geral, o da sub-rede do robô e, se vierem, os endereços da rede do PC (outra sub-rede). */
+    uint32_t destinos[6] = {IPADDR_BROADCAST, 0};
+    int n = 2;
     esp_netif_ip_info_t ip;
     esp_netif_t *sta = esp_netif_get_handle_from_ifkey("WIFI_STA_DEF");
     if (sta && esp_netif_get_ip_info(sta, &ip) == ESP_OK && ip.ip.addr) destinos[1] = ip.ip.addr | ~ip.netmask.addr;
+    const cJSON *ips = cJSON_GetObjectItemCaseSensitive(msg, "ips");
+    const cJSON *item;
+    cJSON_ArrayForEach(item, ips)
+    {
+        if (n < 6 && cJSON_IsString(item)) {
+            const uint32_t a = inet_addr(item->valuestring);
+            if (a != IPADDR_NONE) destinos[n++] = a;
+        }
+    }
 
     int enviados = 0;
     for (int vez = 0; vez < 3; vez++) {
-        for (int d = 0; d < 2; d++) {
+        for (int d = 0; d < n; d++) {
             if (!destinos[d]) continue;
             for (int porta = 9; porta >= 7; porta -= 2) {
                 struct sockaddr_in to = {.sin_family = AF_INET, .sin_port = htons(porta), .sin_addr.s_addr = destinos[d]};

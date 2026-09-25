@@ -44,6 +44,12 @@ export interface Rede {
 
 const ip32 = (ip: string) => ip.split('.').reduce((n, p) => (n << 8) + (Number(p) & 255), 0) >>> 0;
 
+/** O endereço de broadcast da sub-rede (192.168.0.25/24 → 192.168.0.255). */
+export function broadcastDe(r: Rede): string {
+  const b = (ip32(r.ip) | (~ip32(r.mask || '255.255.255.0') >>> 0)) >>> 0;
+  return [24, 16, 8, 0].map((s) => (b >>> s) & 255).join('.');
+}
+
 /** Os dois estão na mesma sub-rede (o broadcast do robô chega no PC)? Null se falta informação. */
 export function mesmaRede(a?: Rede, b?: Rede): boolean | null {
   if (!a?.ip || !b?.ip) return null;
