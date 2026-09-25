@@ -57,6 +57,10 @@ export class BracoService {
   readonly maquinas$ = new BehaviorSubject<Maquina[]>([]);
   /** Pedido de Wake-on-LAN (o MAC): o DeviceGateway repassa para o robô, que está na rede da casa. */
   readonly wol$ = new Subject<{ mac: string; ips?: string[] }>();
+  /** Trabalhos de programador que terminaram (quem pediu, em que máquina, e o resultado). */
+  readonly trabalhos$ = new Subject<{ projeto: string; maquina: string; para?: string; r: Resultado }>();
+  private emAndamento = new Map<string, { projeto: string; maquina: string; para?: string }>();
+
   /** O robô da mesa está conectado (é ele quem manda o sinal de ligar). O DeviceGateway atualiza. */
   roboNaRede = false;
   /** Em que rede local o robô está (fw 0.16.1+), com o nome do Wi-Fi. */
@@ -113,6 +117,29 @@ export class BracoService {
       }
     }
     this.maquinas$.next(this.maquinas());
+  }
+
+  /**
+   * Manda um trabalho de programador para a máquina (criar/mudar um projeto). Resolve quando ela
+   * aceita; o fim chega depois, por trabalhos$. `para` = o aparelho que pediu (recebe o aviso).
+   */
+  async programar(p: { projeto: string; pedido: string; maquina?: string; para?: string; motor: string }): Promise<Resultado & { maquina?: string }> {
+    const m = this.escolher(p.maquina);
+    if (!m) return this.semMaquina(p.maquina);
+    if (m.sistema !== 'linux' && m.sistema !== 'windows' && m.sistema !== 'mac') return { ok: false, saida: '', erro: 'máquina sem suporte' };
+    const id = randomUUID();
+    this.emAndamento.set(id, { projeto: p.projeto, maquina: m.nome, para: p.para });
+    const r = await this.enviar(m.nome, { programar: { projeto: p.projeto, pedido: p.pedido, motor: p.motor } }, id);
+    if (!r.ok) this.emAndamento.delete(id);
+    return { ...r, maquina: m.nome };
+  }
+
+  /** A máquina avisou que o trabalho acabou. */
+  terminou(id: string, r: Resultado): void {
+    const t = this.emAndamento.get(id);
+    if (!t) return;
+    this.emAndamento.delete(id);
+    this.trabalhos$.next({ ...t, r: { ...r, saida: (r.saida ?? '').slice(0, SAIDA_MAX) } });
   }
 
   /** Chegou a resposta de um pedido. */
@@ -202,10 +229,13 @@ export class BracoService {
     return { ok: false, saida: '', erro: `não achei a máquina "${nome}" (conectadas: ${this.maquinas().map((m) => m.nome).join(', ')})` };
   }
 
-  private enviar(nome: string, corpo: { acao?: string; args?: Record<string, string>; cmd?: string }): Promise<Resultado> {
+  private enviar(
+    nome: string,
+    corpo: { acao?: string; args?: Record<string, string>; cmd?: string; programar?: { projeto: string; pedido: string; motor: string } },
+    id: string = randomUUID(),
+  ): Promise<Resultado> {
     const c = [...this.conexoes.values()].find((x) => x.nome === nome);
     if (!c) return Promise.resolve({ ok: false, saida: '', erro: 'a máquina não está conectada' });
-    const id = randomUUID();
     return new Promise<Resultado>((resolve) => {
       const timer = setTimeout(() => {
         this.pendentes.delete(id);
@@ -213,7 +243,7 @@ export class BracoService {
       }, TIMEOUT_MS);
       this.pendentes.set(id, { ws: c.ws, resolve, timer });
       c.ws.send(JSON.stringify({ t: 'run', id, ...corpo }));
-      this.log.log(`Pedido para ${c.nome}: ${corpo.acao ?? corpo.cmd}`);
+      this.log.log(`Pedido para ${c.nome}: ${corpo.acao ?? corpo.cmd ?? `programar ${corpo.programar?.projeto}`}`);
     });
   }
 }

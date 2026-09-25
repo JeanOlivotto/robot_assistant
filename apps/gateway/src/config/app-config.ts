@@ -103,6 +103,8 @@ const Schema = z.object({
 
   /** Senha do braço (o agente que roda na máquina do dono). Vazio = braço desligado. */
   BRACO_TOKEN: z.string().default(''),
+  /** Quem escreve os projetos que o dono pede ("cria uma página…"), no computador dele: hoje só 'claude' (Claude Code). */
+  PROGRAMADOR: z.string().default('claude'),
 
   /** Endereço público do gateway — vira o link que o robô usa para baixar o firmware. */
   PUBLIC_URL: z.string().default('https://srv1966497.hstgr.cloud'),

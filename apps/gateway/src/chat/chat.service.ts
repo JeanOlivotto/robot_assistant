@@ -96,6 +96,13 @@ export class ChatService implements OnModuleInit, OnModuleDestroy {
       waitingSince: waiting ? lastRobot.ts : 0,
     });
     this.expiryTimer = setInterval(() => this.expireProposals(), 60_000);
+    // Projeto pedido ao programador ficou pronto (ou deu errado): conta para quem pediu.
+    this.braco.trabalhos$.subscribe(({ projeto, maquina, para, r }) => {
+      const texto = r.ok
+        ? `Pronto, o projeto ${projeto}: ${r.saida.trim()}`
+        : `Não consegui terminar o projeto ${projeto} em ${maquina}: ${r.erro ?? 'deu erro'}${r.saida ? `\n\n${r.saida.trim().slice(0, 300)}` : ''}`;
+      this.robotSay(texto, r.ok ? 'happy' : 'sad', 'reply', { para });
+    });
   }
 
   onModuleDestroy(): void {
@@ -268,7 +275,11 @@ export class ChatService implements OnModuleInit, OnModuleDestroy {
     this.setState({ thinking: true, waitingSince: 0 });
     if (wasWaiting) this.react$.next({ face: 'love', ms: 2000 }); // finalmente respondeu!
     try {
-      const reply = await this.brain.reply(this.context(opts.since), { spoken: opts.spoken ?? via === 'siri', maquina: opts.maquina });
+      const reply = await this.brain.reply(this.context(opts.since), {
+        spoken: opts.spoken ?? via === 'siri',
+        maquina: opts.maquina,
+        origem: opts.origem,
+      });
       let proposal: Proposal | undefined;
       if (reply.proposal) {
         this.cancelPending('substituída por outra proposta');

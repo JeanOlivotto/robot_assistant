@@ -34,10 +34,19 @@ const Result = z.object({
   erro: z.string().max(500).optional(),
 });
 
+/** Um trabalho longo (programador) terminou — chega depois do 'result' de "começou". */
+const Fim = z.object({
+  t: z.literal('fim'),
+  id: z.string().max(64),
+  ok: z.boolean(),
+  saida: z.string().max(20_000).default(''),
+  erro: z.string().max(500).optional(),
+});
+
 /** O dono está mexendo nesta máquina (teclado/mouse): comandos sem máquina escolhida vão para ela. */
 const Ativo = z.object({ t: z.literal('ativo') });
 
-const Entrada = z.discriminatedUnion('t', [Hello, Result, Ativo]);
+const Entrada = z.discriminatedUnion('t', [Hello, Result, Ativo, Fim]);
 
 /**
  * Porta de entrada do braço em /braco: o app do computador (entra com a mesma senha do app) ou o
@@ -90,6 +99,7 @@ export class BracoGateway implements OnModuleInit {
       this.log.log(`Máquina ${msg.host} entrou de ${ip}`);
       this.braco.conectou(ws, msg.host, msg.acoes, msg.sistema, msg.mac, msg.rede);
     } else if (msg.t === 'ativo') this.braco.ativa(ws);
+    else if (msg.t === 'fim') this.braco.terminou(msg.id, { ok: msg.ok, saida: msg.saida, erro: msg.erro });
     else this.braco.resultado(msg.id, { ok: msg.ok, saida: msg.saida, erro: msg.erro });
   }
 }

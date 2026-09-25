@@ -11,6 +11,7 @@
 import { spawn } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { homedir, hostname, networkInterfaces } from 'node:os';
+import { programar } from './programador.js';
 
 const WINDOWS = process.platform === 'win32';
 const SISTEMA = WINDOWS ? 'windows' : process.platform === 'darwin' ? 'mac' : 'linux';
@@ -168,6 +169,16 @@ export class Braco {
         return;
       }
       if (msg.t !== 'run') return;
+      // Trabalho de programador: leva minutos. Responde "começou" já, e o fim chega depois ('fim').
+      if (msg.programar) {
+        if (!this.ligado) return ws.send(JSON.stringify({ t: 'result', id: msg.id, ok: false, saida: '', erro: 'o uso do computador está desligado nele' }));
+        ws.send(JSON.stringify({ t: 'result', id: msg.id, ok: true, saida: 'começou' }));
+        const r = await programar(msg.programar);
+        console.log(`[programador] ${r.ok ? 'pronto' : `falhou: ${r.erro}`}`);
+        const agora = this.ws; // pode ter reconectado no meio
+        if (agora?.readyState === WebSocket.OPEN) agora.send(JSON.stringify({ t: 'fim', id: msg.id, ...r, saida: (r.saida ?? '').slice(0, SAIDA_MAX) }));
+        return;
+      }
       const r = await this.#atender(msg);
       console.log(`[braço] ${r.ok ? 'ok' : `falhou: ${r.erro ?? ''}`}`);
       if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ t: 'result', id: msg.id, ...r }));

@@ -251,6 +251,29 @@ const TOOLS: ChatCompletionTool[] = [
   {
     type: 'function',
     function: {
+      name: 'programar',
+      description:
+        'Cria ou muda um PROJETO de software no computador do dono (página HTML, site, script, app pequeno): ' +
+        'um programador faz o trabalho numa pasta só daquele projeto e demora alguns minutos — o aviso de ' +
+        '"pronto" chega sozinho depois, e página web já abre no navegador. Use para "cria uma página de…", ' +
+        '"no projeto X, muda…". Para continuar um projeto, use o MESMO nome de antes.',
+      parameters: {
+        type: 'object',
+        properties: {
+          projeto: { type: 'string', description: 'nome curto do projeto, ex.: "receitas" (o mesmo para continuar)' },
+          pedido: {
+            type: 'string',
+            description: 'o que fazer, completo e em português, com tudo o que ele disse (o programador não vê a conversa)',
+          },
+          maquina: { type: 'string', description: 'o nome do computador (omitir = o de onde ele pediu, ou o que está usando)' },
+        },
+        required: ['projeto', 'pedido'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
       name: 'ligar_computador',
       description:
         'Liga um computador do dono que está DESLIGADO ou suspenso (Wake-on-LAN, pelo robô da mesa). ' +
@@ -319,22 +342,26 @@ export class BrainService {
   }
 
   /** Responde à conversa (a última mensagem do histórico é a do dono). */
-  async reply(history: ChatMessage[], opts: { spoken?: boolean; maquina?: string } = {}): Promise<BrainReply> {
+  async reply(history: ChatMessage[], opts: { spoken?: boolean; maquina?: string; origem?: string } = {}): Promise<BrainReply> {
     if (!this.llm.enabled) {
       return { text: 'Meu cérebro ainda está desligado... falta a chave da IA no servidor (LLM_API_KEY).', face: 'sad' };
     }
     // Pedido feito de um computador: é nele que as ferramentas agem, se ele não disser outro. As
     // respostas saem uma de cada vez (fila do chat), então dá para guardar aqui durante esta.
     this.maquinaDoPedido = opts.maquina && this.braco.escolher(opts.maquina)?.nome === opts.maquina ? opts.maquina : undefined;
+    this.origemDoPedido = opts.origem;
     try {
       return await this.responder(history, opts);
     } finally {
       this.maquinaDoPedido = undefined;
+      this.origemDoPedido = undefined;
     }
   }
 
   /** O computador de onde veio o pedido em curso (só enquanto responde a ele). */
   private maquinaDoPedido: string | undefined;
+  /** O aparelho que pediu (o aviso de "projeto pronto" vai para ele). */
+  private origemDoPedido: string | undefined;
 
   /** A máquina de uma ferramenta: a que ele nomeou, senão a de onde pediu, senão a que está usando. */
   private maquinaAlvo(args: Record<string, unknown>): string | undefined {
@@ -612,7 +639,7 @@ export class BrainService {
       if (name === 'renomear_voz') return { result: this.renomearVoz(args, voz) };
       if (name === 'esquecer_voz') return { result: this.esquecerVoz(args, voz) };
       // A máquina é do dono: outra pessoa reconhecida pela voz não mexe nela, peça o que pedir.
-      if (name === 'usar_computador' || name === 'propor_comando' || name === 'ligar_computador') {
+      if (name === 'usar_computador' || name === 'propor_comando' || name === 'ligar_computador' || name === 'programar') {
         if (this.vozDeOutro(voz)) {
           return { result: `recusado: a voz é de ${voz!.nome}, e só ${this.cfg.OWNER_NAME || 'o dono'} mexe no computador dele` };
         }
@@ -624,6 +651,7 @@ export class BrainService {
         }
       }
       if (name === 'usar_computador') return { result: await this.usarComputador(args) };
+      if (name === 'programar') return { result: await this.programar(args) };
       if (name === 'ligar_computador') {
         const r = this.braco.ligar(args.maquina ? String(args.maquina) : undefined);
         return { result: r.ok ? r.texto : `não deu: ${r.texto}` };
@@ -734,6 +762,22 @@ export class BrainService {
   private vozDeOutro(voz?: ChatMessage['voz']): boolean {
     const dono = (this.cfg.OWNER_NAME || '').trim().toLowerCase();
     return voz?.certeza === 'alta' && !!voz.nome && !!dono && voz.nome.trim().toLowerCase() !== dono;
+  }
+
+  /** Manda o projeto para o programador do computador; o "pronto" chega depois, pelo chat. */
+  private async programar(args: Record<string, unknown>): Promise<string> {
+    const projeto = String(args.projeto ?? '').trim().slice(0, 50);
+    const pedido = String(args.pedido ?? '').trim();
+    if (!projeto || !pedido) return 'erro: falta o nome do projeto ou o que fazer';
+    const r = await this.braco.programar({
+      projeto,
+      pedido,
+      maquina: this.maquinaAlvo(args),
+      para: this.origemDoPedido,
+      motor: this.cfg.PROGRAMADOR,
+    });
+    if (!r.ok) return `não deu para começar: ${r.erro ?? 'sem detalhe'}`;
+    return `começou no computador ${r.maquina}: o programador está trabalhando no projeto "${projeto}". Diga que avisa quando ficar pronto (leva alguns minutos) — não diga que já está pronto.`;
   }
 
   /** Ação já autorizada pelo dono: roda na hora e devolve a saída para o robô comentar. */
