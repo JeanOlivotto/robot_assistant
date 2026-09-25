@@ -1,0 +1,15 @@
+{
+  "name": "@robo/voz-ativacao",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Protótipo do \"Miro, …\": detector de voz + Whisper local para reconhecer quando chamam o robô pelo nome.",
+  "scripts": {
+    "modelos": "node baixar-modelos.js",
+    "coletar": "node coleta.js",
+    "ouvir": "node ouvir.js",
+    "avaliar": "node avaliar.js"
+  },
+  "dependencies": {
+    "sherpa-onnx-node": "1.13.8"
+  }
+}
