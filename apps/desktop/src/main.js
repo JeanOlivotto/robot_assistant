@@ -5,20 +5,23 @@
  *     de trabalho; cresce para mostrar o balão quando ele fala;
  *   - o PAINEL: o app inteiro (chat, agenda, pendências, reunião) numa janela, aberto pela bolha.
  * O Electron só faz o que o navegador não faz: janela flutuante, bandeja, atalho global
- * (Super+K — o Super+R do sxhkd gira a área de trabalho), e a carinha que segue o monitor em uso,
- * andando de um para o outro.
+ * (Super+K no Linux — o Super+R do sxhkd gira a área de trabalho; Ctrl+Alt+K no Windows, onde o
+ * Win+K é do sistema), e a carinha que segue o monitor em uso, andando de um para o outro.
+ * Linux (bspwm) e Windows: o que é de um só está marcado com LINUX / WINDOWS.
  */
 import { execFile, spawn } from 'node:child_process';
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { createWriteStream, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { BrowserWindow, Menu, Tray, app, globalShortcut, ipcMain, screen, session, shell } from 'electron';
+import { BrowserWindow, Menu, Tray, app, desktopCapturer, globalShortcut, ipcMain, screen, session, shell } from 'electron';
 import { Ouvinte } from './ouvinte.js';
 
 const AQUI = dirname(fileURLToPath(import.meta.url));
 const BASE = (process.env.ROBO_URL || 'https://srv1966497.hstgr.cloud').replace(/\/+$/, '');
 const ORIGEM = new URL(BASE).origin;
-const ATALHO = process.env.ROBO_ATALHO || 'Super+K';
+const LINUX = process.platform === 'linux';
+const WINDOWS = process.platform === 'win32';
+const ATALHO = process.env.ROBO_ATALHO || (WINDOWS ? 'Ctrl+Alt+K' : 'Super+K');
 /** Caminhada: atravessar de monitor é rápido; passear é devagar, como quem está à toa. */
 const TROCA = { px_s: 1300, min: 700, max: 2200 };
 const PASSEIO = { px_s: 160, min: 2500, max: 9000 };
@@ -26,7 +29,7 @@ const PASSEIO = { px_s: 160, min: 2500, max: 9000 };
 const PASSEIO_A_CADA_MS = { min: 25_000, max: 70_000 };
 const PARADO_DEPOIS_DE_ARRASTAR_MS = 3 * 60_000;
 const ICONE = join(AQUI, '../assets/icone-128.png');
-const ICONE_BANDEJA = join(AQUI, '../assets/icone-22.png');
+const ICONE_BANDEJA = join(AQUI, WINDOWS ? '../assets/icone-32.png' : '../assets/icone-22.png'); // o Windows pede 16/32
 
 /* Tamanhos da janela da bolha. A carinha fica sempre no canto de baixo à direita da janela, e
    é esse canto que não sai do lugar quando o balão abre ou fecha. */
@@ -35,6 +38,25 @@ const BALAO = { w: 372, h: 300 };
 const MARGEM = 24;
 
 app.setName('robo-desktop'); // o WM_CLASS no X11 sai "robo-desktop": é por ele que o bspwm reconhece as janelas
+if (WINDOWS) app.setAppUserModelId('com.jeanolivotto.miro'); // sem isso o Windows não mostra as notificações dele
+
+/* Instalado (Windows): não há robo-desktop.sh para guardar a saída, então o log vai direto para
+   robo.log na pasta do app — é o que permite entender um "Miro, …" que ele não atendeu. */
+if (app.isPackaged) {
+  try {
+    mkdirSync(app.getPath('userData'), { recursive: true });
+    const log = createWriteStream(join(app.getPath('userData'), 'robo.log'));
+    for (const nivel of ['log', 'error']) {
+      const original = console[nivel];
+      console[nivel] = (...args) => {
+        log.write(`${args.join(' ')}\n`);
+        original(...args);
+      };
+    }
+  } catch {
+    /* sem log: o app funciona igual */
+  }
+}
 
 let bolha = null;
 /*
@@ -273,6 +295,7 @@ function alternarVisivel() {
 /* ── bspwm: janelas flutuantes, a bolha em todas as áreas e por cima ─── */
 
 function bspc(args) {
+  if (!LINUX) return Promise.resolve(false);
   return new Promise((resolve) => execFile('bspc', args, (err) => resolve(!err)));
 }
 
@@ -292,6 +315,7 @@ async function regrasBspwm() {
 }
 
 async function ajustarNoBspwm(win, { sticky = false, semBorda = false }) {
+  if (!LINUX) return;
   const id = idX11(win);
   await bspc(['node', id, '-t', 'floating']);
   if (sticky) {
@@ -335,6 +359,9 @@ function soltarSomDoSistema() {
 }
 
 async function prepararSomDoSistema() {
+  // Windows: o próprio sistema entrega o som que sai no fone (loopback); a página pede como
+  // captura de tela e o permissoes() responde sem mostrar o seletor.
+  if (WINDOWS) return 'loopback';
   soltarSomDoSistema(); // inclusive a sobra de uma execução que caiu
   const saida = await comando('pactl', ['get-default-sink']); // a de agora (pode ter trocado de fone)
   loopback = spawn(
@@ -479,8 +506,9 @@ function passearDeVezEmQuando() {
   }, proxima);
 }
 
-/** O monitor (área útil) que o bspwm diz estar em foco. */
+/** O monitor (área útil) que o bspwm diz estar em foco. Fora do bspwm: o monitor onde está o mouse. */
 function monitorFocado() {
+  if (!LINUX) return Promise.resolve(screen.getDisplayNearestPoint(screen.getCursorScreenPoint()).workArea);
   return new Promise((resolve) => {
     execFile('bspc', ['query', '-T', '-m', 'focused'], (err, out) => {
       if (err) return resolve(null);
@@ -521,13 +549,26 @@ function seguirMonitor() {
       aplicarModo(modoBolha);
     }
   };
+  conferirMonitor = () => void conferir();
+  if (!LINUX) {
+    // Windows: ninguém avisa a troca de monitor; confere o mouse de tempos em tempos. Só anda se o
+    // mouse ficou no outro monitor por duas conferências seguidas (passar por lá não conta).
+    let visto = '';
+    setInterval(() => {
+      const a = screen.getDisplayNearestPoint(screen.getCursorScreenPoint()).workArea;
+      const chave = `${a.x},${a.y}`;
+      if (chave === visto) void conferir();
+      visto = chave;
+    }, 1500);
+    void conferir();
+    return;
+  }
   const sub = spawn('bspc', ['subscribe', 'desktop_focus'], { stdio: ['ignore', 'pipe', 'ignore'] });
   sub.stdout.on('data', () => {
     clearTimeout(espera);
     espera = setTimeout(conferir, 250); // várias trocas seguidas: anda uma vez só
   });
   sub.on('error', () => {}); // sem bspwm: fica parada onde está
-  conferirMonitor = () => void conferir();
   app.on('will-quit', () => sub.kill());
   void conferir();
 }
@@ -617,9 +658,20 @@ function permissoes() {
       return false;
     }
   };
-  const ok = ['media', 'notifications', 'clipboard-sanitized-write', 'clipboard-read'];
+  const ok = ['media', 'notifications', 'clipboard-sanitized-write', 'clipboard-read', 'display-capture'];
   session.defaultSession.setPermissionRequestHandler((wc, perm, cb) => cb(nossa(wc.getURL()) && ok.includes(perm)));
   session.defaultSession.setPermissionCheckHandler((wc, perm) => !!wc && nossa(wc.getURL()) && ok.includes(perm));
+  // Windows, reunião pelo computador: a página pede "captura de tela" e recebe o som do sistema
+  // (loopback). O vídeo da tela vai junto porque o Chromium exige, mas a página o descarta.
+  if (WINDOWS) {
+    session.defaultSession.setDisplayMediaRequestHandler((req, cb) => {
+      if (!nossa(req.frame?.url ?? '')) return cb({});
+      desktopCapturer
+        .getSources({ types: ['screen'] })
+        .then(([tela]) => cb(tela ? { video: tela, audio: 'loopback' } : {}))
+        .catch(() => cb({}));
+    });
+  }
 }
 
 /* ── o que a página pede (preload.cjs) ───────────────────────────────── */
@@ -657,6 +709,26 @@ ipcMain.on('voz', (_e, ligada) => {
   atualizarBandeja();
 });
 
+/* ── atualização (instalado no Windows) ──────────────────────────────── */
+
+/*
+ * A página vem do servidor (deploy já atualiza), mas o app em si (este arquivo, o ouvido) só
+ * muda com instalador novo: o GitHub Actions publica cada versão como release, e o app baixa
+ * sozinho e instala quando você o fecha (ou na próxima vez que o Windows ligar).
+ */
+async function atualizarSozinho() {
+  try {
+    const { default: updater } = await import('electron-updater');
+    const { autoUpdater } = updater;
+    autoUpdater.logger = { info: (m) => console.log(`[update] ${m}`), warn: (m) => console.log(`[update] ${m}`), error: (m) => console.error(`[update] ${m}`), debug: () => {} };
+    autoUpdater.autoInstallOnAppQuit = true;
+    await autoUpdater.checkForUpdates();
+    setInterval(() => void autoUpdater.checkForUpdates().catch(() => undefined), 6 * 60 * 60_000);
+  } catch (err) {
+    console.error(`[update] ${err.message}`);
+  }
+}
+
 /* ── ciclo de vida ───────────────────────────────────────────────────── */
 
 if (!app.requestSingleInstanceLock()) {
@@ -672,6 +744,10 @@ if (!app.requestSingleInstanceLock()) {
     if (process.env.ROBO_K) criarPainel(); // primeira vez com a senha: o painel grava o login (fica escondido)
     criarBandeja();
     if (!globalShortcut.register(ATALHO, alternarVisivel)) console.error(`[robo] o atalho ${ATALHO} já está em uso`);
+    if (app.isPackaged && !LINUX) {
+      app.setLoginItemSettings({ openAtLogin: true }); // abre junto com o Windows
+      void atualizarSozinho();
+    }
     app.on('before-quit', () => (app.saindo = true));
   });
   app.on('will-quit', () => globalShortcut.unregisterAll());

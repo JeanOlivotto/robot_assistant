@@ -3,16 +3,57 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "O robô no computador: a carinha flutuante, sempre por cima, com balão e o app inteiro num painel.",
+  "description": "O Miro no computador: a carinha flutuante, sempre por cima, com balão e o app inteiro num painel.",
   "main": "src/main.js",
   "scripts": {
     "start": "electron .",
-    "build": "node --check src/main.js && node --check src/preload.cjs"
+    "build": "node --check src/main.js && node --check src/preload.cjs",
+    "dist:win": "npx -y electron-builder@26.15.3 --win --publish always"
   },
   "devDependencies": {
     "electron": "44.4.5"
   },
   "dependencies": {
-    "sherpa-onnx-node": "1.13.8"
+    "sherpa-onnx-node": "1.13.8",
+    "electron-updater": "6.8.9"
+  },
+  "productName": "Miro",
+  "author": "Jean Olivotto",
+  "build": {
+    "appId": "com.jeanolivotto.miro",
+    "productName": "Miro",
+    "asar": false,
+    "files": [
+      "src/**",
+      "assets/**",
+      "package.json"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "assets/icone-256.png",
+      "artifactName": "Miro-Setup.${ext}"
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "runAfterFinish": true,
+      "createDesktopShortcut": true,
+      "shortcutName": "Miro"
+    },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "JeanOlivotto",
+        "repo": "robot_assistant",
+        "releaseType": "release"
+      }
+    ]
   }
 }

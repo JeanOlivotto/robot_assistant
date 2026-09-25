@@ -125,9 +125,22 @@ export async function agendar(token: string, title: string, start: Date, minutes
  */
 export type FonteAudio = 'mic' | 'aba' | 'computador';
 
-/** O som que sai no fone, pela fonte virtual que o app do computador cria no PipeWire. */
+/**
+ * O som que sai no fone. No Linux, pela fonte virtual que o app do computador cria no PipeWire;
+ * no Windows, pelo "loopback" do próprio sistema, que o app entrega como captura de tela
+ * (só o áudio fica — o vídeo é descartado na hora).
+ */
 async function somDoComputador(): Promise<MediaStream> {
   const rotulo = await desktop?.somDoSistema?.();
+  if (rotulo === 'loopback') {
+    const s = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true });
+    s.getVideoTracks().forEach((t) => {
+      t.stop();
+      s.removeTrack(t);
+    });
+    if (!s.getAudioTracks().length) throw new Error('o Windows não entregou o som do computador');
+    return s;
+  }
   if (!rotulo) throw new Error('não consegui pegar o som do computador (o PipeWire está rodando?)');
   // O navegador demora um instante para enxergar a fonte nova.
   for (let i = 0; i < 10; i++) {

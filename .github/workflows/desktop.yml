@@ -1,0 +1,49 @@
+# App do computador (apps/desktop) para Windows: monta o instalador Miro-Setup.exe e publica
+# como release do GitHub. O app instalado se atualiza sozinho a partir dessas releases, e o
+# apps/web/public/miro/instalar.ps1 baixa sempre a última.
+#
+# Precisa rodar numa máquina Windows: o ouvido do "Miro, …" (sherpa-onnx) é nativo e o npm
+# só baixa a versão do Windows lá.
+
+name: Desktop (Windows)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'apps/desktop/**'
+      - '.github/workflows/desktop.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write # criar a release e subir o instalador
+
+concurrency:
+  group: desktop-windows
+  cancel-in-progress: false
+
+jobs:
+  windows:
+    name: Instalador do Windows
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: apps/desktop
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      # Cada build é uma versão nova (0.1.<número do run>): é assim que o app instalado sabe
+      # que tem atualização.
+      - run: npm version "0.1.${{ github.run_number }}" --no-git-tag-version
+
+      # npm (e não pnpm) só aqui dentro: o electron-builder empacota a node_modules plana, com
+      # o sherpa-onnx-win-x64 ao lado do sherpa-onnx-node, onde ele o procura.
+      - run: npm install --no-package-lock --no-audit --no-fund
+
+      - run: npm run dist:win
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

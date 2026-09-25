@@ -16,7 +16,14 @@ async function bootstrap() {
 
   // O webapp (apps/web) é servido pelo próprio gateway depois do build.
   const web = rootPath('apps/web/dist');
-  if (existsSync(web)) app.useStaticAssets(web);
+  // O .ps1 do instalador do Windows (miro/instalar.ps1) sai como texto: o `irm … | iex` do
+  // PowerShell precisa receber string, não bytes.
+  if (existsSync(web))
+    app.useStaticAssets(web, {
+      setHeaders: (res, path) => {
+        if (path.endsWith('.ps1')) res.setHeader('Content-Type', 'text/plain; charset=utf-8');
+      },
+    });
   else Logger.warn('apps/web/dist não existe — rode "pnpm --filter @robo/web build"', 'Bootstrap');
 
   const port = Number(process.env.PORT ?? 8080);

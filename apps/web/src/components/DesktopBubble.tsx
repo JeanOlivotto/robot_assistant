@@ -41,8 +41,10 @@ export function DesktopBubble() {
   const andando = useAndando();
 
   // O login acontece no painel (a outra janela): quando ele grava a senha, a bolha acorda.
+  // Sem login (app recém-instalado), o painel já abre com a tela de entrar.
   useEffect(() => {
     if (token) return;
+    desktop?.painel('abrir');
     const onStorage = () => setToken(lerToken());
     window.addEventListener('storage', onStorage);
     const id = setInterval(onStorage, 3000);
