@@ -1,9 +1,10 @@
 import { randomUUID } from 'node:crypto';
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { BehaviorSubject } from 'rxjs';
 import type { WebSocket } from 'ws';
+import { AcoesService, montar, paramsDe } from './acoes.service.js';
 
-/** Uma ação que a máquina do dono sabe fazer. Quem define a lista é ele, no braco.config.json. */
+/** Uma ação que a máquina sabe fazer sem aprovação: cadastrada no painel ou anunciada por ela (acoes.json). */
 export interface Acao {
   nome: string;
   descricao: string;
@@ -46,6 +47,9 @@ const SAIDA_MAX = 4000;
 @Injectable()
 export class BracoService {
   private readonly log = new Logger(BracoService.name);
+
+  constructor(@Optional() private readonly cadastro?: AcoesService) {}
+
   private readonly conexoes = new Map<WebSocket, Conexao>();
   private pendentes = new Map<string, { ws: WebSocket; resolve(r: Resultado): void; timer: NodeJS.Timeout }>();
 
@@ -56,10 +60,15 @@ export class BracoService {
     return this.conexoes.size > 0;
   }
 
+  /** As máquinas, a que o dono está usando primeiro; em cada uma, as ações dela + as do painel. */
   maquinas(): Maquina[] {
     return [...this.conexoes.values()]
-      .map(({ ws: _ws, ...m }) => m)
+      .map(({ ws: _ws, ...m }) => ({ ...m, acoes: [...m.acoes, ...this.doPainel(m).filter((a) => !m.acoes.some((x) => x.nome === a.nome))] }))
       .sort((a, b) => b.ativaEm - a.ativaEm);
+  }
+
+  private doPainel(m: Pick<Maquina, 'nome' | 'sistema'>): Acao[] {
+    return (this.cadastro?.para(m.nome, m.sistema) ?? []).map((a) => ({ nome: a.nome, descricao: a.descricao, params: paramsDe(a.comando) }));
   }
 
   /** Ações da máquina em uso (compatível com quem só conhece uma máquina). */
@@ -123,10 +132,18 @@ export class BracoService {
   rodarAcao(nome: string, args: Record<string, string> = {}, maquina?: string): Promise<Resultado> {
     const m = this.escolher(maquina);
     if (!m) return Promise.resolve(this.semMaquina(maquina));
-    if (!m.acoes.some((a) => a.nome === nome)) {
-      return Promise.resolve({ ok: false, saida: '', erro: `a máquina ${m.nome} não conhece a ação "${nome}"` });
+    const propria = [...this.conexoes.values()].find((c) => c.nome === m.nome)?.acoes.some((a) => a.nome === nome);
+    if (propria) return this.enviar(m.nome, { acao: nome, args });
+    // Do painel: o servidor monta o comando (escapado no shell daquela máquina) e manda pronto.
+    const cadastrada = this.cadastro?.para(m.nome, m.sistema).find((a) => a.nome === nome);
+    if (!cadastrada) return Promise.resolve({ ok: false, saida: '', erro: `a máquina ${m.nome} não conhece a ação "${nome}"` });
+    let cmd: string;
+    try {
+      cmd = montar(cadastrada, args);
+    } catch (err) {
+      return Promise.resolve({ ok: false, saida: '', erro: (err as Error).message });
     }
-    return this.enviar(m.nome, { acao: nome, args });
+    return this.enviar(m.nome, { cmd });
   }
 
   /** Roda um comando escrito na hora. Só chame depois do dono aprovar. */

@@ -13,6 +13,7 @@ import { audioContext, closeMic } from './lib/mic';
 import { configureSpeech, speak, speechSupported, stopSpeaking, unlockAudio } from './lib/speech';
 import { DESKTOP, desktop } from './lib/desktop';
 import { useRobo } from './lib/useRobo';
+import { Computador } from './components/Computador';
 
 const TOKEN_KEY = 'robo.token';
 const SPEAK_KEY = 'robo.speak';
@@ -43,12 +44,12 @@ function saveToken(token: string | null): void {
   }
 }
 
-type Tab = 'chat' | 'agenda' | 'pendencias' | 'reuniao';
+type Tab = 'chat' | 'agenda' | 'pendencias' | 'reuniao' | 'pc';
 
 /** Atalho da Siri pode abrir o app já numa aba: ?tab=reuniao (ou #reuniao). */
 function initialTab(): Tab {
   const raw = (new URL(location.href).searchParams.get('tab') || location.hash.replace('#', '')).toLowerCase();
-  return raw === 'reuniao' || raw === 'agenda' || raw === 'pendencias' ? raw : 'chat';
+  return raw === 'reuniao' || raw === 'agenda' || raw === 'pendencias' || raw === 'pc' ? raw : 'chat';
 }
 
 /** Re-renderiza de tempos em tempos para o "há X min" andar. */
@@ -273,6 +274,9 @@ function Main({ token, onLogout }: { token: string; onLogout(): void }) {
         <button role="tab" aria-selected={tab === 'reuniao'} className={tab === 'reuniao' ? 'on' : ''} onClick={() => setTab('reuniao')}>
           Reunião
         </button>
+        <button role="tab" aria-selected={tab === 'pc'} className={tab === 'pc' ? 'on' : ''} onClick={() => setTab('pc')} title="Computador">
+          PC
+        </button>
       </nav>
 
       {notice && (
@@ -295,6 +299,7 @@ function Main({ token, onLogout }: { token: string; onLogout(): void }) {
       )}
       {tab === 'agenda' && <Agenda items={robo.agenda} />}
       {tab === 'pendencias' && <Tasks token={token} />}
+      {tab === 'pc' && <Computador token={token} />}
       {/* Sempre montada (só escondida): trocar de aba no meio da gravação matava a reunião. */}
       <div hidden={tab !== 'reuniao'}>
         <MeetingView token={token} autoStart={autoMeeting} onAutoStarted={() => setAutoMeeting(false)} />

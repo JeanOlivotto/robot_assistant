@@ -1770,3 +1770,88 @@ html.desktop-bolha #root {
   width: 11px;
   height: 11px;
 }
+
+/* Aba PC: computadores ligados e ações sem aprovação. */
+.pc__titulo:first-child {
+  margin-top: 0;
+}
+.pc__hint {
+  margin: 0 0 8px;
+  text-align: left;
+  font-size: 12px;
+}
+.pc__ponto {
+  flex-shrink: 0;
+  width: 10px;
+  height: 10px;
+  margin-top: 6px;
+  border-radius: 50%;
+  background: #4ade80;
+  box-shadow: 0 0 0 3px rgba(74, 222, 128, 0.18);
+}
+.pc__comando {
+  display: block;
+  padding: 4px 8px;
+  font-size: 12px;
+  background: var(--surface);
+  border-radius: 8px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.pc__nova {
+  margin-top: 10px;
+}
+.pc__form {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 8px;
+}
+.pc__form input,
+.pc__form textarea,
+.pc__form select {
+  min-width: 0;
+  padding: 10px 12px;
+  font: inherit;
+  color: inherit;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+}
+.pc__form textarea {
+  font-family: ui-monospace, 'SFMono-Regular', Menlo, monospace;
+  font-size: 13px;
+  resize: vertical;
+}
+.pc__linha {
+  display: flex;
+  gap: 8px;
+}
+.pc__linha > * {
+  flex: 1;
+  min-width: 0;
+}
+
+/* Cinco abas (com a PC) cabem no celular: menos respiro e letra um pouco menor na tela estreita. */
+.tabs button {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 8px 6px;
+}
+@media (max-width: 420px) {
+  .tabs {
+    gap: 2px;
+    margin: 0 12px 8px;
+  }
+  .tabs button {
+    padding: 8px 4px;
+    font-size: 13px;
+  }
+}
+@media (max-width: 350px) {
+  .tabs button {
+    padding: 8px 3px;
+    font-size: 12px;
+  }
+}
