@@ -158,8 +158,8 @@ function criarBolha() {
   bolha.setVisibleOnAllWorkspaces(true);
   protegerNavegacao(bolha);
   // O que a bolha registra sobre o "Miro, …" vai para o log do app (robo.log), para rastrear chamado perdido.
-  bolha.webContents.on('console-message', (e, _nivel, texto) => {
-    const msg = e?.message ?? texto;
+  bolha.webContents.on('console-message', (e) => {
+    const msg = e.message;
     if (typeof msg === 'string' && msg.startsWith('[miro]')) console.log(`${new Date().toLocaleTimeString('pt-BR')} ${msg}`);
   });
   bolha.loadURL(`${BASE}/?desktop=bolha`);
