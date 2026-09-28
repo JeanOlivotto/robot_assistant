@@ -8,6 +8,8 @@ describe('lerSaida', () => {
       avisar: 'a Jaque quer falar da nota',
       expressao: '',
       figurinha: false,
+      tom: 'brincadeira',
+      pendencia: '',
     });
   });
 
@@ -22,11 +24,13 @@ describe('lerSaida', () => {
       avisar: '',
       expressao: 'confuso',
       figurinha: false,
+      tom: 'brincadeira',
+      pendencia: '',
     });
   });
 
   it('avisar ausente vira vazio', () => {
-    expect(lerSaida('{"resposta":"kkk boa"}')).toEqual({ resposta: 'kkk boa', avisar: '', expressao: '', figurinha: false });
+    expect(lerSaida('{"resposta":"kkk boa"}')).toEqual({ resposta: 'kkk boa', avisar: '', expressao: '', figurinha: false, tom: 'brincadeira', pendencia: '' });
   });
 
   it('só a figurinha, sem texto, também vale', () => {
@@ -35,7 +39,15 @@ describe('lerSaida', () => {
       avisar: '',
       expressao: 'irritado',
       figurinha: true,
+      tom: 'brincadeira',
+      pendencia: '',
     });
+  });
+
+  it('lê o tom e a pendência (sério, com ou sem acento)', () => {
+    const s = lerSaida('{"resposta":"Beleza, aviso ele.","tom":"sério","avisar":"endpoints","pendencia":"Fazer os endpoints que alinhamos de manhã"}');
+    expect(s?.tom).toBe('serio');
+    expect(s?.pendencia).toBe('Fazer os endpoints que alinhamos de manhã');
   });
 
   it('expressão vem normalizada', () => {

@@ -9,7 +9,7 @@ const MAX = 120;
 /** Aberta há mais tempo que isso sem ninguém tocar nela: vira assunto morto e some. */
 const VELHA_MS = 45 * 24 * 3600_000;
 
-export type TaskOrigin = 'ata' | 'conversa' | 'manual';
+export type TaskOrigin = 'ata' | 'conversa' | 'manual' | 'whatsapp';
 
 export interface Task {
   id: string;

@@ -4,7 +4,7 @@ export interface Task {
   id: string;
   texto: string;
   pessoa?: string;
-  origem: 'ata' | 'conversa' | 'manual';
+  origem: 'ata' | 'conversa' | 'manual' | 'whatsapp';
   meetingId?: string;
   createdAt: number;
   doneAt?: number;

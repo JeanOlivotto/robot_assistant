@@ -58,7 +58,7 @@ export function Tasks({ token }: { token: string }) {
               <span>{t.texto}</span>
               <span className="tasks__meta">
                 {t.pessoa && `${t.pessoa} · `}
-                {t.origem === 'ata' ? 'da reunião' : t.origem === 'conversa' ? 'da conversa' : 'anotada'}
+                {t.origem === 'ata' ? 'da reunião' : t.origem === 'conversa' ? 'da conversa' : t.origem === 'whatsapp' ? 'do WhatsApp' : 'anotada'}
                 {t.nudges > 0 && ` · cobrada ${t.nudges}×`}
               </span>
             </div>
