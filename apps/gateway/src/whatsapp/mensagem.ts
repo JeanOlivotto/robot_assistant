@@ -91,6 +91,15 @@ export function acharPorNome<T extends { id: string; nome: string }>(lista: T[],
   return { parecidos: [] };
 }
 
+/**
+ * Mensagem que o robô manda em nome PRÓPRIO: a primeira linha diz quem é, sempre — quem recebe
+ * precisa saber que não foi o dono que escreveu. Quem põe é o código, não o modelo.
+ */
+export function assinar(texto: string, robo: string, dono: string): string {
+  const quem = `🤖 *${robo}*${dono ? `, assistente de ${dono}` : ''}`;
+  return texto.startsWith(quem) ? texto : `${quem}\n${texto}`;
+}
+
 const ROTULO: Record<Tipo, string> = {
   texto: '',
   audio: 'áudio',

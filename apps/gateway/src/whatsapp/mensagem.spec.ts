@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { acharPorNome, conteudo, descrever, type Recebida } from './mensagem.js';
+import { acharPorNome, assinar, conteudo, descrever, type Recebida } from './mensagem.js';
 
 describe('conteudo', () => {
   it('lê texto simples e texto com link/resposta', () => {
@@ -62,6 +62,14 @@ describe('acharPorNome', () => {
 
   it('não acha pedaço de palavra', () => {
     expect(acharPorNome(lista, 'fab').achou).toBeUndefined();
+  });
+});
+
+describe('assinar', () => {
+  it('põe quem é na primeira linha, uma vez só', () => {
+    const uma = assinar('O Jean está em reunião, retorna às 15h.', 'Miro', 'Jean');
+    expect(uma).toBe('🤖 *Miro*, assistente de Jean\nO Jean está em reunião, retorna às 15h.');
+    expect(assinar(uma, 'Miro', 'Jean')).toBe(uma);
   });
 });
 
