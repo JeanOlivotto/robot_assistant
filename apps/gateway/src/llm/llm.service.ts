@@ -77,13 +77,20 @@ export class LlmService {
       temperature?: number;
       /** Pensar pouco antes de responder (ligação): o gpt-oss raciocina bem menos e responde mais rápido. */
       quick?: boolean;
+      /**
+       * Começa pela reserva (NVIDIA) e só depois vai para o principal. Para o que não tem pressa e
+       * não pode comer a cota diária do Groq — ex.: terceiros conversando com ele no WhatsApp.
+       */
+      reservaPrimeiro?: boolean;
     },
   ): Promise<ChatCompletionMessage> {
     if (!this.targets.length) throw new Error('LLM desligado (sem chave)');
     const now = Date.now();
     // Os que estão bem primeiro, na ordem configurada; os de castigo ficam de último recurso.
     const order = [...this.targets].sort(
-      (a, b) => Number(this.isPenalized(a.label, now)) - Number(this.isPenalized(b.label, now)),
+      (a, b) =>
+        Number(this.isPenalized(a.label, now)) - Number(this.isPenalized(b.label, now)) ||
+        (opts?.reservaPrimeiro ? Number(!!a.fast) - Number(!!b.fast) : 0),
     );
 
     const attempt = async (t: Target): Promise<ChatCompletionMessage> => {
@@ -114,7 +121,8 @@ export class LlmService {
     };
 
     let lastError: unknown;
-    let waited = false;
+    // Com a reserva na frente, não faz sentido esperar pelo Groq antes dela.
+    let waited = !!opts?.reservaPrimeiro;
     for (const t of order) {
       // Antes de ir para a reserva lenta: algum rápido libera logo? Espera por ele (uma vez só).
       if (!t.fast && !waited) {

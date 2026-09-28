@@ -40,3 +40,37 @@ describe('LlmService: todos os rápidos no limite', () => {
     expect(lento).not.toHaveBeenCalled();
   });
 });
+
+describe('LlmService: reservaPrimeiro', () => {
+  const make = () => {
+    const svc = new LlmService({
+      LLM_BASE_URL: 'https://api.groq.com/openai/v1',
+      LLM_API_KEY: 'x',
+      LLM_MODEL: 'grande',
+      LLM_EXTRA_MODELS: '',
+      LLM_FALLBACK_BASE_URL: 'https://integrate.api.nvidia.com/v1',
+      LLM_FALLBACK_API_KEY: 'y',
+      LLM_FALLBACK_MODELS: 'lento',
+    } as unknown as AppConfig);
+    const groq = vi.fn().mockResolvedValue({ choices: [{ message: { content: 'groq' } }] });
+    const nvidia = vi.fn();
+    const targets = (svc as unknown as { targets: { client: unknown }[] }).targets;
+    targets[0]!.client = { chat: { completions: { create: groq } } };
+    targets[1]!.client = { chat: { completions: { create: nvidia } } };
+    return { svc, groq, nvidia };
+  };
+
+  it('vai na NVIDIA antes, sem gastar a cota do Groq', async () => {
+    const { svc, groq, nvidia } = make();
+    nvidia.mockResolvedValue({ choices: [{ message: { content: 'nvidia' } }] });
+    expect((await svc.complete([{ role: 'user', content: 'oi' }], undefined, { reservaPrimeiro: true })).content).toBe('nvidia');
+    expect(groq).not.toHaveBeenCalled();
+  });
+
+  it('NVIDIA fora do ar: cai no Groq', async () => {
+    const { svc, groq, nvidia } = make();
+    nvidia.mockRejectedValue(new Error('500'));
+    expect((await svc.complete([{ role: 'user', content: 'oi' }], undefined, { reservaPrimeiro: true })).content).toBe('groq');
+    expect(groq).toHaveBeenCalledOnce();
+  });
+});

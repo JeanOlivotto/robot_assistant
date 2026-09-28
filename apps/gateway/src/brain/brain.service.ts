@@ -16,7 +16,7 @@ import { IdentidadeService } from '../identidade/identidade.service.js';
 import { BancoVozesService } from '../vozes/banco.service.js';
 import { assinar } from '../whatsapp/mensagem.js';
 import { WhatsappService } from '../whatsapp/whatsapp.service.js';
-import { describeAgenda, splitEmotion, systemPrompt } from './prompts.js';
+import { describeAgenda, EMOTIONS, splitEmotion, systemPrompt } from './prompts.js';
 import { DIAS, resolveDay, resolveWhen } from './resolve-date.js';
 
 /** O que o robô quer fazer e vai esperar o "sim": um compromisso, um comando na máquina ou uma mensagem no WhatsApp. */
@@ -29,8 +29,8 @@ export interface ProposalDraft {
   comando?: string;
   /** Em qual máquina roda (o nome dela); sem isso, na que ele estiver usando na hora. */
   maquina?: string;
-  /** Mensagem no WhatsApp do dono: para qual conversa, e o texto exato. */
-  whatsapp?: { chat: string; destino: string; texto: string };
+  /** Mensagem no WhatsApp do dono: para qual conversa, o texto exato e/ou uma figurinha com a cara dele. */
+  whatsapp?: { chat: string; destino: string; texto: string; figurinha?: Face };
 }
 
 export interface BrainReply {
@@ -319,7 +319,8 @@ const TOOLS: ChatCompletionTool[] = [
       name: 'ler_whatsapp',
       description:
         'Lê mensagens que chegaram no WhatsApp do dono — SÓ quando ele pedir ("chegou uma mensagem, vê pra mim", ' +
-        '"o que o Fábio mandou?"). Sem "de": a última que chegou, com as que vieram junto dela. Áudio vem transcrito. ' +
+        '"o que o Fábio mandou?"). Sem "de": a última que chegou, com as que vieram junto dela. Áudio vem transcrito; ' +
+        'foto e figurinha vêm descritas. ' +
         'Nada é marcado como lido no celular dele.',
       parameters: {
         type: 'object',
@@ -351,8 +352,13 @@ const TOOLS: ChatCompletionTool[] = [
             type: 'string',
             description: 'o texto exato: com "dono", em primeira pessoa como ele escreveria; com "robo", você falando dele na terceira pessoa',
           },
+          figurinha: {
+            type: 'string',
+            enum: Object.keys(EMOTIONS),
+            description: 'manda também uma figurinha animada com a SUA cara nessa expressão (quando ele pedir, ou combinar). Só figurinha: texto vazio',
+          },
         },
-        required: ['como', 'texto'],
+        required: ['como'],
       },
     },
   },
@@ -951,7 +957,8 @@ export class BrainService {
   /** Mensagem escrita agora: vira proposta com destino e texto, e só sai com o "sim" do dono. */
   private proporWhatsapp(args: Record<string, unknown>): { result: string; proposal?: ProposalDraft } {
     const escrito = String(args.texto ?? '').trim().slice(0, 2000);
-    if (!escrito) return { result: 'erro: falta o texto da mensagem' };
+    const figurinha = EMOTIONS[String(args.figurinha ?? '').toLowerCase()];
+    if (!escrito && !figurinha) return { result: 'erro: falta o texto da mensagem (ou a figurinha)' };
     if (args.como !== 'dono' && args.como !== 'robo') {
       return { result: 'erro: falta dizer em nome de quem ("dono" ou "robo"). Se não souber, pergunte a ele.' };
     }
@@ -959,12 +966,13 @@ export class BrainService {
     if (!r.destino) return { result: `não deu: ${r.erro}` };
     const d = r.destino;
     const doRobo = args.como === 'robo';
-    const texto = doRobo ? assinar(escrito, this.identidade.nome, this.cfg.OWNER_NAME) : escrito;
+    const texto = escrito && doRobo ? assinar(escrito, this.identidade.nome, this.cfg.OWNER_NAME) : escrito;
+    const oQue = [texto && `"${texto}"`, figurinha && `uma figurinha sua (${String(args.figurinha)})`].filter(Boolean).join(' + ');
     return {
-      result: `mensagem preparada para ${d.nome}${d.grupo ? ' (grupo)' : ''}, ${doRobo ? 'em SEU nome (assinada por você)' : 'em nome dele'}, esperando o dono aprovar: "${texto}". Diga para quem, em nome de quem e o que vai, e peça o "sim" — não diga que já mandou.`,
+      result: `mensagem preparada para ${d.nome}${d.grupo ? ' (grupo)' : ''}, ${doRobo ? 'em SEU nome (assinada por você)' : 'em nome dele'}, esperando o dono aprovar: ${oQue}. Diga para quem, em nome de quem e o que vai, e peça o "sim" — não diga que já mandou.`,
       proposal: {
         title: `WhatsApp para ${d.nome}${doRobo ? ` (como ${this.identidade.nome})` : ''}`,
-        whatsapp: { chat: d.id, destino: d.nome, texto },
+        whatsapp: { chat: d.id, destino: d.nome, texto, ...(figurinha ? { figurinha } : {}) },
       },
     };
   }

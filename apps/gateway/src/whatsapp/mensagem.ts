@@ -127,11 +127,20 @@ const ROTULO: Record<Tipo, string> = {
 };
 
 /** Uma linha para o cérebro ler: "14:32 · Fábio (grupo Obra): texto". */
-export function descrever(m: Recebida, hora: string, transcricao?: string): string {
+export function descrever(m: Recebida, hora: string, entendido?: string): string {
   const quem = m.grupo ? `${m.autor} (no grupo "${m.nomeChat}")` : m.nomeChat;
-  let corpo: string;
-  if (m.tipo === 'texto') corpo = m.texto;
-  else if (m.tipo === 'audio') corpo = transcricao ? `[áudio] ${transcricao}` : `[áudio${m.segundos ? ` de ${m.segundos}s` : ''}, sem transcrição]`;
-  else corpo = `[${ROTULO[m.tipo]}]${m.texto ? ` ${m.texto}` : ''}`;
-  return `${hora} · ${quem}: ${corpo.slice(0, 1500)}`;
+  return `${hora} · ${quem}: ${corpo(m, entendido).slice(0, 1500)}`;
+}
+
+/**
+ * O que a mensagem diz, em texto: o próprio texto, a transcrição do áudio ou o que a foto/figurinha
+ * mostra (`entendido`, quando deu para entender).
+ */
+export function corpo(m: Recebida, entendido?: string): string {
+  if (m.tipo === 'texto') return m.texto;
+  if (m.tipo === 'audio') return entendido ? `[áudio] ${entendido}` : `[áudio${m.segundos ? ` de ${m.segundos}s` : ''}, sem transcrição]`;
+  if ((m.tipo === 'foto' || m.tipo === 'figurinha') && entendido) {
+    return `[${ROTULO[m.tipo]} — o que aparece: ${entendido}]${m.texto ? ` ${m.texto}` : ''}`;
+  }
+  return `[${ROTULO[m.tipo]}]${m.texto ? ` ${m.texto}` : ''}`;
 }

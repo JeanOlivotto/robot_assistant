@@ -20,7 +20,10 @@ import { Subject } from 'rxjs';
 import { APP_CONFIG, type AppConfig } from '../config/app-config.js';
 import { rootPath } from '../config/paths.js';
 import { MAX_VOICE_SECONDS, SttService } from '../stt/stt.service.js';
-import { acharPorNome, conteudo, descrever, type Recebida, semAcento } from './mensagem.js';
+import { VisionService } from '../vision/vision.service.js';
+import { figurinha } from './figurinha.js';
+import { acharPorNome, conteudo, corpo, descrever, type Recebida, semAcento } from './mensagem.js';
+import type { Face } from '@robo/protocol';
 
 type Socket = ReturnType<typeof makeWASocket>;
 
@@ -104,7 +107,8 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
   qr: string | null = null;
   numero: string | null = null;
 
-  private recebidas: { m: Recebida; raw: WAMessage }[] = [];
+  /** `entendido`: transcrição/descrição já feita (mídia só é entendida uma vez, e só quando pedem). */
+  private recebidas: { m: Recebida; raw: WAMessage; entendido?: Promise<string | undefined> }[] = [];
   /** jid (qualquer forma: telefone ou LID) → nome, para mostrar quem mandou. */
   private nomes = new Map<string, string>();
   /** Para onde dá para mandar, pelo jid que o WhatsApp aceita. */
@@ -117,6 +121,7 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
   constructor(
     @Inject(APP_CONFIG) private readonly cfg: AppConfig,
     private readonly stt: SttService,
+    private readonly vision: VisionService,
   ) {
     this.authDir = rootPath(`${cfg.DATA_DIR}/whatsapp-auth`);
     this.file = rootPath(`${cfg.DATA_DIR}/whatsapp.json`);
@@ -476,23 +481,47 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
     const hora = new Intl.DateTimeFormat('pt-BR', { hour: '2-digit', minute: '2-digit', timeZone: this.cfg.TZ_NAME });
     const linhas: string[] = [];
     for (const r of escolha) {
-      const transcricao = r.m.tipo === 'audio' ? await this.transcrever(r) : undefined;
-      linhas.push(descrever(r.m, hora.format(r.m.ts), transcricao));
+      linhas.push(descrever(r.m, hora.format(r.m.ts), await this.entender(r)));
     }
     return linhas.join('\n');
   }
 
-  private async transcrever(r: { m: Recebida; raw: WAMessage }): Promise<string | undefined> {
-    if (!this.stt.enabled || !this.sock) return undefined;
-    if (r.m.segundos && r.m.segundos > MAX_VOICE_SECONDS) return undefined;
+  /** A mensagem em texto (áudio transcrito, foto/figurinha descrita) — para o atendente. */
+  async textoDe(id: string): Promise<string | null> {
+    const r = this.recebidas.find((x) => x.m.id === id);
+    return r ? corpo(r.m, await this.entender(r)) : null;
+  }
+
+  /** Transcreve o áudio ou descreve a foto/figurinha — uma vez só por mensagem. */
+  private entender(r: { m: Recebida; raw: WAMessage; entendido?: Promise<string | undefined> }): Promise<string | undefined> {
+    if (!['audio', 'foto', 'figurinha'].includes(r.m.tipo)) return Promise.resolve(undefined);
+    r.entendido ??= this.baixarEEntender(r.m, r.raw);
+    return r.entendido;
+  }
+
+  private async baixarEEntender(m: Recebida, raw: WAMessage): Promise<string | undefined> {
+    if (!this.sock) return undefined;
+    if (m.tipo === 'audio' && (!this.stt.enabled || (m.segundos && m.segundos > MAX_VOICE_SECONDS))) return undefined;
+    if (m.tipo !== 'audio' && !this.vision.enabled) return undefined;
     try {
-      const audio = await downloadMediaMessage(r.raw, 'buffer', {}, { logger: loggerQuieto(this.log), reuploadRequest: this.sock.updateMediaMessage });
-      const t = await this.stt.transcribe(audio, { dica: false });
-      return t.text.trim() || undefined;
+      const arquivo = await downloadMediaMessage(raw, 'buffer', {}, { logger: loggerQuieto(this.log), reuploadRequest: this.sock.updateMediaMessage });
+      if (m.tipo === 'audio') return (await this.stt.transcribe(arquivo, { dica: false })).text.trim() || undefined;
+      // Figurinha é WebP (às vezes animado): o modelo de visão vê melhor o primeiro quadro em PNG.
+      const sharp = (await import('sharp')).default;
+      const png = await sharp(arquivo, { pages: 1 }).resize(768, 768, { fit: 'inside', withoutEnlargement: true }).png().toBuffer();
+      const desc = await this.vision.describe(png, 'image/png', m.texto, { de: m.autor, figurinha: m.tipo === 'figurinha' });
+      return desc ?? undefined;
     } catch (err) {
-      this.log.warn(`Não deu para transcrever o áudio do WhatsApp: ${(err as Error).message}`);
+      this.log.warn(`Não deu para entender ${m.tipo} do WhatsApp: ${(err as Error).message}`);
       return undefined;
     }
+  }
+
+  /** Figurinha animada com a cara do robô. Só pelo atendente (em nome dele) ou depois do "sim" do dono. */
+  async enviarFigurinha(chat: string, face: Face): Promise<void> {
+    if (!this.sock || !this.conectado) throw new Error('o WhatsApp não está conectado');
+    const m = await this.sock.sendMessage(chat, { sticker: await figurinha(face), isAnimated: true });
+    if (m?.key.id) this.enviadas.add(m.key.id);
   }
 
   /**

@@ -373,7 +373,8 @@ export class ChatService implements OnModuleInit, OnModuleDestroy {
   private async sendApproved(msg: ChatMessage, p: Proposal, para?: string): Promise<ChatMessage | undefined> {
     this.setState({ thinking: true });
     try {
-      await this.whatsapp.enviar(p.chat ?? '', p.texto ?? '');
+      if (p.texto) await this.whatsapp.enviar(p.chat ?? '', p.texto);
+      if (p.figurinha) await this.whatsapp.enviarFigurinha(p.chat ?? '', p.figurinha);
       this.updateProposal(msg, { status: 'confirmed' });
       return this.robotSay(`Mandei para ${p.destino ?? 'a conversa'}.`, 'happy', 'reply', { para });
     } catch (err) {

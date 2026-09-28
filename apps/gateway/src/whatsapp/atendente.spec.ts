@@ -7,6 +7,7 @@ describe('lerSaida', () => {
       resposta: 'Oi! Ele vê depois.',
       avisar: 'a Jaque quer falar da nota',
       expressao: '',
+      figurinha: false,
     });
   });
 
@@ -20,11 +21,21 @@ describe('lerSaida', () => {
       resposta: 'Mandarim eu não falo, mas aviso o Jean.',
       avisar: '',
       expressao: 'confuso',
+      figurinha: false,
     });
   });
 
   it('avisar ausente vira vazio', () => {
-    expect(lerSaida('{"resposta":"kkk boa"}')).toEqual({ resposta: 'kkk boa', avisar: '', expressao: '' });
+    expect(lerSaida('{"resposta":"kkk boa"}')).toEqual({ resposta: 'kkk boa', avisar: '', expressao: '', figurinha: false });
+  });
+
+  it('só a figurinha, sem texto, também vale', () => {
+    expect(lerSaida('{"resposta":"","expressao":"irritado","figurinha":true}')).toEqual({
+      resposta: '',
+      avisar: '',
+      expressao: 'irritado',
+      figurinha: true,
+    });
   });
 
   it('expressão vem normalizada', () => {

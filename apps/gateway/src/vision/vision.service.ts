@@ -26,10 +26,15 @@ export class VisionService {
     return this.client !== null;
   }
 
-  /** Descrição da foto, ou null se nenhum modelo conseguiu. `pedido` é a legenda que o dono escreveu. */
-  async describe(image: Buffer, mime: string, pedido = ''): Promise<string | null> {
+  /**
+   * Descrição da foto, ou null se nenhum modelo conseguiu. `pedido` é a legenda que veio junto.
+   * `de`: quem mandou (padrão: o dono). `figurinha`: é uma figurinha de WhatsApp — basta dizer o que
+   * ela mostra e o clima/piada, numa frase.
+   */
+  async describe(image: Buffer, mime: string, pedido = '', opts: { de?: string; figurinha?: boolean } = {}): Promise<string | null> {
     if (!this.client) return null;
-    const owner = this.cfg.OWNER_NAME || 'o dono';
+    const owner = opts.de || this.cfg.OWNER_NAME || 'o dono';
+    if (opts.figurinha) return this.perguntar(image, mime, 'Isto é uma figurinha (sticker) de WhatsApp. Em UMA frase, em português: o que ela mostra, o clima ou a piada dela, e o texto escrito nela, se houver.', 200);
     const prompt =
       `${owner} mandou esta foto para um assistente que NÃO consegue vê-la. Descreva para ele, em português:\n` +
       '- o que aparece e onde parece ser;\n' +
@@ -37,6 +42,11 @@ export class VisionService {
       '- pessoas: aparência e o que fazem, sem tentar dizer quem são.\n' +
       (pedido ? `${owner} escreveu junto: "${pedido}". Dê atenção ao que ajuda a responder isso.\n` : '') +
       'Seja objetivo, sem opinião nem enfeite. Se algo estiver ilegível, diga que está ilegível — não adivinhe.';
+    return this.perguntar(image, mime, prompt, 700);
+  }
+
+  private async perguntar(image: Buffer, mime: string, prompt: string, maxTokens: number): Promise<string | null> {
+    if (!this.client) return null;
     const url = `data:${mime};base64,${image.toString('base64')}`;
 
     for (const model of this.models) {
@@ -44,7 +54,7 @@ export class VisionService {
       try {
         const res = await this.client.chat.completions.create({
           model,
-          max_tokens: 700,
+          max_tokens: maxTokens,
           temperature: 0.2,
           messages: [{ role: 'user', content: [{ type: 'text', text: prompt }, { type: 'image_url', image_url: { url } }] }],
         });

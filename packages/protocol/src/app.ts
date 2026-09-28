@@ -29,6 +29,8 @@ export const Proposal = z.object({
   destino: z.string().optional(),
   /** Só em 'whatsapp': o texto que vai sair, exatamente como aparece no cartão. */
   texto: z.string().optional(),
+  /** Só em 'whatsapp': figurinha animada com a cara do robô nessa expressão, depois do texto. */
+  figurinha: z.enum(FACES).optional(),
   status: z.enum(PROPOSAL_STATUS),
   error: z.string().optional(),
 });

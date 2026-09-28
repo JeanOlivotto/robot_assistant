@@ -1,65 +1,13 @@
-import type { Face } from '@robo/protocol';
-
-type Eyes = 'open' | 'closed' | 'x' | 'heart';
-type Mouth = 'none' | 'smile' | 'grin' | 'frown' | 'o' | 'flat' | 'tilt';
-
-interface Def {
-  eyes: Eyes;
-  mouth: Mouth;
-  w: number;
-  h: number;
-  r: number;
-  lidTop: number;
-  lidBot: number;
-  slant: number;
-  dy: number;
-  mw: number;
-  mh: number;
-  color: string;
-  gaze?: [number, number];
-  blush?: boolean;
-  sweat?: boolean;
-  zzz?: boolean;
-  hearts?: boolean;
-  dots?: boolean;
-  /** "?" em cima (confuso). */
-  question?: boolean;
-  /** Fumacinha saindo da cabeça (irritado). */
-  steam?: boolean;
-  /** O olho da direita fica menor, em % da altura: olhos desencontrados. */
-  squint?: number;
-}
-
-const EYE = '#5ae6f0';
-const LOVE = '#ff5a8c';
-const ERR = '#ff5050';
-const ANGRY = '#ff8c3c';
-const EVIL = '#be5aff';
-const ANNOY = '#ffc83c';
-const SCREEN = '#000';
-
-/* Mesmos números de firmware/main/core/face.c — manter os dois em sincronia. */
-const FACE_DEFS: Record<Face, Def> = {
-  neutral: { eyes: 'open', mouth: 'smile', w: 24, h: 30, r: 8, lidTop: 0, lidBot: 0, slant: 0, dy: 0, mw: 12, mh: 5, color: EYE },
-  happy: { eyes: 'open', mouth: 'grin', w: 24, h: 30, r: 8, lidTop: 0, lidBot: 13, slant: 0, dy: 0, mw: 16, mh: 8, color: EYE, blush: true },
-  love: { eyes: 'heart', mouth: 'grin', w: 26, h: 26, r: 8, lidTop: 0, lidBot: 0, slant: 0, dy: 0, mw: 16, mh: 8, color: LOVE, blush: true, hearts: true },
-  sleepy: { eyes: 'open', mouth: 'flat', w: 24, h: 30, r: 8, lidTop: 16, lidBot: 0, slant: 0, dy: 2, mw: 8, mh: 3, color: EYE },
-  sleeping: { eyes: 'closed', mouth: 'o', w: 24, h: 12, r: 6, lidTop: 0, lidBot: 0, slant: 0, dy: 4, mw: 6, mh: 6, color: EYE, zzz: true },
-  worried: { eyes: 'open', mouth: 'frown', w: 22, h: 28, r: 8, lidTop: 0, lidBot: 0, slant: 10, dy: 0, mw: 12, mh: 5, color: EYE, sweat: true },
-  surprised: { eyes: 'open', mouth: 'o', w: 26, h: 34, r: 13, lidTop: 0, lidBot: 0, slant: 0, dy: -2, mw: 9, mh: 10, color: EYE },
-  sad: { eyes: 'open', mouth: 'frown', w: 22, h: 24, r: 8, lidTop: 3, lidBot: 0, slant: 8, dy: 4, mw: 14, mh: 6, color: EYE },
-  error: { eyes: 'x', mouth: 'flat', w: 20, h: 20, r: 0, lidTop: 0, lidBot: 0, slant: 0, dy: 0, mw: 14, mh: 3, color: ERR },
-  thinking: { eyes: 'open', mouth: 'flat', w: 22, h: 24, r: 8, lidTop: 6, lidBot: 0, slant: 0, dy: -2, mw: 8, mh: 3, color: EYE, gaze: [-7, -5], dots: true },
-  bored: { eyes: 'open', mouth: 'flat', w: 24, h: 30, r: 8, lidTop: 14, lidBot: 0, slant: 0, dy: 3, mw: 10, mh: 2, color: EYE, gaze: [8, 2] },
-  jamming: { eyes: 'open', mouth: 'grin', w: 24, h: 28, r: 8, lidTop: 0, lidBot: 17, slant: 0, dy: 0, mw: 16, mh: 8, color: EYE, blush: true },
-  angry: { eyes: 'open', mouth: 'frown', w: 24, h: 22, r: 6, lidTop: 0, lidBot: 0, slant: -13, dy: 1, mw: 14, mh: 5, color: ANGRY },
-  evil: { eyes: 'open', mouth: 'grin', w: 24, h: 20, r: 5, lidTop: 6, lidBot: 0, slant: -14, dy: 1, mw: 15, mh: 6, color: EVIL },
-  confused: { eyes: 'open', mouth: 'tilt', w: 24, h: 30, r: 8, lidTop: 0, lidBot: 0, slant: 0, dy: 0, mw: 12, mh: 4, color: EYE, gaze: [4, -3], question: true, squint: 45 },
-  annoyed: { eyes: 'open', mouth: 'flat', w: 24, h: 28, r: 7, lidTop: 11, lidBot: 0, slant: -6, dy: 1, mw: 13, mh: 3, color: ANNOY, gaze: [7, 1], steam: true },
-};
-
-const EYE_GAP = 48;
-const MOUTH_DY = 27;
+/* A tabela das expressões mora no protocolo: o gateway desenha as figurinhas do WhatsApp com ela. */
+import {
+  FACE_DEFS,
+  FACE_EYE_GAP as EYE_GAP,
+  FACE_LOVE as LOVE,
+  FACE_MOUTH_DY as MOUTH_DY,
+  FACE_SCREEN as SCREEN,
+  type Face,
+  type FaceDef as Def,
+} from '@robo/protocol';
 
 function Heart({ cx, cy, size, fill }: { cx: number; cy: number; size: number; fill: string }) {
   const r = Math.max(1, Math.floor(size / 4));

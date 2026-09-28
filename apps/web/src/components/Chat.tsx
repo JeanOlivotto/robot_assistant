@@ -3,6 +3,7 @@ import type { ChatMessage, Proposal } from '@robo/protocol';
 import { dayKey, dayLabel, hhmm } from '../lib/format';
 import { preparePhoto, sendPhoto, usePhotoUrl, type ReadyPhoto } from '../lib/photo';
 import { MAX_VOICE_MS, VoiceRecorder } from '../lib/recorder';
+import { RobotFace } from './RobotFace';
 
 const KIND_TAG: Partial<Record<NonNullable<ChatMessage['kind']>, string>> = {
   reminder: 'lembrete',
@@ -46,7 +47,12 @@ function ProposalCard({ p, onConfirm }: { p: Proposal; onConfirm(ok: boolean): v
         /* Mensagem no WhatsApp: o texto exato e o destino — sai só o que você está vendo. */
         <>
           <div className="proposal-when">para {p.destino}</div>
-          <div className="proposal-whatsapp">{p.texto}</div>
+          {p.texto && <div className="proposal-whatsapp">{p.texto}</div>}
+          {p.figurinha && (
+            <div className="proposal-figurinha">
+              <RobotFace face={p.figurinha} size={96} />
+            </div>
+          )}
         </>
       ) : (
         <div className="proposal-when">

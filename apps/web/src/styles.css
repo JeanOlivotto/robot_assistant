@@ -1269,6 +1269,10 @@ button {
   overflow-wrap: anywhere;
 }
 
+.proposal-figurinha {
+  margin: 6px 0 2px;
+}
+
 /* ── WhatsApp (aba PC) ─────────────────────────────────────────── */
 .whats__qr {
   display: block;
