@@ -3,6 +3,7 @@ import { dirname, join } from 'node:path';
 import { Inject, Injectable, Logger, type OnModuleDestroy, type OnModuleInit } from '@nestjs/common';
 import makeWASocket, {
   Browsers,
+  BufferJSON,
   DisconnectReason,
   downloadMediaMessage,
   fetchLatestBaileysVersion,
@@ -77,8 +78,8 @@ function loggerQuieto(log: Logger) {
  * Três regras que não podem quebrar:
  *  - As notificações do celular continuam: a conexão nunca fica "online" (markOnlineOnConnect:
  *    false, recibo "inactive") e nada é marcado como lido — nenhum tique azul sai daqui.
- *  - Ele só LÊ quando o dono pede. As mensagens ficam numa lista curta na memória (nada em disco,
- *    nada para o LLM) até o dono dizer "vê essa mensagem pra mim".
+ *  - Ele só LÊ quando o dono pede. As mensagens ficam numa lista curta (12 h, últimas 60 — em disco
+ *    no servidor, para sobreviver a deploy; nada vai para o LLM) até o dono dizer "vê essa mensagem pra mim".
  *  - Ele só MANDA com o "sim" do dono, numa proposta que mostra o destino e o texto.
  *
  * Privacidade: com ela ligada, o que chega é descartado na hora e a lista é apagada.
@@ -89,6 +90,9 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
   private readonly authDir: string;
   private readonly file: string;
   private readonly contatosFile: string;
+  /** As mensagens recentes (12 h, últimas 60): sem isto, cada deploy/restart apagava o que tinha chegado. */
+  private readonly recebidasFile: string;
+  private salvarRecebidas: NodeJS.Timeout | null = null;
   private salvarContatos: NodeJS.Timeout | null = null;
   private c: Combinado = { ativo: false, privadoAte: 0, atender: true, gruposTecnicos: [] };
 
@@ -130,6 +134,7 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
     this.authDir = rootPath(`${cfg.DATA_DIR}/whatsapp-auth`);
     this.file = rootPath(`${cfg.DATA_DIR}/whatsapp.json`);
     this.contatosFile = rootPath(`${cfg.DATA_DIR}/whatsapp-contatos.json`);
+    this.recebidasFile = rootPath(`${cfg.DATA_DIR}/whatsapp-recebidas.json`);
     try {
       this.c = { ...this.c, ...(JSON.parse(readFileSync(this.file, 'utf8')) as Partial<Combinado>) };
     } catch {
@@ -149,6 +154,14 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
     } catch {
       /* ainda sem contatos */
     }
+    try {
+      // BufferJSON: a mensagem crua tem bytes (chave da mídia) — sem ela o áudio/foto não baixa depois.
+      const salvas = JSON.parse(readFileSync(this.recebidasFile, 'utf8'), BufferJSON.reviver) as { m: Recebida; raw: WAMessage }[];
+      const corte = Date.now() - GUARDA_MS;
+      if (!this.privado()) this.recebidas = salvas.filter((r) => r.m.ts > corte).slice(-MAX_RECEBIDAS);
+    } catch {
+      /* nada guardado */
+    }
   }
 
   onModuleInit(): void {
@@ -160,6 +173,7 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
     this.encerrando = true;
     if (this.religar) clearTimeout(this.religar);
     if (this.salvarContatos) this.gravarContatos();
+    if (this.salvarRecebidas) this.gravarRecebidas();
     this.sock?.end(undefined);
   }
 
@@ -179,6 +193,7 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
       this.c.privadoAte = horas && horas > 0 ? Date.now() + Math.min(horas, 24 * 30) * 3600_000 : -1;
       this.recebidas = [];
       this.ultimaVista = null;
+      rmSync(this.recebidasFile, { force: true }); // privacidade apaga do disco também, na hora
       this.log.log(`WhatsApp: privacidade ligada${this.c.privadoAte > 0 ? ` até ${new Date(this.c.privadoAte).toISOString()}` : ''}`);
     } else {
       this.c.privadoAte = 0;
@@ -271,8 +286,12 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
     sock.ev.on('creds.update', saveCreds);
     sock.ev.on('connection.update', (u) => void this.aoMudarConexao(sock, u));
     sock.ev.on('messages.upsert', ({ messages, type }) => {
-      if (type !== 'notify') return;
-      for (const raw of messages) void this.aoReceber(raw);
+      // 'append' é o que chegou enquanto o servidor estava fora (deploy, queda) — antes ia fora e
+      // a mensagem sumia. Mas o que o PRÓPRIO robô manda também volta como 'append' (fromMe):
+      // esse não pode passar por "o dono escreveu".
+      for (const raw of messages) {
+        if (type === 'notify' || (type === 'append' && !raw.key.fromMe)) void this.aoReceber(raw);
+      }
     });
     sock.ev.on('contacts.upsert', (cs) => cs.forEach((c) => this.guardarContato(c)));
     sock.ev.on('messaging-history.set', ({ contacts }) => contacts.forEach((c) => this.guardarContato(c)));
@@ -367,6 +386,7 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
   private limparSessao(): void {
     rmSync(this.authDir, { recursive: true, force: true });
     rmSync(this.contatosFile, { force: true });
+    rmSync(this.recebidasFile, { force: true });
     this.nomes.clear();
     this.destinos.clear();
     this.daAgenda.clear();
@@ -405,6 +425,7 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
     const autor = this.nomes.get(autorJid) ?? (autorAlt && this.nomes.get(autorAlt)) ?? raw.pushName ?? numeroDe(autorAlt ?? autorJid);
     const nomeChat = grupo ? await this.nomeDoGrupo(chat) : autor;
 
+    if (this.recebidas.some((r) => r.m.id === k.id)) return; // entregue de novo depois de uma queda
     this.recebidas.push({
       m: {
         id: k.id,
@@ -420,6 +441,7 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
     });
     const corte = Date.now() - GUARDA_MS;
     this.recebidas = this.recebidas.filter((r) => r.m.ts > corte).slice(-MAX_RECEBIDAS);
+    if (!this.salvarRecebidas) this.salvarRecebidas = setTimeout(() => this.gravarRecebidas(), 3_000);
     this.chegou$.next(this.recebidas.at(-1)!.m);
   }
 
@@ -469,6 +491,20 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
     this.destinos.set(id, { id, nome, grupo });
     // A agenda chega em rajada (centenas de contatos de uma vez): grava uma vez só no fim.
     if (!this.salvarContatos) this.salvarContatos = setTimeout(() => this.gravarContatos(), 2_000);
+  }
+
+  private gravarRecebidas(): void {
+    if (this.salvarRecebidas) clearTimeout(this.salvarRecebidas);
+    this.salvarRecebidas = null;
+    if (this.privado()) return;
+    try {
+      mkdirSync(dirname(this.recebidasFile), { recursive: true });
+      const tmp = `${this.recebidasFile}.tmp`;
+      writeFileSync(tmp, JSON.stringify(this.recebidas.map(({ m, raw }) => ({ m, raw })), BufferJSON.replacer), { mode: 0o600 });
+      renameSync(tmp, this.recebidasFile);
+    } catch (err) {
+      this.log.error(`Falha ao salvar as mensagens recentes: ${(err as Error).message}`);
+    }
   }
 
   private gravarContatos(): void {
