@@ -10,9 +10,17 @@ describe('lerSaida', () => {
     });
   });
 
-  it('sem resposta, ou sem JSON, não manda nada', () => {
+  it('resposta vazia não manda nada', () => {
     expect(lerSaida('{"resposta":"","avisar":"x"}')).toBeNull();
-    expect(lerSaida('não sei')).toBeNull();
+    expect(lerSaida('   ')).toBeNull();
+  });
+
+  it('texto em vez de JSON vira a resposta (com a expressão, se vier)', () => {
+    expect(lerSaida('[confuso] Mandarim eu não falo, mas aviso o Jean.')).toEqual({
+      resposta: 'Mandarim eu não falo, mas aviso o Jean.',
+      avisar: '',
+      expressao: 'confuso',
+    });
   });
 
   it('avisar ausente vira vazio', () => {

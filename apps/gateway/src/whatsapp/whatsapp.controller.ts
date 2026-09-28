@@ -1,6 +1,7 @@
 import { BadRequestException, Body, Controller, Get, HttpCode, Post, UseGuards } from '@nestjs/common';
 import { z } from 'zod';
 import { AppTokenGuard } from '../auth/app-token.guard.js';
+import { AtendenteService } from './atendente.service.js';
 import { WhatsappService } from './whatsapp.service.js';
 
 const Atender = z.object({ ligar: z.boolean() });
@@ -14,11 +15,14 @@ const Privacidade = z.object({
 @Controller('api/whatsapp')
 @UseGuards(AppTokenGuard)
 export class WhatsappController {
-  constructor(private readonly whatsapp: WhatsappService) {}
+  constructor(
+    private readonly whatsapp: WhatsappService,
+    private readonly atendente: AtendenteService,
+  ) {}
 
   @Get()
   status() {
-    return this.whatsapp.status();
+    return { ...this.whatsapp.status(), ultimoChamado: this.atendente.ultimo };
   }
 
   @Post('conectar')

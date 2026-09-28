@@ -193,7 +193,7 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
     if (!this.conectado) return this.c.ativo ? 'reconectando' : 'não conectado';
     if (!this.privado()) {
       return this.c.atender
-        ? 'conectado; quem te chama pelo nome numa conversa privada fala com você direto (você só conversa, sem ferramentas, e recados chegam aqui)'
+        ? 'conectado; quem te chama pelo nome no WhatsApp (direto ou num grupo) fala com você direto (você só conversa, sem ferramentas, e recados chegam aqui)'
         : 'conectado; você NÃO está respondendo quem te chama pelo nome';
     }
     if (this.c.privadoAte === -1) return 'conectado, com PRIVACIDADE ligada (até o dono pedir para voltar)';
@@ -519,10 +519,20 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
     return { erro: `não achei "${nome}" nos contatos nem nos grupos` };
   }
 
-  /** Só chamado depois do "sim" do dono. */
-  async enviar(chat: string, texto: string): Promise<void> {
+  /**
+   * Marca como lida UMA mensagem — só as que chamaram o robô (o dono liberou: essas são com ele).
+   * O resto do WhatsApp continua sem tique azul.
+   */
+  async marcarLida(id: string): Promise<void> {
+    const r = this.recebidas.find((x) => x.m.id === id);
+    if (r && this.sock) await this.sock.readMessages([r.raw.key]).catch(() => undefined);
+  }
+
+  /** Só chamado depois do "sim" do dono — ou pelo atendente, em nome do robô. `citando`: responde aquela mensagem. */
+  async enviar(chat: string, texto: string, citando?: string): Promise<void> {
     if (!this.sock || !this.conectado) throw new Error('o WhatsApp não está conectado');
-    const m = await this.sock.sendMessage(chat, { text: texto });
+    const quoted = citando ? this.recebidas.find((x) => x.m.id === citando)?.raw : undefined;
+    const m = await this.sock.sendMessage(chat, { text: texto }, quoted ? { quoted } : undefined);
     if (m?.key.id) {
       this.enviadas.add(m.key.id);
       if (this.enviadas.size > 200) this.enviadas.delete(this.enviadas.values().next().value!);

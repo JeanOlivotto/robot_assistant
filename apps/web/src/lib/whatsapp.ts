@@ -16,6 +16,8 @@ export interface StatusWhatsapp {
   contatos: number;
   /** Responde (só conversando) quem chama o Miro pelo nome numa conversa privada. */
   atender: boolean;
+  /** A última vez que alguém chamou o Miro no WhatsApp, e o que ele fez (para saber por que não respondeu). */
+  ultimoChamado?: { em: number; quem: string; resultado: string } | null;
 }
 
 async function api(token: string, path: string, init: RequestInit = {}): Promise<StatusWhatsapp> {

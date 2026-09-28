@@ -104,12 +104,14 @@ export function assinar(texto: string, robo: string, dono: string): string {
  * A mensagem chama o robô pelo nome? Só vale como vocativo — no começo ("Miro, tudo bem?", "oi
  * Miro") ou no fim ("tá aí, Miro?") —, não citado no meio ("o Miro do Jean é legal").
  */
-export function chamou(texto: string, nome: string): boolean {
-  const n = semAcento(nome);
+export function chamou(texto: string, nomes: string[], opts: { soNoComeco?: boolean } = {}): boolean {
   const t = semAcento(texto);
-  if (!n || !t) return false;
+  if (!t) return false;
   const saudacao = '(?:(?:oi|ola|opa|ei|hey|e ai|eai|fala|salve|bom dia|boa tarde|boa noite|alo)\\s+)?';
-  return new RegExp(`^${saudacao}${n}\\b`).test(t) || new RegExp(`\\b${n}$`).test(t);
+  return nomes
+    .map(semAcento)
+    .filter(Boolean)
+    .some((n) => new RegExp(`^${saudacao}${n}\\b`).test(t) || (!opts.soNoComeco && new RegExp(`\\b${n}$`).test(t)));
 }
 
 const ROTULO: Record<Tipo, string> = {

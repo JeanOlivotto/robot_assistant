@@ -54,9 +54,15 @@ export function Whatsapp({ token }: { token: string }) {
           </p>
           <p className="hint pc__hint">
             {s.atender
-              ? '💬 Quem te manda mensagem chamando o Miro ("Miro, …") conversa com ele — só conversa, assinado por ele, sem fazer nada nem contar nada seu. Recados chegam aqui no chat.'
+              ? '💬 Quem te manda mensagem chamando o Miro ("Miro, …"), direto ou num grupo, conversa com ele — só conversa, assinado por ele, sem fazer nada nem contar nada seu. Recados chegam aqui no chat.'
               : 'Ele não responde ninguém sozinho no WhatsApp.'}
           </p>
+          {s.ultimoChamado && (
+            <p className="hint pc__hint">
+              Último chamado: {s.ultimoChamado.quem}, {new Date(s.ultimoChamado.em).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })} —{' '}
+              {s.ultimoChamado.resultado}.
+            </p>
+          )}
           <div className="whats__acoes">
             <button type="button" className="btn btn--ghost" disabled={ocupado} onClick={() => fazer(() => atenderWhatsapp(token, !s.atender))}>
               {s.atender ? 'Não atender quem chama' : 'Atender quem chama o Miro'}

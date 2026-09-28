@@ -67,19 +67,26 @@ describe('acharPorNome', () => {
 
 describe('chamou', () => {
   it('nome no começo, com ou sem saudação', () => {
-    expect(chamou('Miro, o Jean tá aí?', 'Miro')).toBe(true);
-    expect(chamou('oi miro tudo bem', 'Miro')).toBe(true);
-    expect(chamou('Bom dia, Miro!', 'Miro')).toBe(true);
-    expect(chamou('@Miro me ajuda', 'Miro')).toBe(true);
+    expect(chamou('Miro, o Jean tá aí?', ['Miro'])).toBe(true);
+    expect(chamou('oi miro tudo bem', ['Miro'])).toBe(true);
+    expect(chamou('Bom dia, Miro!', ['Miro'])).toBe(true);
+    expect(chamou('@Miro me ajuda', ['Miro'])).toBe(true);
+    expect(chamou('miro sou apaxonado por mandarim ,poderia falar comigo', ['Miro'])).toBe(true);
   });
 
-  it('nome no fim, como quem chama', () => {
-    expect(chamou('tá por aí, Miro?', 'Miro')).toBe(true);
+  it('nome no fim, como quem chama — menos em grupo, onde só vale no começo', () => {
+    expect(chamou('tá por aí, Miro?', ['Miro'])).toBe(true);
+    expect(chamou('tá por aí, Miro?', ['Miro'], { soNoComeco: true })).toBe(false);
+  });
+
+  it('vale o nome escolhido e o de fábrica', () => {
+    expect(chamou('Miro, oi', ['Bolt', 'Miro'])).toBe(true);
+    expect(chamou('Bolt, oi', ['Bolt', 'Miro'])).toBe(true);
   });
 
   it('nome citado no meio não é chamado', () => {
-    expect(chamou('o Miro do Jean é engraçado kkk', 'Miro')).toBe(false);
-    expect(chamou('Mirosmar chegou', 'Miro')).toBe(false);
+    expect(chamou('o Miro do Jean é engraçado kkk', ['Miro'])).toBe(false);
+    expect(chamou('Mirosmar chegou', ['Miro'])).toBe(false);
   });
 });
 

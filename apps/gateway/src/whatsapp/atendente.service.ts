@@ -42,6 +42,8 @@ export class AtendenteService implements OnModuleInit, OnModuleDestroy {
   /** Uma conversa por vez por pessoa: mensagens em rajada viram uma resposta só. */
   private readonly ocupado = new Map<string, Recebida[]>();
   private subs: Subscription[] = [];
+  /** O último chamado e o que aconteceu com ele — aparece no app, para dar para ver sem log. */
+  ultimo: { em: number; quem: string; resultado: string } | null = null;
 
   constructor(
     @Inject(APP_CONFIG) private readonly cfg: AppConfig,
@@ -64,12 +66,17 @@ export class AtendenteService implements OnModuleInit, OnModuleDestroy {
   }
 
   private async aoChegar(m: Recebida): Promise<void> {
-    if (!this.whatsapp.atender || !this.llm.enabled) return;
-    if (m.grupo || m.tipo !== 'texto' || !m.texto.trim()) return;
-    if (Date.now() - m.ts > ATRASO_MS) return;
+    if (m.tipo !== 'texto' || !m.texto.trim()) return;
+    const nomes = [...new Set([this.identidade.nome, this.cfg.ROBOT_NAME])];
+    // Em grupo, só quem começa a mensagem com o nome — e sem conversa aberta, senão ele responderia o grupo todo.
     const aberta = this.conversas.get(m.chat);
-    const emConversa = !!aberta && aberta.ate > Date.now();
-    if (!emConversa && !chamou(m.texto, this.identidade.nome)) return;
+    const emConversa = !m.grupo && !!aberta && aberta.ate > Date.now();
+    if (!emConversa && !chamou(m.texto, nomes, { soNoComeco: m.grupo })) return;
+
+    const quem = m.grupo ? `${m.autor} (grupo ${m.nomeChat})` : m.nomeChat;
+    if (!this.whatsapp.atender) return this.anotar(quem, 'não respondeu: o atendimento está desligado');
+    if (!this.llm.enabled) return this.anotar(quem, 'não respondeu: o LLM está desligado');
+    if (Date.now() - m.ts > ATRASO_MS) return this.anotar(quem, 'não respondeu: a mensagem chegou atrasada');
 
     const fila = this.ocupado.get(m.chat);
     if (fila) {
@@ -90,9 +97,13 @@ export class AtendenteService implements OnModuleInit, OnModuleDestroy {
 
   private async responder(lote: Recebida[]): Promise<void> {
     const m = lote.at(-1)!;
-    if (!this.cabe(m.chat)) return;
-    const conversa = this.conversas.get(m.chat) ?? { nome: m.nomeChat, ate: 0, falas: [] };
-    conversa.falas.push({ role: 'user', content: lote.map((x) => x.texto).join('\n') });
+    const quem = m.grupo ? `${m.autor} (grupo ${m.nomeChat})` : m.nomeChat;
+    if (!this.cabe(m.chat)) return this.anotar(quem, 'não respondeu: passou do limite de respostas');
+    const conversa = this.conversas.get(m.chat) ?? { nome: quem, ate: 0, falas: [] };
+    conversa.nome = quem;
+    // Em grupo, cada fala diz de quem é (a conversa é do grupo, com várias pessoas).
+    conversa.falas.push({ role: 'user', content: lote.map((x) => (m.grupo ? `${x.autor}: ${x.texto}` : x.texto)).join('\n') });
+    lote.forEach((x) => void this.whatsapp.marcarLida(x.id));
 
     let saida: Saida | null = null;
     try {
@@ -104,21 +115,22 @@ export class AtendenteService implements OnModuleInit, OnModuleDestroy {
       saida = lerSaida(msg.content ?? '');
     } catch (err) {
       this.log.warn(`Atendente: o LLM falhou: ${(err as Error).message}`);
+      return this.anotar(quem, `não respondeu: o LLM falhou (${(err as Error).message.slice(0, 80)})`);
     }
-    if (!saida?.resposta) return;
+    if (!saida?.resposta) return this.anotar(quem, 'não respondeu: o LLM voltou vazio');
 
     try {
-      await this.whatsapp.enviar(m.chat, assinar(saida.resposta, this.identidade.nome, this.dono()));
+      await this.whatsapp.enviar(m.chat, assinar(saida.resposta, this.identidade.nome, this.dono()), m.grupo ? m.id : undefined);
     } catch (err) {
       this.log.warn(`Atendente: não deu para responder: ${(err as Error).message}`);
-      return;
+      return this.anotar(quem, `não respondeu: o WhatsApp recusou (${(err as Error).message.slice(0, 80)})`);
     }
+    this.anotar(quem, 'respondeu');
     this.contar(m.chat);
     conversa.falas.push({ role: 'assistant', content: JSON.stringify(saida) });
     conversa.falas = conversa.falas.slice(-HISTORICO);
-    conversa.ate = Date.now() + CONVERSA_MS;
+    conversa.ate = m.grupo ? 0 : Date.now() + CONVERSA_MS;
     this.conversas.set(m.chat, conversa);
-    this.log.log(`Atendente: respondeu ${conversa.nome} no WhatsApp`);
     // A conversa mexe com ele: a cara na mesa reage ao que a pessoa escreveu.
     const cara = EMOTIONS[saida.expressao];
     if (cara) this.chat.acordar(cara, 8000);
@@ -144,6 +156,11 @@ export class AtendenteService implements OnModuleInit, OnModuleDestroy {
     return false;
   }
 
+  private anotar(quem: string, resultado: string): void {
+    this.ultimo = { em: Date.now(), quem, resultado };
+    this.log.log(`Atendente: ${quem} chamou — ${resultado}`);
+  }
+
   private contar(chat: string): void {
     this.respostas.set(chat, [...(this.respostas.get(chat) ?? []), Date.now()]);
     this.hoje.n += 1;
@@ -158,7 +175,8 @@ export class AtendenteService implements OnModuleInit, OnModuleDestroy {
     const dono = this.dono();
     const sobre = this.identidade.sobre;
     return `Você é ${eu}, um robô que mora na mesa de ${dono} e é assistente dele. Agora você está no WhatsApp
-de ${dono}, conversando com ${contato}, que chamou você pelo nome. A sua assinatura já vai sozinha no começo
+de ${dono}, conversando com ${contato}, que chamou você pelo nome (num grupo, as falas vêm com o nome de
+quem escreveu, e a sua resposta vai para o grupo todo). A sua assinatura já vai sozinha no começo
 de cada mensagem: não se apresente de novo a cada resposta.
 
 O que você pode: conversar, responder com simpatia e o seu jeito (direto, seco com graça, sem bajular), e
@@ -194,7 +212,12 @@ export function lerSaida(raw: string): Saida | null {
   const clean = raw.replace(/<think>[\s\S]*?<\/think>/gi, '').replace(/```(json)?/gi, '');
   const ini = clean.indexOf('{');
   const fim = clean.lastIndexOf('}');
-  if (ini < 0 || fim <= ini) return null;
+  // Veio texto em vez de JSON: melhor responder com ele do que deixar a pessoa sem resposta.
+  if (ini < 0 || fim <= ini) {
+    const e = /^\s*\[([^\]]{2,15})\]\s*/.exec(clean);
+    const texto = (e ? clean.slice(e[0].length) : clean).trim().slice(0, 1500);
+    return texto ? { resposta: texto, avisar: '', expressao: e ? e[1]!.toLowerCase() : '' } : null;
+  }
   try {
     const o = JSON.parse(clean.slice(ini, fim + 1)) as { resposta?: unknown; avisar?: unknown; expressao?: unknown };
     const resposta = typeof o.resposta === 'string' ? o.resposta.trim().slice(0, 1500) : '';
