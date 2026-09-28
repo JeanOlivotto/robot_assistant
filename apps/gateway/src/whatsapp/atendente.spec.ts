@@ -6,6 +6,7 @@ describe('lerSaida', () => {
     expect(lerSaida('claro:\n```json\n{"resposta":"Oi! Ele vê depois.","avisar":"a Jaque quer falar da nota"}\n```')).toEqual({
       resposta: 'Oi! Ele vê depois.',
       avisar: 'a Jaque quer falar da nota',
+      expressao: '',
     });
   });
 
@@ -15,6 +16,10 @@ describe('lerSaida', () => {
   });
 
   it('avisar ausente vira vazio', () => {
-    expect(lerSaida('{"resposta":"kkk boa"}')).toEqual({ resposta: 'kkk boa', avisar: '' });
+    expect(lerSaida('{"resposta":"kkk boa"}')).toEqual({ resposta: 'kkk boa', avisar: '', expressao: '' });
+  });
+
+  it('expressão vem normalizada', () => {
+    expect(lerSaida('{"resposta":"calma aí","expressao":"Bravo"}')?.expressao).toBe('bravo');
   });
 });

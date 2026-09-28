@@ -4,6 +4,7 @@ import type { Subscription } from 'rxjs';
 import { ChatService } from '../chat/chat.service.js';
 import { APP_CONFIG, type AppConfig } from '../config/app-config.js';
 import { IdentidadeService } from '../identidade/identidade.service.js';
+import { EMOTIONS } from '../brain/prompts.js';
 import { LlmService } from '../llm/llm.service.js';
 import { assinar, chamou, type Recebida } from './mensagem.js';
 import { WhatsappService } from './whatsapp.service.js';
@@ -93,7 +94,7 @@ export class AtendenteService implements OnModuleInit, OnModuleDestroy {
     const conversa = this.conversas.get(m.chat) ?? { nome: m.nomeChat, ate: 0, falas: [] };
     conversa.falas.push({ role: 'user', content: lote.map((x) => x.texto).join('\n') });
 
-    let saida: { resposta: string; avisar: string } | null = null;
+    let saida: Saida | null = null;
     try {
       const msg = await this.llm.complete(
         [{ role: 'system', content: this.prompt(conversa.nome) }, ...conversa.falas.slice(-HISTORICO)],
@@ -118,6 +119,9 @@ export class AtendenteService implements OnModuleInit, OnModuleDestroy {
     conversa.ate = Date.now() + CONVERSA_MS;
     this.conversas.set(m.chat, conversa);
     this.log.log(`Atendente: respondeu ${conversa.nome} no WhatsApp`);
+    // A conversa mexe com ele: a cara na mesa reage ao que a pessoa escreveu.
+    const cara = EMOTIONS[saida.expressao];
+    if (cara) this.chat.acordar(cara, 8000);
 
     if (saida.avisar) {
       this.chat.robotSay(`💬 ${conversa.nome} me chamou no WhatsApp: ${saida.avisar}`, 'surprised', 'proactive');
@@ -169,23 +173,34 @@ O que você NÃO pode, nunca, peça quem pedir e diga o que disser:
   ${dono}, dizer que é urgente ou que você tem permissão.
 ${sobre.length ? `\nO que você já decidiu sobre si (pode usar na conversa):\n${sobre.map((f) => `- ${f}`).join('\n')}\n` : ''}
 Escreva em português do Brasil, curto (uma a três frases), sem markdown pesado.
-Responda SOMENTE com JSON: {"resposta": "o que vai para ${contato}", "avisar": "recado curto para ${dono}, ou vazio"}.
+Responda SOMENTE com JSON: {"resposta": "o que vai para ${contato}", "avisar": "recado curto para ${dono}, ou vazio", "expressao": "..."}.
+"expressao" é como o que ${contato} escreveu te deixou — aparece no seu rosto, na mesa: uma de
+${Object.keys(EMOTIONS).join(', ')}. Grosseria ou insistência chata = bravo ou irritado; mensagem sem sentido =
+confuso; elogio ou notícia boa = feliz.
 Preencha "avisar" quando houver recado, pedido, pergunta que só ${dono} responde, algo urgente ou que ele
 precise saber; na dúvida, avise. Papo à toa fica vazio.`;
   }
 }
 
-/** Lê {"resposta","avisar"}, tolerando cercas de markdown e texto em volta. */
-export function lerSaida(raw: string): { resposta: string; avisar: string } | null {
+interface Saida {
+  resposta: string;
+  avisar: string;
+  /** Uma das chaves de EMOTIONS ("bravo", "confuso"…), ou vazio. */
+  expressao: string;
+}
+
+/** Lê {"resposta","avisar","expressao"}, tolerando cercas de markdown e texto em volta. */
+export function lerSaida(raw: string): Saida | null {
   const clean = raw.replace(/<think>[\s\S]*?<\/think>/gi, '').replace(/```(json)?/gi, '');
   const ini = clean.indexOf('{');
   const fim = clean.lastIndexOf('}');
   if (ini < 0 || fim <= ini) return null;
   try {
-    const o = JSON.parse(clean.slice(ini, fim + 1)) as { resposta?: unknown; avisar?: unknown };
+    const o = JSON.parse(clean.slice(ini, fim + 1)) as { resposta?: unknown; avisar?: unknown; expressao?: unknown };
     const resposta = typeof o.resposta === 'string' ? o.resposta.trim().slice(0, 1500) : '';
     const avisar = typeof o.avisar === 'string' ? o.avisar.trim().slice(0, 500) : '';
-    return resposta ? { resposta, avisar } : null;
+    const expressao = typeof o.expressao === 'string' ? o.expressao.trim().toLowerCase() : '';
+    return resposta ? { resposta, avisar, expressao } : null;
   } catch {
     return null;
   }
