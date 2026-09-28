@@ -692,7 +692,9 @@ export class BrainService {
       memories: this.memory.summaries(),
       maquinas: this.braco.maquinas(),
       desligadas: this.braco.desligadas(),
-      pendencias: this.tasks.open().map((t) => (t.pessoa ? `${t.texto} (com ${t.pessoa})` : t.texto)),
+      pendencias: this.tasks
+        .open()
+        .map((t) => (t.origem === 'whatsapp' ? `${t.texto} (pedido de ${t.pessoa ?? 'alguém'} pelo WhatsApp)` : t.pessoa ? `${t.texto} (com ${t.pessoa})` : t.texto)),
       vozesConhecidas: this.banco.listar().map((v) => v.nome),
       conheceDono: !!this.cfg.OWNER_NAME && this.banco.conhece(this.cfg.OWNER_NAME),
       silencio: this.silencio.descricao(now),

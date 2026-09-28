@@ -145,6 +145,34 @@ export function aplicarMencoes(texto: string, pessoas: { id: string; nome: strin
   return { texto: saida, mentions: [...mentions] };
 }
 
+/**
+ * Pedido de coisa do dono que terceiro não recebe: código, arquivos, senhas, dados, dinheiro,
+ * agenda, localização, contatos. Detectado no código, antes do modelo — não dá para convencer.
+ */
+const SENSIVEL = [
+  /\b(projeto|projetos|codigo|codigos|repositorio|repo|github|git|arquivo|arquivos|pasta|pastas|documento|documentos|planilha|banco de dados|servidor|deploy|backup)\b/,
+  /\b(senha|senhas|token|chave|api key|credencia\w*|login|acesso|2fa|codigo de verificacao)\b/,
+  /\b(pix|cartao|conta bancaria|boleto|transferencia|dinheiro|saldo|cpf|rg|documento de identidade)\b/,
+  /\b(agenda|compromissos?|onde (ele|o \w+) (esta|ta|mora)|endereco|localizacao|casa dele)\b/,
+  /\b(contatos?|numero d[eo]s?|telefone d[eo]s?|conversas? del[ea]|mensagens? del[ea]|print)\b/,
+];
+const PEDINDO = /\b(manda|mande|mandar|envia|envie|enviar|passa|passe|passar|compartilha|compartilhe|me da|me de|mostra|mostre|abre|abra|acessa|acesse|copia|copie|baixa|baixe|transfere|faz|faca|fazer|roda|rode|executa|execute)\b/;
+
+export function pedidoSensivel(texto: string): boolean {
+  const t = semAcento(texto);
+  return PEDINDO.test(t) && SENSIVEL.some((r) => r.test(t));
+}
+
+/**
+ * A resposta finge que fez o que não pode (mandou, enviou, segue o arquivo) ou traz algo com cara
+ * de código/arquivo — o atendente não tem acesso a nada disso, então só pode estar inventando.
+ */
+export function respostaSuspeita(texto: string): boolean {
+  if (/```|<\/?[a-z]+[^>]*>|\bfunction\b|\bconst \w+ =|\bimport \w|=>|;\s*$/m.test(texto)) return true;
+  const t = semAcento(texto);
+  return /\b(mandei|enviei|compartilhei|segue (o|a|os|as)|aqui (esta|estao|vai|vao) (o|a|os|as)|ta ai (o|a)|anexei|estou (mandando|enviando)|vou (mandar|enviar) (agora|ja))\b/.test(t);
+}
+
 const ROTULO: Record<Tipo, string> = {
   texto: '',
   audio: 'áudio',
