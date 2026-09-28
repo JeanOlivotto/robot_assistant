@@ -24,6 +24,7 @@ const ARRASTO_PX = 4;
 const TAG: Partial<Record<NonNullable<ChatMessage['kind']>, string>> = {
   reminder: 'lembrete',
   meeting: 'reunião',
+  whatsapp: 'whatsapp',
 };
 
 function lerToken(): string | null {

@@ -68,9 +68,9 @@ export class PushService implements OnModuleInit, OnModuleDestroy {
       // Resposta: só se ninguém está olhando o app, e nunca para a Siri (ela já falou em voz alta).
       if (kind === 'reply' && (replyVia === 'siri' || this.app.anyVisible)) return;
       void this.notify({
-        title: kind === 'reminder' ? 'Lembrete' : kind === 'meeting' ? 'Reunião' : this.identidade.nome, // o nome que ele escolheu
+        title: kind === 'reminder' ? 'Lembrete' : kind === 'meeting' ? 'Reunião' : kind === 'whatsapp' ? 'WhatsApp' : this.identidade.nome, // o nome que ele escolheu
         body: message.text,
-        tag: kind === 'reminder' ? `lembrete-${message.id}` : kind === 'meeting' ? `reuniao-${message.id}` : 'conversa',
+        tag: kind === 'reminder' ? `lembrete-${message.id}` : kind === 'meeting' ? `reuniao-${message.id}` : kind === 'whatsapp' ? `whatsapp-${message.id}` : 'conversa',
         url: '/',
       });
     });

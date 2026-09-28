@@ -8,6 +8,7 @@ import { RobotFace } from './RobotFace';
 const KIND_TAG: Partial<Record<NonNullable<ChatMessage['kind']>, string>> = {
   reminder: 'lembrete',
   meeting: 'reunião',
+  whatsapp: 'whatsapp',
 };
 
 const STATUS_TEXT: Record<Proposal['status'], string> = {

@@ -1115,7 +1115,7 @@ export class BrainService {
 }
 
 /** Histórico do app → mensagens do LLM (propostas viram uma nota com o status). */
-function toLlmHistory(history: ChatMessage[], tz: string): ChatCompletionMessageParam[] {
+export function toLlmHistory(history: ChatMessage[], tz: string): ChatCompletionMessageParam[] {
   const fmt = new Intl.DateTimeFormat('pt-BR', {
     weekday: 'short',
     day: '2-digit',
@@ -1141,6 +1141,11 @@ function toLlmHistory(history: ChatMessage[], tz: string): ChatCompletionMessage
         : '[ele mandou uma foto, mas você não conseguiu ver — diga isso e peça para mandar de novo]';
       return { role: 'user', content: m.text ? `${m.text}
 ${foto}` : foto };
+    }
+    // Recado do WhatsApp que você repassou: a pessoa citada NÃO está nesta conversa. Sem essa marca,
+    // um "valeu" do dono logo depois virava "De nada, João Vitor". (Os antigos eram 'proactive'.)
+    if (m.kind === 'whatsapp' || (m.kind === 'proactive' && /^(💬|📌|⚠️)/u.test(m.text))) {
+      return { role: 'assistant', content: `[recado do WhatsApp que você repassou ao dono — quem é citado aqui não está nesta conversa] ${m.text}` };
     }
     const p = m.proposal;
     const note = p ? `\n(proposta "${p.title}" ${fmt.format(p.start)}: ${p.status})` : '';

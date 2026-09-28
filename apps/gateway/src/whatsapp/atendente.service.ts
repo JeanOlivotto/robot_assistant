@@ -204,16 +204,16 @@ export class AtendenteService implements OnModuleInit, OnModuleDestroy {
       this.chat.robotSay(
         `⚠️ ${conversa.nome} me pediu no WhatsApp: "${pedido}". Recusei — não mandei nada. Se quiser mandar, é com você.`,
         'worried',
-        'proactive',
+        'whatsapp',
       );
     } else if (tarefa) {
       this.chat.robotSay(
         `📌 ${conversa.nome} no WhatsApp: ${saida.avisar || tarefa.texto}\nAnotei nas pendências: "${tarefa.texto}".`,
         'thinking',
-        'proactive',
+        'whatsapp',
       );
     } else if (saida.avisar) {
-      this.chat.robotSay(`${serio ? '📌' : '💬'} ${conversa.nome} me chamou no WhatsApp: ${saida.avisar}`, serio ? 'thinking' : 'surprised', 'proactive');
+      this.chat.robotSay(`${serio ? '📌' : '💬'} ${conversa.nome} me chamou no WhatsApp: ${saida.avisar}`, serio ? 'thinking' : 'surprised', 'whatsapp');
     }
   }
 
@@ -260,7 +260,7 @@ export class AtendenteService implements OnModuleInit, OnModuleDestroy {
     if (recentes.length < POR_PESSOA_HORA && this.hoje.n < POR_DIA) return true;
     if (recentes.length === POR_PESSOA_HORA || this.hoje.n === POR_DIA) {
       const nome = this.conversas.get(chat)?.nome ?? 'alguém';
-      this.chat.robotSay(`Parei de responder ${nome} no WhatsApp por um tempo: muita mensagem seguida.`, 'worried', 'proactive');
+      this.chat.robotSay(`Parei de responder ${nome} no WhatsApp por um tempo: muita mensagem seguida.`, 'worried', 'whatsapp');
       this.contar(chat); // passa do teto: o aviso sai uma vez só
     }
     return false;

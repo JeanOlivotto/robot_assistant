@@ -35,7 +35,8 @@ export const Proposal = z.object({
   error: z.string().optional(),
 });
 
-export const MESSAGE_KINDS = ['reply', 'proactive', 'reminder', 'meeting'] as const;
+/** 'whatsapp': recado que o robô repassa ao dono sobre o WhatsApp (quem aparece nele NÃO está na conversa). */
+export const MESSAGE_KINDS = ['reply', 'proactive', 'reminder', 'meeting', 'whatsapp'] as const;
 
 /** Por onde a mensagem do dono chegou. */
 export const MESSAGE_VIA = ['text', 'voice', 'siri'] as const;
