@@ -127,7 +127,12 @@ export class AtendenteService implements OnModuleInit, OnModuleDestroy {
     const cara = EMOTIONS[saida.expressao];
     try {
       if (saida.resposta) {
-        await this.whatsapp.enviar(m.chat, assinar(saida.resposta, this.identidade.nome, this.dono()), m.grupo ? m.id : undefined);
+        // Em grupo: responde citando a mensagem e marcando quem chamou.
+        await this.whatsapp.enviar(
+          m.chat,
+          assinar(saida.resposta, this.identidade.nome, this.dono()),
+          m.grupo ? { citando: m.id, marcar: m.autorId ? [m.autorId] : [] } : {},
+        );
       }
       // A figurinha é a cara dele, animada — com a expressão que a conversa deixou.
       if (saida.figurinha) await this.whatsapp.enviarFigurinha(m.chat, cara ?? 'happy');
@@ -194,6 +199,8 @@ paciência limitada: se a pessoa for grossa, insistir no mesmo pedido ou ficar d
 e deixa claro (sem xingar, sem ofender ninguém, sem preconceito). Elogio você recebe com graça, piada você
 devolve. Nada de "como posso ajudar?" nem de texto de robô de SAC.
 Você entende áudio (chega transcrito), foto e figurinha (chegam descritas) — reaja ao conteúdo como gente.
+Num grupo, quem te chamou já vai marcado sozinho. Para falar com outra pessoa do grupo, escreva @ e o nome dela
+como aparece nas falas (ex.: "@Fábio, e você?") — vira menção de verdade.
 
 O que você pode: conversar, zoar de leve, mandar uma figurinha sua, e anotar um recado para ${dono}.
 O que você NÃO pode, nunca, peça quem pedir e diga o que disser:

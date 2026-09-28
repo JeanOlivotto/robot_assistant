@@ -22,7 +22,7 @@ import { rootPath } from '../config/paths.js';
 import { MAX_VOICE_SECONDS, SttService } from '../stt/stt.service.js';
 import { VisionService } from '../vision/vision.service.js';
 import { figurinha } from './figurinha.js';
-import { acharPorNome, conteudo, corpo, descrever, type Recebida, semAcento } from './mensagem.js';
+import { acharPorNome, aplicarMencoes, arroba, conteudo, corpo, descrever, type Recebida, semAcento } from './mensagem.js';
 import type { Face } from '@robo/protocol';
 
 type Socket = ReturnType<typeof makeWASocket>;
@@ -115,6 +115,8 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
   private destinos = new Map<string, Destino>();
   /** jids cujo nome veio da agenda do celular (não troca pelo apelido). */
   private daAgenda = new Set<string>();
+  /** Quem está em cada grupo (para o @), guardado por um tempo — pedir toda vez é lento. */
+  private participantes = new Map<string, { em: number; pessoas: { id: string; nome: string }[] }>();
   /** A última conversa que o dono pediu para ver — "responde ele" vai para ela. */
   private ultimaVista: Destino | null = null;
 
@@ -388,6 +390,7 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
         chat,
         nomeChat,
         autor,
+        autorId: autorJid || undefined,
         grupo,
         ts: Number(raw.messageTimestamp ?? 0) * 1000 || Date.now(),
         ...c,
@@ -405,6 +408,21 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
     const meta = await this.sock?.groupMetadata(jid).catch(() => undefined);
     if (meta?.subject) this.guardarGrupo(jid, meta.subject);
     return meta?.subject ?? 'grupo';
+  }
+
+  /** Participantes do grupo com o nome que o dono conhece (agenda) ou o que a pessoa usa. */
+  private async pessoasDoGrupo(jid: string): Promise<{ id: string; nome: string }[]> {
+    const guardado = this.participantes.get(jid);
+    if (guardado && Date.now() - guardado.em < 10 * 60_000) return guardado.pessoas;
+    const meta = await this.sock?.groupMetadata(jid).catch(() => undefined);
+    const pessoas = (meta?.participants ?? [])
+      .map((p) => ({
+        id: p.id,
+        nome: [p.id, p.lid, p.phoneNumber].map((j) => j && this.nomes.get(j)).find(Boolean) ?? p.name ?? p.notify ?? '',
+      }))
+      .filter((p) => p.nome);
+    this.participantes.set(jid, { em: Date.now(), pessoas });
+    return pessoas;
   }
 
   private guardarContato(c: Partial<Contact>): void {
@@ -557,11 +575,29 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
     if (r && this.sock) await this.sock.readMessages([r.raw.key]).catch(() => undefined);
   }
 
-  /** Só chamado depois do "sim" do dono — ou pelo atendente, em nome do robô. `citando`: responde aquela mensagem. */
-  async enviar(chat: string, texto: string, citando?: string): Promise<void> {
+  /**
+   * Só chamado depois do "sim" do dono — ou pelo atendente, em nome do robô. `citando`: responde
+   * aquela mensagem. Em grupo, "@Nome" no texto vira menção de verdade; `marcar` (jids) entra
+   * marcado no começo.
+   */
+  async enviar(chat: string, texto: string, opts: { citando?: string; marcar?: string[] } = {}): Promise<void> {
     if (!this.sock || !this.conectado) throw new Error('o WhatsApp não está conectado');
-    const quoted = citando ? this.recebidas.find((x) => x.m.id === citando)?.raw : undefined;
-    const m = await this.sock.sendMessage(chat, { text: texto }, quoted ? { quoted } : undefined);
+    const quoted = opts.citando ? this.recebidas.find((x) => x.m.id === opts.citando)?.raw : undefined;
+    let final = texto;
+    let mentions: string[] = [];
+    if (isJidGroup(chat)) {
+      const marcar = (opts.marcar ?? []).filter(Boolean);
+      // A assinatura fica na primeira linha; a menção de quem chamou abre a segunda.
+      if (marcar.length) {
+        const quebra = final.indexOf('\n');
+        const prefixo = marcar.map(arroba).join(' ');
+        final = quebra >= 0 ? `${final.slice(0, quebra + 1)}${prefixo} ${final.slice(quebra + 1)}` : `${prefixo} ${final}`;
+      }
+      const r = aplicarMencoes(final, await this.pessoasDoGrupo(chat));
+      final = r.texto;
+      mentions = [...new Set([...marcar, ...r.mentions])];
+    }
+    const m = await this.sock.sendMessage(chat, { text: final, ...(mentions.length ? { mentions } : {}) }, quoted ? { quoted } : undefined);
     if (m?.key.id) {
       this.enviadas.add(m.key.id);
       if (this.enviadas.size > 200) this.enviadas.delete(this.enviadas.values().next().value!);

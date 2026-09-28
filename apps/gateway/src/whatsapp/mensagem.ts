@@ -9,6 +9,8 @@ export interface Recebida {
   nomeChat: string;
   /** Quem escreveu (num grupo, a pessoa; fora dele, o mesmo que nomeChat). */
   autor: string;
+  /** jid de quem escreveu — num grupo, é por ele que dá para marcar a pessoa com @. */
+  autorId?: string;
   grupo: boolean;
   ts: number;
   tipo: 'texto' | 'audio' | 'foto' | 'video' | 'documento' | 'figurinha' | 'contato' | 'local' | 'outro';
@@ -112,6 +114,35 @@ export function chamou(texto: string, nomes: string[], opts: { soNoComeco?: bool
     .map(semAcento)
     .filter(Boolean)
     .some((n) => new RegExp(`^${saudacao}${n}\\b`).test(t) || (!opts.soNoComeco && new RegExp(`\\b${n}$`).test(t)));
+}
+
+/** O "@" que o WhatsApp entende: o número (ou o LID) do jid, sem domínio nem aparelho. */
+export const arroba = (jid: string) => `@${jid.split('@')[0]!.split(':')[0]}`;
+
+/**
+ * Troca "@Nome" (como a gente escreve) pela menção de verdade ("@5511…" + a lista `mentions`) —
+ * é assim que o WhatsApp pinta o nome de azul e avisa a pessoa. Aceita nome completo ou só o primeiro,
+ * sem acento; nome que não é de ninguém do grupo (ou é de mais de um) fica como texto.
+ */
+export function aplicarMencoes(texto: string, pessoas: { id: string; nome: string }[]): { texto: string; mentions: string[] } {
+  const mentions = new Set<string>();
+  const saida = texto.replace(/@([\p{L}\p{N}_.-]+(?: [\p{L}\p{N}_.-]+){0,2})/gu, (trecho, nomes: string) => {
+    const palavras = nomes.split(' ');
+    // O nome mais longo primeiro: "@Ana Paula" é a Ana Paula, não a Ana seguida de "Paula".
+    for (let k = palavras.length; k >= 1; k--) {
+      const alvo = semAcento(palavras.slice(0, k).join(' '));
+      const iguais = pessoas.filter((p) => semAcento(p.nome) === alvo);
+      const doPrimeiroNome = pessoas.filter((p) => semAcento(p.nome).split(' ')[0] === alvo);
+      const achou = iguais.length === 1 ? iguais[0] : iguais.length === 0 && doPrimeiroNome.length === 1 ? doPrimeiroNome[0] : undefined;
+      if (achou) {
+        mentions.add(achou.id);
+        const resto = palavras.slice(k).join(' ');
+        return `${arroba(achou.id)}${resto ? ` ${resto}` : ''}`;
+      }
+    }
+    return trecho;
+  });
+  return { texto: saida, mentions: [...mentions] };
 }
 
 const ROTULO: Record<Tipo, string> = {

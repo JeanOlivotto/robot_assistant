@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { acharPorNome, assinar, chamou, conteudo, descrever, type Recebida } from './mensagem.js';
+import { acharPorNome, aplicarMencoes, assinar, chamou, conteudo, descrever, type Recebida } from './mensagem.js';
 
 describe('conteudo', () => {
   it('lê texto simples e texto com link/resposta', () => {
@@ -87,6 +87,32 @@ describe('chamou', () => {
   it('nome citado no meio não é chamado', () => {
     expect(chamou('o Miro do Jean é engraçado kkk', ['Miro'])).toBe(false);
     expect(chamou('Mirosmar chegou', ['Miro'])).toBe(false);
+  });
+});
+
+describe('aplicarMencoes', () => {
+  const grupo = [
+    { id: '5511999990001@s.whatsapp.net', nome: 'Fábio Souza' },
+    { id: '1234567890@lid', nome: 'Ana' },
+    { id: '5511999990003@s.whatsapp.net', nome: 'Ana Paula' },
+  ];
+
+  it('troca pelo número e põe na lista de menções', () => {
+    expect(aplicarMencoes('@Fabio vem ver isso', grupo)).toEqual({
+      texto: '@5511999990001 vem ver isso',
+      mentions: ['5511999990001@s.whatsapp.net'],
+    });
+  });
+
+  it('nome completo ganha do primeiro nome; LID também vale', () => {
+    expect(aplicarMencoes('@Ana Paula e @Ana, bora', grupo)).toEqual({
+      texto: '@5511999990003 e @1234567890, bora',
+      mentions: ['5511999990003@s.whatsapp.net', '1234567890@lid'],
+    });
+  });
+
+  it('nome que não é de ninguém fica como texto', () => {
+    expect(aplicarMencoes('fala @Zé', grupo)).toEqual({ texto: 'fala @Zé', mentions: [] });
   });
 });
 
