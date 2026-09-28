@@ -13,9 +13,8 @@ export const EMOTIONS: Record<string, Face> = {
   preocupado: 'worried',
   entediado: 'bored',
   bravo: 'angry',
-  irritado: 'angry',
-  /* Sem cara própria no firmware ainda: confusão é a de quem está tentando entender. */
-  confuso: 'thinking',
+  irritado: 'annoyed',
+  confuso: 'confused',
 };
 
 export interface PromptContext {

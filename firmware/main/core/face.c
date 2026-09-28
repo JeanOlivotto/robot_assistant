@@ -22,9 +22,11 @@ _Static_assert((int)FACE_THINKING == (int)ROBO_FACE_THINKING && (int)FACE_BORED 
 #define C_ANGRY GFX_RGB(255, 140, 60)  /* bravo: laranja quente */
 #define C_HACK  GFX_RGB(255, 40, 40)   /* modo hacker: tudo vermelho */
 #define C_EVIL  GFX_RGB(190, 90, 255)  /* malvado: roxo (no modo hacker vira vermelho) */
+#define C_ANNOY GFX_RGB(255, 200, 60)  /* irritado: âmbar — menos que o laranja do bravo */
+#define C_STEAM GFX_RGB(200, 200, 200)
 
 typedef enum { EYES_OPEN, EYES_CLOSED, EYES_X, EYES_HEART } eyes_t;
-typedef enum { MOUTH_NONE, MOUTH_SMILE, MOUTH_GRIN, MOUTH_FROWN, MOUTH_O, MOUTH_FLAT } mouth_t;
+typedef enum { MOUTH_NONE, MOUTH_SMILE, MOUTH_GRIN, MOUTH_FROWN, MOUTH_O, MOUTH_FLAT, MOUTH_TILT } mouth_t;
 
 /* Parâmetros numéricos — estes são interpolados entre expressões. */
 enum { P_EYE_W, P_EYE_H, P_EYE_R, P_LID_TOP, P_LID_BOT, P_SLANT, P_EYE_DY, P_MOUTH_W, P_MOUTH_H, P__COUNT };
@@ -36,6 +38,9 @@ typedef struct {
     int8_t p[P__COUNT];
     uint16_t color;
     bool blinks, blush, sweat, zzz, hearts, dots;
+    bool question; /* "?" piscando em cima (confuso) */
+    bool steam;    /* fumacinha saindo da cabeça (irritado) */
+    int8_t squint; /* o olho da direita fica menor (em % a menos da altura): um olho desencontrado do outro */
     bool fixed_gaze; /* olhar parado em (gaze_x, gaze_y) em vez de vaguear */
     int8_t gaze_x, gaze_y;
 } face_def_t;
@@ -61,6 +66,12 @@ static const face_def_t s_defs[FACE__COUNT] = {
     [FACE_ANGRY]     = {"bravo",      EYES_OPEN,   MOUTH_FROWN, {24, 22, 6, 0, 0, -13, 1, 14, 5}, C_ANGRY, .blinks = true},
     /* malvado: mesma sobrancelha fechada do bravo, mas sorrindo — e olho mais fechado por cima. */
     [FACE_EVIL]      = {"malvado",    EYES_OPEN,   MOUTH_GRIN,  {24, 20, 5, 6, 0, -14, 1, 15, 6}, C_EVIL,  .blinks = true},
+    /* confuso: um olho arregalado e o outro apertado, boca torta e um "?" em cima. */
+    [FACE_CONFUSED]  = {"confuso",    EYES_OPEN,   MOUTH_TILT,  {24, 30, 8, 0, 0, 0, 0, 12, 4},   C_EYE,  .blinks = true,
+                        .question = true, .squint = 45, .fixed_gaze = true, .gaze_x = 4, .gaze_y = -3},
+    /* irritado: olho meio fechado de lado (o "olhar torto"), sobrancelha pouco fechada, boca reta, fumacinha. */
+    [FACE_ANNOYED]   = {"irritado",   EYES_OPEN,   MOUTH_FLAT,  {24, 28, 7, 11, 0, -6, 1, 13, 3}, C_ANNOY, .blinks = true,
+                        .steam = true, .fixed_gaze = true, .gaze_x = 7, .gaze_y = 1},
 };
 
 /* Modo hacker: a cor da expressão dá lugar ao vermelho, e só ela muda — o desenho é o mesmo. */
@@ -217,10 +228,11 @@ static void update(uint32_t now)
     s_gy += (s_tgy - s_gy) / 3;
 }
 
-static void draw_open_eye(int ex, int ey, int side, uint16_t color)
+static void draw_open_eye(int ex, int ey, int side, int squint, uint16_t color)
 {
     const int w = P(P_EYE_W), h = P(P_EYE_H) > 1 ? P(P_EYE_H) : 1;
     int hh = h * s_open / 256;
+    if (side > 0 && squint > 0) hh = hh * (100 - squint) / 100;
     if (hh < 3) hh = 3;
     const int top = ey - hh / 2;
     gfx_fill_round_rect(ex - w / 2, top, w, hh, P(P_EYE_R), color);
@@ -267,6 +279,9 @@ static void draw_mouth(int mx, int my, const face_def_t *d)
     case MOUTH_FLAT:
         gfx_fill_round_rect(mx - w / 2, my - h / 2, w, h, h / 2, ink(d));
         break;
+    case MOUTH_TILT: /* reta torta, puxada para um lado: "hã?" */
+        gfx_thick_line(mx - w / 2 + 2, my + h / 2, mx + w / 2 + 2, my - h / 2, 3, ink(d));
+        break;
     case MOUTH_NONE:
         break;
     }
@@ -293,6 +308,21 @@ static void draw_extras(int cx, int cy, uint32_t now, const face_def_t *d)
         for (int i = 0; i < 3; i++) {
             const bool up = ((now / 220) % 4) == (uint32_t)i;
             gfx_fill_circle(cx + 28 + i * 8, cy - 36 - (up ? 2 : 0), up ? 3 : 2, ink(d));
+        }
+    }
+    if (d->question) { /* "?" do lado da cabeça, acendendo e apagando */
+        const uint32_t ph = now % 1800;
+        const uint8_t fade = ph < 1200 ? 0 : (uint8_t)((ph - 1200) * 255 / 600);
+        gfx_text(cx + 36, cy - 44 - (int)((now / 300) % 2), "?", gfx_mix(ink(d), C_BG, fade), 2);
+    }
+    if (d->steam) { /* duas nuvenzinhas subindo dos cantos de cima, alternadas */
+        for (int i = 0; i < 2; i++) {
+            const uint32_t ph = (now + i * 700) % 1400;
+            const int side = i ? 1 : -1;
+            const int x = cx + side * (EYE_GAP / 2 + 18) + side * (int)(ph / 200);
+            const int y = cy - 28 - (int)(ph / 70);
+            const uint16_t c = gfx_mix(C_STEAM, C_BG, (uint8_t)(ph * 255 / 1400));
+            gfx_fill_circle(x, y, 3 + (int)(ph / 500), c);
         }
     }
     if (d->sweat) {
@@ -323,7 +353,7 @@ void face_draw(int cx, int cy, uint32_t now_ms)
         const int ex = cx + side * EYE_GAP / 2 + gx;
         switch (d->eyes) {
         case EYES_OPEN:
-            draw_open_eye(ex, ey, side, ink(d));
+            draw_open_eye(ex, ey, side, d->squint, ink(d));
             break;
         case EYES_CLOSED:
             gfx_arc_band(ex, ey - 3, P(P_EYE_W) / 2, 7, 3, true, ink(d));

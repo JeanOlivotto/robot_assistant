@@ -511,6 +511,21 @@ button {
 .face-dot {
   animation: dot 1.2s infinite ease-in-out;
 }
+.face-question {
+  animation: question 1.8s infinite linear;
+}
+.face-steam {
+  animation: steam 1.4s infinite ease-out;
+  opacity: 0;
+}
+@keyframes question {
+  0%, 66% { opacity: 1; }
+  100% { opacity: 0; }
+}
+@keyframes steam {
+  0% { transform: translate(0, 0) scale(0.8); opacity: 0.9; }
+  100% { transform: translate(0, -18px) scale(1.5); opacity: 0; }
+}
 
 @keyframes blink {
   0%, 94%, 100% { transform: scaleY(1); }

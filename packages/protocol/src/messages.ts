@@ -34,6 +34,9 @@ export const FACES = [
   'jamming',
   'angry',
   'evil',
+  /* fw 0.17.0+: firmware mais velho ignora — o gateway manda thinking/angry no lugar. */
+  'confused',
+  'annoyed',
 ] as const;
 export type Face = (typeof FACES)[number];
 

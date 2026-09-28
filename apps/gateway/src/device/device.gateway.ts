@@ -11,6 +11,7 @@ import { CalendarService } from '../calendar/calendar.service.js';
 import { ChatService, type ChatState } from '../chat/chat.service.js';
 import { APP_CONFIG, type AppConfig } from '../config/app-config.js';
 import { FirmwareService } from '../firmware/firmware.service.js';
+import { caraPara } from './face-compat.js';
 import { PresenceService } from '../presence/presence.service.js';
 import { RobotStateService } from '../robot/robot-state.service.js';
 import { SpotifyService, type MusicState } from '../spotify/spotify.service.js';
@@ -270,7 +271,11 @@ export class DeviceGateway implements OnModuleInit, OnModuleDestroy {
   }
 
   private broadcast(msg: ServerMessage): void {
-    for (const s of this.sessions) if (s.hello) this.send(s, msg);
+    for (const s of this.sessions) {
+      if (!s.hello) continue;
+      // Cara nova num firmware que ainda não tem: vai a mais parecida (ele ignoraria o nome).
+      this.send(s, msg.t === 'react' ? { ...msg, v: caraPara(msg.v, s.hello.fw) } : msg);
+    }
   }
 
   private send(s: Session, msg: ServerMessage): void {

@@ -146,12 +146,14 @@ typedef enum {
     ROBO_FACE_JAMMING,
     ROBO_FACE_ANGRY,
     ROBO_FACE_EVIL,
+    ROBO_FACE_CONFUSED,
+    ROBO_FACE_ANNOYED,
     ROBO_FACE__COUNT
 } robo_face_t;
 
 static inline const char *robo_face_name(robo_face_t v)
 {
-    static const char *const names[] = { "neutral", "happy", "love", "sleepy", "sleeping", "worried", "surprised", "sad", "error", "thinking", "bored", "jamming", "angry", "evil" };
+    static const char *const names[] = { "neutral", "happy", "love", "sleepy", "sleeping", "worried", "surprised", "sad", "error", "thinking", "bored", "jamming", "angry", "evil", "confused", "annoyed" };
     return (unsigned)v < ROBO_FACE__COUNT ? names[v] : "?";
 }
 

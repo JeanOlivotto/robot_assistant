@@ -1,7 +1,7 @@
 import type { Face } from '@robo/protocol';
 
 type Eyes = 'open' | 'closed' | 'x' | 'heart';
-type Mouth = 'none' | 'smile' | 'grin' | 'frown' | 'o' | 'flat';
+type Mouth = 'none' | 'smile' | 'grin' | 'frown' | 'o' | 'flat' | 'tilt';
 
 interface Def {
   eyes: Eyes;
@@ -22,6 +22,12 @@ interface Def {
   zzz?: boolean;
   hearts?: boolean;
   dots?: boolean;
+  /** "?" em cima (confuso). */
+  question?: boolean;
+  /** Fumacinha saindo da cabeça (irritado). */
+  steam?: boolean;
+  /** O olho da direita fica menor, em % da altura: olhos desencontrados. */
+  squint?: number;
 }
 
 const EYE = '#5ae6f0';
@@ -29,6 +35,7 @@ const LOVE = '#ff5a8c';
 const ERR = '#ff5050';
 const ANGRY = '#ff8c3c';
 const EVIL = '#be5aff';
+const ANNOY = '#ffc83c';
 const SCREEN = '#000';
 
 /* Mesmos números de firmware/main/core/face.c — manter os dois em sincronia. */
@@ -47,6 +54,8 @@ const FACE_DEFS: Record<Face, Def> = {
   jamming: { eyes: 'open', mouth: 'grin', w: 24, h: 28, r: 8, lidTop: 0, lidBot: 17, slant: 0, dy: 0, mw: 16, mh: 8, color: EYE, blush: true },
   angry: { eyes: 'open', mouth: 'frown', w: 24, h: 22, r: 6, lidTop: 0, lidBot: 0, slant: -13, dy: 1, mw: 14, mh: 5, color: ANGRY },
   evil: { eyes: 'open', mouth: 'grin', w: 24, h: 20, r: 5, lidTop: 6, lidBot: 0, slant: -14, dy: 1, mw: 15, mh: 6, color: EVIL },
+  confused: { eyes: 'open', mouth: 'tilt', w: 24, h: 30, r: 8, lidTop: 0, lidBot: 0, slant: 0, dy: 0, mw: 12, mh: 4, color: EYE, gaze: [4, -3], question: true, squint: 45 },
+  annoyed: { eyes: 'open', mouth: 'flat', w: 24, h: 28, r: 7, lidTop: 11, lidBot: 0, slant: -6, dy: 1, mw: 13, mh: 3, color: ANNOY, gaze: [7, 1], steam: true },
 };
 
 const EYE_GAP = 48;
@@ -80,18 +89,19 @@ function Eye({ side, ex, ey, d, color }: { side: -1 | 1; ex: number; ey: number;
   }
   if (d.eyes === 'heart') return <Heart cx={ex} cy={ey} size={d.w} fill={color} />;
 
-  const { w, h } = d;
+  const { w } = d;
+  const h = side > 0 && d.squint ? (d.h * (100 - d.squint)) / 100 : d.h;
   const top = ey - h / 2;
   const outer = ex + side * (w / 2 + 1);
   const inner = ex - side * (w / 2 + 1);
   return (
     <g>
       <rect x={ex - w / 2} y={top} width={w} height={h} rx={Math.min(d.r, h / 2)} fill={color} />
-      {d.lidTop > 0 && <rect x={ex - w / 2 - 1} y={top - 1} width={w + 2} height={d.lidTop + 1} fill={SCREEN} />}
-      {d.lidBot > 0 && <ellipse cx={ex} cy={top + h - d.lidBot + w / 2} rx={w / 2 + 2} ry={w / 2} fill={SCREEN} />}
+      {d.lidTop > 0 && <rect x={ex - w / 2 - 1} y={top - 1} width={w + 2} height={(d.lidTop * h) / d.h + 1} fill={SCREEN} />}
+      {d.lidBot > 0 && <ellipse cx={ex} cy={top + h - (d.lidBot * h) / d.h + w / 2} rx={w / 2 + 2} ry={w / 2} fill={SCREEN} />}
       {/* slant > 0 derruba o canto de fora (triste); < 0 fecha o de dentro (bravo) */}
-      {d.slant > 0 && <polygon points={`${outer},${top - 1} ${outer},${top + d.slant} ${inner},${top - 1}`} fill={SCREEN} />}
-      {d.slant < 0 && <polygon points={`${inner},${top - 1} ${inner},${top - d.slant} ${outer},${top - 1}`} fill={SCREEN} />}
+      {d.slant > 0 && <polygon points={`${outer},${top - 1} ${outer},${top + (d.slant * h) / d.h} ${inner},${top - 1}`} fill={SCREEN} />}
+      {d.slant < 0 && <polygon points={`${inner},${top - 1} ${inner},${top - (d.slant * h) / d.h} ${outer},${top - 1}`} fill={SCREEN} />}
     </g>
   );
 }
@@ -110,6 +120,8 @@ function MouthShape({ mx, my, d, color }: { mx: number; my: number; d: Def; colo
       return <ellipse cx={mx} cy={my} rx={Math.max(rx - 1, 1.5)} ry={Math.max(h / 2 - 1, 1.5)} stroke={color} strokeWidth={2.5} fill="none" />;
     case 'flat':
       return <rect x={mx - rx} y={my - h / 2} width={d.mw} height={h} rx={h / 2} fill={color} />;
+    case 'tilt':
+      return <line x1={mx - rx + 2} y1={my + h / 2} x2={mx + rx + 2} y2={my - h / 2} stroke={color} strokeWidth={3} strokeLinecap="round" />;
     default:
       return null;
   }
@@ -163,6 +175,18 @@ export function RobotFace({ face, size = 128, className = '' }: { face: Face | n
         <g className="face-sweat" fill="#6ebeff">
           <circle cx={105} cy={43} r={3} />
           <polygon points="102,42 108,42 105,36" />
+        </g>
+      )}
+      {d.question && face && (
+        <text x={100} y={30} fontSize={16} fontWeight={700} fontFamily="ui-monospace, monospace" fill={color} className="face-question">
+          ?
+        </text>
+      )}
+      {d.steam && face && (
+        <g fill="#c8c8c8">
+          {[-1, 1].map((side, i) => (
+            <circle key={side} cx={64 + side * 42} cy={30} r={3.5} className="face-steam" style={{ animationDelay: `${i * 0.7}s` }} />
+          ))}
         </g>
       )}
       {d.dots && face && (
