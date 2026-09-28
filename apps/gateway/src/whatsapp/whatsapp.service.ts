@@ -28,6 +28,8 @@ export type EstadoWhatsapp = 'desligado' | 'aguardando_qr' | 'conectando' | 'con
 /** Só as últimas, e só por um tempo: é para "chegou uma mensagem agora, vê pra mim", não um arquivo. */
 const MAX_RECEBIDAS = 60;
 const GUARDA_MS = 12 * 3600_000;
+/** Contatos da agenda chegam do celular numa sincronização à parte; sem eles, tenta de novo nestes tempos. */
+const RESYNC_MS = [5_000, 30_000, 120_000];
 /** "Acabei de receber uma mensagem": a pessoa manda em pedaços, então vêm juntas as desse intervalo. */
 const RAJADA_MS = 10 * 60_000;
 const MAX_RAJADA = 8;
@@ -78,6 +80,8 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
   private readonly log = new Logger(WhatsappService.name);
   private readonly authDir: string;
   private readonly file: string;
+  private readonly contatosFile: string;
+  private salvarContatos: NodeJS.Timeout | null = null;
   private c: Combinado = { ativo: false, privadoAte: 0 };
 
   private sock: Socket | null = null;
@@ -95,6 +99,8 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
   private nomes = new Map<string, string>();
   /** Para onde dá para mandar, pelo jid que o WhatsApp aceita. */
   private destinos = new Map<string, Destino>();
+  /** jids cujo nome veio da agenda do celular (não troca pelo apelido). */
+  private daAgenda = new Set<string>();
   /** A última conversa que o dono pediu para ver — "responde ele" vai para ela. */
   private ultimaVista: Destino | null = null;
 
@@ -104,10 +110,25 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
   ) {
     this.authDir = rootPath(`${cfg.DATA_DIR}/whatsapp-auth`);
     this.file = rootPath(`${cfg.DATA_DIR}/whatsapp.json`);
+    this.contatosFile = rootPath(`${cfg.DATA_DIR}/whatsapp-contatos.json`);
     try {
       this.c = { ...this.c, ...(JSON.parse(readFileSync(this.file, 'utf8')) as Partial<Combinado>) };
     } catch {
       /* nunca conectou */
+    }
+    // Só nomes (da agenda do celular e dos grupos) — nenhuma mensagem. Numa reconexão o WhatsApp
+    // não manda a agenda de novo, então sem isto os nomes sumiam a cada deploy.
+    try {
+      const salvo = JSON.parse(readFileSync(this.contatosFile, 'utf8')) as {
+        nomes?: [string, string][];
+        destinos?: Destino[];
+        agenda?: string[];
+      };
+      this.nomes = new Map(salvo.nomes ?? []);
+      this.daAgenda = new Set(salvo.agenda ?? []);
+      this.destinos = new Map((salvo.destinos ?? []).map((d) => [d.id, d]));
+    } catch {
+      /* ainda sem contatos */
     }
   }
 
@@ -119,6 +140,7 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
   onModuleDestroy(): void {
     this.encerrando = true;
     if (this.religar) clearTimeout(this.religar);
+    if (this.salvarContatos) this.gravarContatos();
     this.sock?.end(undefined);
   }
 
@@ -163,6 +185,7 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
       privado: this.privado(),
       privadoAte: this.privado() ? this.c.privadoAte : 0,
       guardadas: this.recebidas.length,
+      contatos: this.contatosDaAgenda(),
     };
   }
 
@@ -199,6 +222,7 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
       for (const raw of messages) void this.aoReceber(raw);
     });
     sock.ev.on('contacts.upsert', (cs) => cs.forEach((c) => this.guardarContato(c)));
+    sock.ev.on('messaging-history.set', ({ contacts }) => contacts.forEach((c) => this.guardarContato(c)));
     sock.ev.on('contacts.update', (cs) => cs.forEach((c) => this.guardarContato(c)));
     sock.ev.on('groups.upsert', (gs) => gs.forEach((g) => g.id && g.subject && this.guardarGrupo(g.id, g.subject)));
     sock.ev.on('groups.update', (gs) => gs.forEach((g) => g.id && g.subject && this.guardarGrupo(g.id, g.subject)));
@@ -232,6 +256,7 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
         .groupFetchAllParticipating()
         .then((gs) => Object.values(gs).forEach((g) => this.guardarGrupo(g.id, g.subject)))
         .catch(() => undefined);
+      void this.buscarAgenda(sock);
     }
     if (u.connection === 'close') {
       const codigo = (u.lastDisconnect?.error as { output?: { statusCode?: number } } | undefined)?.output?.statusCode;
@@ -263,8 +288,35 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
+  /**
+   * Os nomes da agenda do celular ("Jaque - TaxResearch") vêm na sincronização de app state, que o
+   * Baileys só faz junto com o histórico — e o histórico fica desligado aqui (não precisamos dele).
+   * Então, sem nenhum contato ainda, pede a coleção dos contatos do zero. Logo depois de parear, a
+   * chave dessa sincronização pode ainda não ter chegado do celular: por isso as novas tentativas.
+   */
+  private async buscarAgenda(sock: Socket, tentativa = 0): Promise<void> {
+    if (sock !== this.sock || this.contatosDaAgenda() > 0) return;
+    try {
+      await sock.authState.keys.set({ 'app-state-sync-version': { critical_unblock_low: null } });
+      await sock.resyncAppState(['critical_unblock_low'], true);
+      this.log.log(`WhatsApp: agenda sincronizada (${this.contatosDaAgenda()} contatos)`);
+    } catch (err) {
+      this.log.warn(`WhatsApp: não deu para puxar a agenda (tentativa ${tentativa + 1}): ${(err as Error).message}`);
+    }
+    const espera = RESYNC_MS[tentativa];
+    if (this.contatosDaAgenda() === 0 && espera) setTimeout(() => void this.buscarAgenda(sock, tentativa + 1), espera);
+  }
+
+  private contatosDaAgenda(): number {
+    return this.daAgenda.size;
+  }
+
   private limparSessao(): void {
     rmSync(this.authDir, { recursive: true, force: true });
+    rmSync(this.contatosFile, { force: true });
+    this.nomes.clear();
+    this.destinos.clear();
+    this.daAgenda.clear();
     this.recebidas = [];
     this.ultimaVista = null;
     this.numero = null;
@@ -323,6 +375,9 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
   private guardarContato(c: Partial<Contact>): void {
     const nome = c.name || c.notify || c.verifiedName;
     if (!c.id || !nome) return;
+    // O nome da agenda do celular ganha do apelido que a pessoa usa (que chega a cada mensagem).
+    if (!c.name && [c.id, c.lid, c.phoneNumber].some((j) => j && this.daAgenda.has(j))) return;
+    if (c.name) for (const j of [c.id, c.lid, c.phoneNumber]) if (j) this.daAgenda.add(j);
     for (const j of [c.id, c.lid, c.phoneNumber]) if (j) this.nomes.set(j, nome);
     // Manda pelo número de telefone quando dá: é a forma que o WhatsApp sempre aceita.
     const destino = [c.phoneNumber, c.id].find((j) => isPnUser(j)) ?? c.id;
@@ -335,7 +390,24 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
   }
 
   private guardarDestino(id: string, nome: string, grupo: boolean): void {
+    const antes = this.destinos.get(id);
+    if (antes?.nome === nome && antes.grupo === grupo) return;
     this.destinos.set(id, { id, nome, grupo });
+    // A agenda chega em rajada (centenas de contatos de uma vez): grava uma vez só no fim.
+    if (!this.salvarContatos) this.salvarContatos = setTimeout(() => this.gravarContatos(), 2_000);
+  }
+
+  private gravarContatos(): void {
+    if (this.salvarContatos) clearTimeout(this.salvarContatos);
+    this.salvarContatos = null;
+    try {
+      mkdirSync(dirname(this.contatosFile), { recursive: true });
+      const tmp = `${this.contatosFile}.tmp`;
+      writeFileSync(tmp, JSON.stringify({ nomes: [...this.nomes], destinos: [...this.destinos.values()], agenda: [...this.daAgenda] }));
+      renameSync(tmp, this.contatosFile);
+    } catch (err) {
+      this.log.error(`Falha ao salvar os contatos do WhatsApp: ${(err as Error).message}`);
+    }
   }
 
   /* ───────────── o que o cérebro usa ───────────── */

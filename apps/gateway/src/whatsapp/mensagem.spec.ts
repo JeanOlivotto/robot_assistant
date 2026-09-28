@@ -54,6 +54,12 @@ describe('acharPorNome', () => {
     expect(acharPorNome([{ id: '1', nome: 'Fábio' }, { id: '1', nome: 'Fábio' }], 'fabio').achou?.id).toBe('1');
   });
 
+  it('acha pelo apelido quando o dono fala o nome completo da agenda', () => {
+    expect(acharPorNome([{ id: '9', nome: 'Jaque' }], 'Jaque - TaxResearch').achou?.id).toBe('9');
+    expect(acharPorNome([{ id: '9', nome: 'Jaque - TaxResearch' }], 'jaque taxresearch').achou?.id).toBe('9');
+    expect(acharPorNome([{ id: '9', nome: 'Jaque - TaxResearch' }], 'Jaque').achou?.id).toBe('9');
+  });
+
   it('não acha pedaço de palavra', () => {
     expect(acharPorNome(lista, 'fab').achou).toBeUndefined();
   });

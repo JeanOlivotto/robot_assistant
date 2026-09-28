@@ -44,7 +44,7 @@ export function Whatsapp({ token }: { token: string }) {
       ) : s.estado === 'conectado' ? (
         <>
           <p className="hint pc__hint">
-            Conectado{s.numero ? ` (+${s.numero})` : ''}. Ele só lê quando você pede ("Miro, chegou uma mensagem, vê pra mim") e só manda com o seu
+            Conectado{s.numero ? ` (+${s.numero})` : ''}, {s.contatos ? `${s.contatos} contatos da agenda` : 'puxando os contatos da agenda…'}. Ele só lê quando você pede ("Miro, chegou uma mensagem, vê pra mim") e só manda com o seu
             "sim". Nada fica marcado como lido e o celular continua notificando.
           </p>
           <p className="hint pc__hint">

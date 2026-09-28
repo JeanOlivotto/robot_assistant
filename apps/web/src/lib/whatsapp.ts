@@ -12,6 +12,8 @@ export interface StatusWhatsapp {
   privadoAte: number;
   /** Quantas mensagens recentes ele tem guardadas na memória (para quando você pedir). */
   guardadas: number;
+  /** Quantos contatos da agenda do celular ele conhece (é por eles que acha "manda pra Jaque"). */
+  contatos: number;
 }
 
 async function api(token: string, path: string, init: RequestInit = {}): Promise<StatusWhatsapp> {

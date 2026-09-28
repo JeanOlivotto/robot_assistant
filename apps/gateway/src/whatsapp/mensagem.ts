@@ -75,10 +75,13 @@ export function acharPorNome<T extends { id: string; nome: string }>(lista: T[],
   if (!alvo) return { parecidos: [] };
   // A mesma conversa pode vir de mais de um lugar (agenda do celular, grupo, mensagem recente).
   const todos = [...new Map(lista.filter((x) => semAcento(x.nome)).map((x) => [x.id, x])).values()];
+  const palavrasAlvo = new Set(alvo.split(' '));
   const niveis = [
     (n: string) => n === alvo,
     (n: string) => n.split(' ')[0] === alvo || n.startsWith(`${alvo} `),
     (n: string) => new RegExp(`\\b${alvo.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`).test(n),
+    // O dono disse mais do que o nome guardado: "Jaque - TaxResearch" (agenda) e só "Jaque" (apelido).
+    (n: string) => n.split(' ').every((p) => palavrasAlvo.has(p)),
   ];
   for (const nivel of niveis) {
     const ok = todos.filter((x) => nivel(semAcento(x.nome)));
