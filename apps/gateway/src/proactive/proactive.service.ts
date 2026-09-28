@@ -9,15 +9,21 @@ import { APP_CONFIG, type AppConfig } from '../config/app-config.js';
 import { rootPath } from '../config/paths.js';
 import { RobotStateService } from '../robot/robot-state.service.js';
 import { TaskService } from '../tasks/task.service.js';
+import { SilencioService } from './silencio.service.js';
 
 const TICK_MS = 60_000;
 const HOUR = 3600_000;
 
 /* Os limites que o robô NÃO decide: ele julga se vale falar, dentro desta cerca. */
-const AWAKE_WINDOW = { from: 7, to: 22 }; // horas locais — fora disso, nem pergunta
-/* Sem teto por dia: quantas vezes ele fala é decisão dele. O intervalo só evita rajada. */
-const SPEAK_GAP_MS = 20 * 60_000; // intervalo mínimo entre duas falas espontâneas
-const JUDGE_GAP_MS = 20 * 60_000; // de quanto em quanto tempo ele para e pensa se vale falar
+const AWAKE_WINDOW = { from: 8, to: 21 }; // horas locais — fora disso, nem pergunta
+/*
+ * Teto por dia. Sem ele, "quantas vezes falar" ficava com o modelo, que quase sempre achava que
+ * valia: foram 30 mensagens num sábado, uma a cada 21 min, girando as mesmas pendências — e o
+ * juízo a cada 20 min sozinho gastava a cota diária do LLM, deixando a ligação lenta.
+ */
+const MAX_POR_DIA = 4;
+const SPEAK_GAP_MS = 2 * HOUR; // intervalo mínimo entre duas falas espontâneas
+const JUDGE_GAP_MS = 45 * 60_000; // de quanto em quanto tempo ele para e pensa se vale falar
 const QUIET_AFTER_USER_MS = 5 * 60_000;
 const THOUGHT_WINDOW = { from: 9, to: 21 };
 const THOUGHT_GAP_MIN = { min: 35, span: 40 }; // um pensamento a cada 35–75 min
@@ -55,6 +61,7 @@ export class ProactiveService implements OnModuleInit, OnModuleDestroy {
     private readonly alerts: AlertService,
     private readonly robot: RobotStateService,
     private readonly tasks: TaskService,
+    private readonly silencio: SilencioService,
   ) {
     this.file = rootPath(`${cfg.DATA_DIR}/proactive.json`);
     this.clock = new Intl.DateTimeFormat('en-CA', {
@@ -131,8 +138,12 @@ export class ProactiveService implements OnModuleInit, OnModuleDestroy {
     const hour = Math.floor(minutes / 60);
     const now = Date.now();
     if (hour < AWAKE_WINDOW.from || hour >= AWAKE_WINDOW.to) return; // de madrugada, nem pergunta
+    if (this.silencio.motivo()) return; // o dono pediu silêncio (folga, ou pausa até um dia)
+    if (this.mem.spokenCount >= MAX_POR_DIA) return;
     if (now - this.mem.lastSpokenAt < SPEAK_GAP_MS) return;
     if (now - this.mem.lastJudgeAt < JUDGE_GAP_MS) return;
+    // Falou hoje e ficou sem resposta: não insiste. Amanhã é outro dia (e outro bom-dia).
+    if (this.sameDay(this.mem.lastSpokenAt, now) && this.chat.lastUserAt() < this.mem.lastSpokenAt) return;
 
     this.mem.lastJudgeAt = now;
     this.busy = true;
@@ -143,13 +154,12 @@ export class ProactiveService implements OnModuleInit, OnModuleDestroy {
       const pendentes = this.tasks.worthNudging(20).slice(0, 5);
       // A conversa do dia inteiro, não só as últimas: ele perguntava "como foi a ligação?" de
       // algo que o dono tinha contado de manhã, 10 mensagens antes.
-      const today = this.chat.history(60).filter((m) => this.sameDay(m.ts, now));
+      const today = this.chat.history(20).filter((m) => this.sameDay(m.ts, now));
       const call = await this.brain.judge(today.length ? today : this.chat.history(6), {
         idleHours: (now - this.chat.lastActivityAt()) / HOUR,
         lastSpontaneous: this.mem.lastSpokenText,
         spokenToday: this.mem.spokenCount,
         talkedToday: lastUser > 0 && this.sameDay(lastUser, now),
-        // Não espera resposta para voltar a falar: só avisa o juízo, para ele não insistir no mesmo assunto.
         unanswered: this.chat.state.waitingSince !== 0,
         pending: pendentes.map((t) => ({
           texto: t.texto,

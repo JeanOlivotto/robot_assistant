@@ -26,6 +26,14 @@ export class MemoryController {
     };
   }
 
+  /** Apaga as lembranças de um assunto (o mesmo que a ferramenta esquecer_assunto faz na conversa). */
+  @Post('forget')
+  @HttpCode(200)
+  forget(@Body() body: unknown) {
+    const { assunto } = z.object({ assunto: z.string().min(1) }).parse(body ?? {});
+    return { forgotten: this.memory.esquecer(assunto) };
+  }
+
   /** Recomeço do zero — usado quando a personalidade muda e o passado só puxaria o tom antigo. */
   @Post('reset')
   @HttpCode(200)

@@ -10,6 +10,7 @@ import { CalendarService } from '../calendar/calendar.service.js';
 import { APP_CONFIG, type AppConfig } from '../config/app-config.js';
 import { LlmService } from '../llm/llm.service.js';
 import { MemoryService } from '../memory/memory.service.js';
+import { SilencioService } from '../proactive/silencio.service.js';
 import { TaskService } from '../tasks/task.service.js';
 import { IdentidadeService } from '../identidade/identidade.service.js';
 import { BancoVozesService } from '../vozes/banco.service.js';
@@ -228,6 +229,43 @@ const TOOLS: ChatCompletionTool[] = [
   {
     type: 'function',
     function: {
+      name: 'silenciar_mensagens',
+      description:
+        'Muda QUANDO você manda mensagem por conta própria (bom-dia, cobrança, comentário). Use quando o dono pedir ' +
+        '"não me manda nada até segunda", "fim de semana não", "pode voltar a mandar". Não calcule datas: passe o ' +
+        'dia como ele falou. Lembrete de compromisso da agenda continua chegando.',
+      parameters: {
+        type: 'object',
+        properties: {
+          ate_dia: { type: 'string', enum: [...DIAS], description: 'fica quieto até o começo deste dia (exclusive)' },
+          data: { type: 'string', description: 'DD/MM — só quando ate_dia = "data"' },
+          folgas: {
+            type: 'array',
+            items: { type: 'string', enum: ['domingo', 'segunda', 'terca', 'quarta', 'quinta', 'sexta', 'sabado'] },
+            description: 'dias da semana em que você NUNCA puxa conversa (substitui a lista inteira; [] = nenhum)',
+          },
+          retomar: { type: 'boolean', description: 'true = acaba com a pausa agora' },
+        },
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'esquecer_assunto',
+      description:
+        'Apaga das suas lembranças um assunto que não vale guardar: o dono disse que era só um teste, que não ' +
+        'importa, que já acabou, ou pediu "esquece isso". Depois disso você não puxa mais esse assunto.',
+      parameters: {
+        type: 'object',
+        properties: { assunto: { type: 'string', description: 'palavras do assunto, ex.: "jogo do macaco"' } },
+        required: ['assunto'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
       name: 'usar_computador',
       description:
         'Executa na máquina do dono uma das ações que ELE cadastrou (a lista está no seu contexto). ' +
@@ -331,6 +369,7 @@ export class BrainService {
     private readonly tasks: TaskService,
     private readonly banco: BancoVozesService,
     private readonly identidade: IdentidadeService,
+    private readonly silencio: SilencioService,
   ) {
     this.dayFmt = new Intl.DateTimeFormat('pt-BR', {
       weekday: 'long',
@@ -477,7 +516,7 @@ export class BrainService {
       const msg = await this.llm.complete(
         [
           { role: 'system', content: systemPrompt({ ...this.promptContext(now), todayAgenda: agenda }) },
-          ...toLlmHistory(history.slice(-60), this.cfg.TZ_NAME),
+          ...toLlmHistory(history.slice(-20), this.cfg.TZ_NAME),
           {
             role: 'user',
             content:
@@ -486,13 +525,14 @@ export class BrainService {
               `Você é um robô com vida própria, que mora na mesa de ${owner} — não um assistente que só fala quando ` +
               'chamado. Quer mandar uma mensagem para ele agora?\n' +
               'Bons motivos para falar: dar bom dia se ainda não se falaram; cobrar uma pendência; perguntar como foi ' +
-              'um compromisso que já passou; comentar o que vem pela frente no dia; puxar de volta um assunto de ' +
-              'vocês; ou só uma observação sua, do seu jeito. Não precisa de urgência: um amigo manda mensagem ' +
-              'sem motivo importante.\n' +
+              'um compromisso que já passou; comentar o que vem pela frente no dia; ou puxar de volta um assunto de ' +
+              'vocês.\n' +
               'Fique quieto se acabou de falar algo parecido, se ele está no meio de um compromisso agora, ou se ' +
-              'não tem nada de verdadeiro para dizer (nunca invente fato, compromisso ou pendência). Algumas ' +
-              'mensagens espalhadas pelo dia é o normal.\n' +
-              'Cobrar pendência: uma de cada vez e sem soar cobrador de dívida.\n' +
+              'não tem nada de verdadeiro e novo para dizer (nunca invente fato, compromisso ou pendência). Mensagem ' +
+              'demais cansa: umas duas ou três no dia inteiro é o normal, e na dúvida fique quieto. Frase genérica ' +
+              '("o relógio avança", "aproveite o dia", "dia livre") não é motivo para mandar mensagem.\n' +
+              'Cobrar pendência: uma de cada vez e sem soar cobrador de dívida. Pendência que ele já disse que é ' +
+              'para outro dia ("deixa pra segunda") não se cobra antes disso.\n' +
               'Antes de perguntar de um compromisso ou pendência, confira a conversa de hoje acima: se ele já ' +
               'contou como foi, NÃO pergunte de novo — no máximo comente o que ele disse.\n' +
               'Responda SOMENTE com JSON: {"falar": true|false, "texto": "...", "motivo": "...", "pendencias": [n], "assunto": true|false}, ' +
@@ -582,6 +622,7 @@ export class BrainService {
       pendencias: this.tasks.open().map((t) => (t.pessoa ? `${t.texto} (com ${t.pessoa})` : t.texto)),
       vozesConhecidas: this.banco.listar().map((v) => v.nome),
       conheceDono: !!this.cfg.OWNER_NAME && this.banco.conhece(this.cfg.OWNER_NAME),
+      silencio: this.silencio.descricao(now),
     };
   }
 
@@ -635,6 +676,11 @@ export class BrainService {
       if (name === 'concluir_pendencia') return { result: this.concluirPendencia(args) };
       if (name === 'editar_pendencias') return { result: this.editarPendencias(args) };
       if (name === 'definir_identidade') return { result: this.definirIdentidade(args) };
+      if (name === 'silenciar_mensagens') return { result: this.silenciarMensagens(args, now) };
+      if (name === 'esquecer_assunto') {
+        const foram = this.memory.esquecer(String(args.assunto ?? ''));
+        return { result: foram.length ? `esquecido: ${foram.join('; ')}` : 'não havia nenhuma lembrança com esse assunto' };
+      }
       if (name === 'salvar_voz') return { result: this.salvarVoz(args, history) };
       if (name === 'renomear_voz') return { result: this.renomearVoz(args, voz) };
       if (name === 'esquecer_voz') return { result: this.esquecerVoz(args, voz) };
@@ -661,6 +707,27 @@ export class BrainService {
     } catch (err) {
       return { result: `erro: ${(err as Error).message}` };
     }
+  }
+
+  private silenciarMensagens(args: Record<string, unknown>, now: Date): string {
+    const feito: string[] = [];
+    if (Array.isArray(args.folgas)) {
+      const idx = ['domingo', 'segunda', 'terca', 'quarta', 'quinta', 'sexta', 'sabado'];
+      this.silencio.definirFolgas(args.folgas.map((d) => idx.indexOf(String(d))).filter((i) => i >= 0));
+      feito.push('folgas atualizadas');
+    }
+    if (args.retomar === true) {
+      this.silencio.retomar();
+      feito.push('pausa encerrada');
+    } else if (args.ate_dia) {
+      // Até o começo do dia pedido: "até segunda" = volta segunda de manhã.
+      const r = resolveWhen(String(args.ate_dia), args.data ? String(args.data) : undefined, '00:00', now, this.cfg.TZ_NAME);
+      if (!r.ok) return `erro: ${r.error}`;
+      this.silencio.pausarAte(r.start);
+      feito.push('pausa marcada');
+    }
+    if (!feito.length) return 'erro: diga até quando (ate_dia), as folgas ou retomar';
+    return `ok (${feito.join(', ')}). Agora: ${this.silencio.descricao(now) || 'sem restrição'}`;
   }
 
   private anotarPendencia(args: Record<string, unknown>): string {

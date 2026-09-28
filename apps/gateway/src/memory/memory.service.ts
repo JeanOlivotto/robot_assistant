@@ -16,6 +16,9 @@ export interface Memoria {
 }
 
 const MAX = 40; // guarda os assuntos mais vivos; passa disso, esquece os mais antigos
+/** Palavras que não identificam assunto nenhum ("o projeto do jogo" → "jogo"). */
+const VAZIAS = new Set(['que', 'dos', 'das', 'com', 'para', 'pra', 'meu', 'minha', 'esse', 'essa', 'isso', 'aquele', 'aquela', 'projeto', 'assunto']);
+
 const NORMALIZE = (s: string) =>
   s
     .toLowerCase()
@@ -82,6 +85,27 @@ export class MemoryService {
     return had;
   }
 
+  /**
+   * Apaga as lembranças que batem com o assunto ("jogo do macaco" leva "Projeto jogo macaco" e
+   * "Desenvolver jogo macaco"). Bate quando todas as palavras que importam do assunto estão nela.
+   */
+  esquecer(assunto: string): string[] {
+    const palavras = NORMALIZE(assunto)
+      .split(' ')
+      .filter((w) => w.length > 2 && !VAZIAS.has(w));
+    if (!palavras.length) return [];
+    const bate = (m: Memoria) => {
+      const t = ` ${NORMALIZE(m.texto)} `;
+      return palavras.every((w) => t.includes(` ${w}`));
+    };
+    const foram = this.items.filter(bate).map((m) => m.texto);
+    if (!foram.length) return [];
+    this.items = this.items.filter((m) => !bate(m));
+    this.save();
+    this.log.log(`Esqueceu: ${foram.join('; ')}`);
+    return foram;
+  }
+
   note(texto: string): void {
     const clean = texto.trim().slice(0, 120);
     if (!clean) return;
@@ -102,6 +126,7 @@ export class MemoryService {
       .slice(-12)
       .map((m) => `${m.from === 'user' ? 'Dono' : 'Robô'}: ${m.text}${m.photo?.desc ? ` [mandou foto: ${m.photo.desc}]` : ''}`)
       .join('\n');
+    const jaSabe = this.items.map((m) => `- ${m.texto}`).join('\n') || '(nada ainda)';
     try {
       const msg = await this.llm.complete(
         [
@@ -109,17 +134,28 @@ export class MemoryService {
             role: 'system',
             content:
               'Você cuida da memória de longo prazo de um robô sobre o dono dele. Da conversa, extraia ASSUNTOS ' +
-              'DURADOUROS que valham lembrar por semanas: projetos, trabalho, saúde, pessoas importantes, metas, ' +
-              'viagens, hobbies, decisões pessoais. NÃO inclua compromissos de agenda, tarefas pontuais, saudações ' +
-              'ou trivialidades. Responda SOMENTE com JSON {"assuntos": string[]}, cada assunto curto (2 a 6 ' +
-              'palavras), do ponto de vista do dono. Se não houver nada relevante, {"assuntos": []}.',
+              'DURADOUROS que valham lembrar por semanas: projetos de verdade, trabalho, saúde, pessoas importantes ' +
+              '(com quem são: "esposa Duda"), metas, viagens, hobbies, decisões pessoais.\n' +
+              'NÃO inclua: compromissos de agenda; pendências e tarefas (o robô já guarda à parte); pedidos para o ' +
+              'robô fazer algo no computador; páginas, jogos e projetos que o robô criou só para testar ou mostrar; ' +
+              'testes do próprio robô; um nome solto; saudações ou trivialidades. Na dúvida, não guarde.\n' +
+              'Não repita com outras palavras o que já está guardado.\n' +
+              'Se o dono disse que algo JÁ GUARDADO era só teste, não importa mais ou acabou, ponha o texto exato ' +
+              'dele em "esquecer".\n' +
+              'Responda SOMENTE com JSON {"assuntos": string[], "esquecer": string[]}, cada assunto curto (2 a 6 ' +
+              'palavras), do ponto de vista do dono. Sem nada, {"assuntos": [], "esquecer": []}.',
           },
-          { role: 'user', content: texto },
+          { role: 'user', content: `Já guardado:\n${jaSabe}\n\nConversa:\n${texto}` },
         ],
         undefined,
-        { maxTokens: 300, temperature: 0.2 },
+        { maxTokens: 600, temperature: 0.2 },
       );
-      for (const a of this.parse(msg.content ?? '')) this.note(a);
+      const { assuntos, esquecer } = this.parse(msg.content ?? '');
+      if (esquecer.length) {
+        const fora = new Set(esquecer.map(NORMALIZE));
+        this.items = this.items.filter((m) => !fora.has(NORMALIZE(m.texto)));
+      }
+      for (const a of assuntos) this.note(a);
       this.trim();
       this.save();
     } catch (err) {
@@ -127,17 +163,19 @@ export class MemoryService {
     }
   }
 
-  private parse(raw: string): string[] {
+  private parse(raw: string): { assuntos: string[]; esquecer: string[] } {
+    const nada = { assuntos: [], esquecer: [] };
     const clean = raw.replace(/```json/gi, '').replace(/```/g, '');
     const start = clean.indexOf('{');
     const end = clean.lastIndexOf('}');
-    if (start < 0 || end <= start) return [];
+    if (start < 0 || end <= start) return nada;
+    const textos = (v: unknown) =>
+      Array.isArray(v) ? v.filter((a): a is string => typeof a === 'string' && a.trim().length > 2).slice(0, 8) : [];
     try {
-      const obj = JSON.parse(clean.slice(start, end + 1)) as { assuntos?: unknown };
-      if (!Array.isArray(obj.assuntos)) return [];
-      return obj.assuntos.filter((a): a is string => typeof a === 'string' && a.trim().length > 2).slice(0, 8);
+      const obj = JSON.parse(clean.slice(start, end + 1)) as { assuntos?: unknown; esquecer?: unknown };
+      return { assuntos: textos(obj.assuntos), esquecer: textos(obj.esquecer) };
     } catch {
-      return [];
+      return nada;
     }
   }
 

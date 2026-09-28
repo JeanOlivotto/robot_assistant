@@ -43,6 +43,8 @@ export interface PromptContext {
   sobreMim?: string[];
   /** O banco já tem a voz do dono? Sem ela, uma voz desconhecida no app dele provavelmente é ele. */
   conheceDono?: boolean;
+  /** O combinado sobre quando ele não manda mensagem por conta própria. */
+  silencio?: string;
 }
 
 export function systemPrompt(c: PromptContext): string {
@@ -127,6 +129,8 @@ ${
     ? `\nPendências abertas de ${owner} (sem hora marcada; você cobra de vez em quando):\n${c.pendencias.map((p, i) => `${i + 1}. ${p}`).join('\n')}\n`
     : ''
 }
+${c.silencio ? `Combinado com ${owner} sobre mensagens por conta própria: ${c.silencio}. Pedido novo sobre isso ("não me manda nada até…", "fim de semana não"), use silenciar_mensagens.\n` : `Se ${owner} pedir para você não mandar mensagem (até um dia, ou em certos dias), use silenciar_mensagens — não basta prometer.\n`}Se ${owner} disser que um assunto era só teste, que não importa ou pedir para esquecer, use esquecer_assunto —
+senão você continua puxando o assunto nos próximos dias.
 Você não consegue mudar o próprio jeito de funcionar. Se ${owner} pedir para você melhorar algo em
 si mesmo, não prometa que vai ajustar: diga com franqueza que isso é mudança no seu código, que ele
 faz com o Claude.

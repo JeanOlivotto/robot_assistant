@@ -13,6 +13,13 @@ const RATE = 16000;
 const PRE_ROLL_MS = 900; // quanto do passado entra junto quando o turno abre
 const BARGE_PRE_ROLL_MS = 350; // ao cortar o robô, pega pouco de trás (o resto é eco dele)
 const SILENCE_MS = 900; // silêncio que encerra a sua fala (700 ms atropelava as pausas; 1100 ms deixava a ligação arrastada)
+/*
+ * Frase comprida tem pausa de quem está pensando no meio ("deixa esse projeto com algum… obstáculo"):
+ * com 900 ms ela era cortada ali e ia pela metade. Passando de LONG_SPEECH_MS falando, o silêncio
+ * que encerra cresce para SILENCE_LONG_MS. Resposta curta ("sim", "não") continua ágil.
+ */
+const LONG_SPEECH_MS = 2500;
+const SILENCE_LONG_MS = 1400;
 const MIN_SPEECH_MS = 280; // menos que isso é tosse, estalo, porta batendo
 const NO_SPEECH_MS = 8000; // ninguém falou nesta rodada: volta vazio (quem chama decide se segue ouvindo)
 const MAX_MS = 30_000; // trava de segurança
@@ -173,7 +180,8 @@ export class VoiceSession {
           speechMs += ms;
           if (rms < stopAt) {
             silenceMs += ms;
-            if (silenceMs >= SILENCE_MS) return finish(speechMs - silenceMs >= MIN_SPEECH_MS);
+            const needed = speechMs - silenceMs > LONG_SPEECH_MS ? SILENCE_LONG_MS : SILENCE_MS;
+            if (silenceMs >= needed) return finish(speechMs - silenceMs >= MIN_SPEECH_MS);
           } else silenceMs = 0;
         }
         if (Date.now() - t0 > MAX_MS) return finish(speaking);

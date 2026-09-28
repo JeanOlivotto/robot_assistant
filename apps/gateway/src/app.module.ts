@@ -43,6 +43,7 @@ import { MemoryService } from './memory/memory.service.js';
 import { SpotifyController } from './spotify/spotify.controller.js';
 import { SpotifyService } from './spotify/spotify.service.js';
 import { ProactiveService } from './proactive/proactive.service.js';
+import { SilencioService } from './proactive/silencio.service.js';
 import { PushController } from './push/push.controller.js';
 import { PushService } from './push/push.service.js';
 import { RobotController } from './robot/robot.controller.js';
@@ -83,6 +84,7 @@ import { WsRouter } from './ws/ws-router.service.js';
     InviteService,
     MeetingAccessGuard,
     MemoryService,
+    SilencioService,
     TaskService,
     IdentidadeService,
     PhotoService,

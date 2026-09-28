@@ -47,6 +47,26 @@ describe('MemoryService', () => {
     expect(m.summaries()).toEqual(expect.arrayContaining(['mudança de casa', 'curso de inglês']));
   });
 
+  it('esquecer apaga as variações do assunto e deixa o resto', () => {
+    const m = new MemoryService(cfg(), llm(''));
+    m.note('Projeto jogo macaco');
+    m.note('Desenvolver jogo macaco');
+    m.note('projeto de fotos de macaco');
+    m.note('esposa Duda');
+    expect(m.esquecer('o jogo do macaco')).toHaveLength(2);
+    expect(m.summaries()).toEqual(expect.arrayContaining(['projeto de fotos de macaco', 'esposa Duda']));
+    expect(m.all()).toHaveLength(2);
+    expect(m.esquecer('do')).toEqual([]); // palavra vazia não apaga tudo
+  });
+
+  it('learn tira o que o dono disse que era só teste', async () => {
+    const m = new MemoryService(cfg(), llm('{"assuntos":[],"esquecer":["Projeto jogo macaco"]}'));
+    m.note('Projeto jogo macaco');
+    m.note('esposa Duda');
+    await m.learn([userMsg('aquele jogo do macaco era só teste')]);
+    expect(m.summaries()).toEqual(['esposa Duda']);
+  });
+
   it('learn ignora resposta sem JSON', async () => {
     const m = new MemoryService(cfg(), llm('nada de relevante aqui'));
     await m.learn([userMsg('oi')]);
