@@ -134,6 +134,17 @@ export class BracoService {
     return { ...r, maquina: m.nome };
   }
 
+  /**
+   * Dúvida de código de um colega (grupo liberado no WhatsApp): o Claude Code da máquina LÊ os
+   * projetos, sem editar nada, e responde em palavras. Espera a resposta (leva até uns minutos).
+   */
+  async consultar(pergunta: string): Promise<Resultado & { maquina?: string }> {
+    const m = this.escolher();
+    if (!m) return { ok: false, saida: '', erro: 'nenhum computador do dono está ligado agora' };
+    const r = await this.enviar(m.nome, { consultar: { pergunta } }, randomUUID(), 5 * 60_000);
+    return { ...r, maquina: m.nome };
+  }
+
   /** A máquina avisou que o trabalho acabou. */
   terminou(id: string, r: Resultado): void {
     const t = this.emAndamento.get(id);
@@ -231,8 +242,15 @@ export class BracoService {
 
   private enviar(
     nome: string,
-    corpo: { acao?: string; args?: Record<string, string>; cmd?: string; programar?: { projeto: string; pedido: string; motor: string } },
+    corpo: {
+      acao?: string;
+      args?: Record<string, string>;
+      cmd?: string;
+      programar?: { projeto: string; pedido: string; motor: string };
+      consultar?: { pergunta: string };
+    },
     id: string = randomUUID(),
+    timeoutMs = TIMEOUT_MS,
   ): Promise<Resultado> {
     const c = [...this.conexoes.values()].find((x) => x.nome === nome);
     if (!c) return Promise.resolve({ ok: false, saida: '', erro: 'a máquina não está conectada' });
@@ -240,10 +258,10 @@ export class BracoService {
       const timer = setTimeout(() => {
         this.pendentes.delete(id);
         resolve({ ok: false, saida: '', erro: 'a máquina demorou demais para responder' });
-      }, TIMEOUT_MS);
+      }, timeoutMs);
       this.pendentes.set(id, { ws: c.ws, resolve, timer });
       c.ws.send(JSON.stringify({ t: 'run', id, ...corpo }));
-      this.log.log(`Pedido para ${c.nome}: ${corpo.acao ?? corpo.cmd ?? `programar ${corpo.programar?.projeto}`}`);
+      this.log.log(`Pedido para ${c.nome}: ${corpo.acao ?? corpo.cmd ?? (corpo.consultar ? 'consulta de código' : `programar ${corpo.programar?.projeto}`)}`);
     });
   }
 }

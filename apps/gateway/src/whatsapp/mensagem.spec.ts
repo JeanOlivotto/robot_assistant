@@ -138,11 +138,15 @@ describe('respostaSuspeita', () => {
     expect(respostaSuspeita('Mandei no seu privado')).toBe(true);
     expect(respostaSuspeita('```js\nconst a = 1\n```')).toBe(true);
     expect(respostaSuspeita('import express from "express"')).toBe(true);
+    expect(respostaSuspeita('a chave é sk-proj4f9a8b7c6d5e4f3a2b1')).toBe(true);
+    expect(respostaSuspeita('token: 9f8e7d6c5b4a39281706f5e4d3c2b1a0ffeeddcc')).toBe(true);
   });
 
   it('recusa e conversa normal passam', () => {
     expect(respostaSuspeita('Isso eu não mando não, é coisa do Jean. Já avisei ele.')).toBe(false);
     expect(respostaSuspeita('kkk boa, mano')).toBe(false);
+    expect(respostaSuspeita('O figurinha.ts desenha 12 quadros com a função desenhar e junta num WebP.')).toBe(false);
+    expect(respostaSuspeita('Fica em apps/gateway/src/whatsapp/figurinha.ts, na função desenhar_quadro_animado_completo.')).toBe(false);
   });
 });
 

@@ -11,6 +11,7 @@
 import { spawn } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 import { homedir, hostname, networkInterfaces } from 'node:os';
+import { consultar } from './consultor.js';
 import { programar } from './programador.js';
 
 const WINDOWS = process.platform === 'win32';
@@ -177,6 +178,15 @@ export class Braco {
         console.log(`[programador] ${r.ok ? 'pronto' : `falhou: ${r.erro}`}`);
         const agora = this.ws; // pode ter reconectado no meio
         if (agora?.readyState === WebSocket.OPEN) agora.send(JSON.stringify({ t: 'fim', id: msg.id, ...r, saida: (r.saida ?? '').slice(0, SAIDA_MAX) }));
+        return;
+      }
+      // Dúvida de código (grupo liberado no WhatsApp): só LÊ os projetos e responde em palavras.
+      if (msg.consultar) {
+        if (!this.ligado) return ws.send(JSON.stringify({ t: 'result', id: msg.id, ok: false, saida: '', erro: 'o uso do computador está desligado nele' }));
+        const r = await consultar(msg.consultar);
+        console.log(`[consultor] ${r.ok ? 'respondeu' : `falhou: ${r.erro}`}`);
+        const agora = this.ws;
+        if (agora?.readyState === WebSocket.OPEN) agora.send(JSON.stringify({ t: 'result', id: msg.id, ...r, saida: (r.saida ?? '').slice(0, SAIDA_MAX) }));
         return;
       }
       const r = await this.#atender(msg);

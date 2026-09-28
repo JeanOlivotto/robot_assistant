@@ -30,6 +30,26 @@ async function api(token: string, path: string, init: RequestInit = {}): Promise
 }
 
 export const statusWhatsapp = (token: string) => api(token, '');
+
+export interface GrupoWhatsapp {
+  id: string;
+  nome: string;
+  /** Tira dúvida de código lendo os seus projetos (em palavras, sem colar código). */
+  tecnico: boolean;
+}
+
+async function apiGrupos(token: string, path: string, init: RequestInit = {}): Promise<GrupoWhatsapp[]> {
+  const res = await fetch(`/api/whatsapp${path}`, {
+    ...init,
+    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json', ...(init.headers ?? {}) },
+  });
+  if (!res.ok) throw new Error((await res.text().catch(() => '')) || `HTTP ${res.status}`);
+  return (await res.json()) as GrupoWhatsapp[];
+}
+
+export const gruposWhatsapp = (token: string) => apiGrupos(token, '/grupos');
+export const grupoTecnico = (token: string, grupo: string, ligar: boolean) =>
+  apiGrupos(token, '/grupos/tecnico', { method: 'POST', body: JSON.stringify({ grupo, ligar }) });
 export const conectarWhatsapp = (token: string) => api(token, '/conectar', { method: 'POST' });
 export const desconectarWhatsapp = (token: string) => api(token, '/desconectar', { method: 'POST' });
 export const atenderWhatsapp = (token: string, ligar: boolean) =>

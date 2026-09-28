@@ -45,6 +45,8 @@ interface Combinado {
   privadoAte: number;
   /** Quem chama o robô pelo nome numa conversa privada pode conversar com ele (só conversar). */
   atender: boolean;
+  /** Grupos (jid) onde ele tira dúvida de código lendo os projetos do dono — em palavras, sem colar código. */
+  gruposTecnicos: string[];
 }
 
 /** Uma conversa para onde dá para mandar: contato ou grupo. */
@@ -88,7 +90,7 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
   private readonly file: string;
   private readonly contatosFile: string;
   private salvarContatos: NodeJS.Timeout | null = null;
-  private c: Combinado = { ativo: false, privadoAte: 0, atender: true };
+  private c: Combinado = { ativo: false, privadoAte: 0, atender: true, gruposTecnicos: [] };
 
   private sock: Socket | null = null;
   private tentativas = 0;
@@ -193,6 +195,25 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
     this.c.atender = ligar;
     this.save();
     this.log.log(`WhatsApp: ${ligar ? 'atende' : 'não atende mais'} quem chama o robô`);
+  }
+
+  tecnico(chat: string): boolean {
+    return this.c.gruposTecnicos.includes(chat);
+  }
+
+  definirGrupoTecnico(jid: string, ligar: boolean): void {
+    const sem = this.c.gruposTecnicos.filter((g) => g !== jid);
+    this.c.gruposTecnicos = ligar ? [...sem, jid] : sem;
+    this.save();
+    this.log.log(`WhatsApp: ${this.destinos.get(jid)?.nome ?? jid} ${ligar ? 'pode' : 'não pode mais'} tirar dúvida de código`);
+  }
+
+  /** Os grupos dele, para escolher no app quais tiram dúvida de código. */
+  grupos(): { id: string; nome: string; tecnico: boolean }[] {
+    return [...this.destinos.values()]
+      .filter((d) => d.grupo)
+      .map((d) => ({ id: d.id, nome: d.nome, tecnico: this.tecnico(d.id) }))
+      .sort((a, b) => Number(b.tecnico) - Number(a.tecnico) || a.nome.localeCompare(b.nome, 'pt-BR'));
   }
 
   /** Para o prompt do cérebro e para o app. */

@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { type GrupoWhatsapp, grupoTecnico, gruposWhatsapp } from '../lib/whatsapp';
 import { atenderWhatsapp, conectarWhatsapp, desconectarWhatsapp, privacidadeWhatsapp, statusWhatsapp, type StatusWhatsapp } from '../lib/whatsapp';
 
 /**
@@ -57,6 +58,7 @@ export function Whatsapp({ token }: { token: string }) {
               ? '💬 Quem te manda mensagem chamando o Miro ("Miro, …"), direto ou num grupo, conversa com ele — só conversa, assinado por ele, sem fazer nada nem contar nada seu. Recados chegam aqui no chat.'
               : 'Ele não responde ninguém sozinho no WhatsApp.'}
           </p>
+          {s.atender && <GruposTecnicos token={token} />}
           {s.ultimoChamado && (
             <p className="hint pc__hint">
               Último chamado: {s.ultimoChamado.quem}, {new Date(s.ultimoChamado.em).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })} —{' '}
@@ -97,5 +99,49 @@ export function Whatsapp({ token }: { token: string }) {
       )}
       {erro && s && <p className="hint">{erro}</p>}
     </>
+  );
+}
+
+/**
+ * Grupos onde o Miro tira dúvida de código: lê os seus projetos (~/Projects, no computador ligado)
+ * e explica em palavras — nunca cola código nem segredo.
+ */
+function GruposTecnicos({ token }: { token: string }) {
+  const [grupos, setGrupos] = useState<GrupoWhatsapp[]>([]);
+  const [busca, setBusca] = useState('');
+  const [erro, setErro] = useState('');
+
+  useEffect(() => {
+    void gruposWhatsapp(token)
+      .then(setGrupos)
+      .catch((e: Error) => setErro(e.message));
+  }, [token]);
+
+  const trocar = (g: GrupoWhatsapp) =>
+    void grupoTecnico(token, g.id, !g.tecnico)
+      .then(setGrupos)
+      .catch((e: Error) => setErro(e.message));
+
+  if (!grupos.length) return null;
+  const termo = busca.trim().toLowerCase();
+  const mostrar = grupos.filter((g) => g.tecnico || (termo && g.nome.toLowerCase().includes(termo))).slice(0, 20);
+  return (
+    <div className="whats__grupos">
+      <p className="hint pc__hint">
+        🧑‍💻 Dúvida de código: nos grupos marcados, quem chama o Miro pode perguntar como algo dos seus projetos funciona. Ele lê
+        (sem mexer em nada) no computador ligado e explica em palavras — sem colar código nem segredo.
+      </p>
+      <input className="whats__busca" placeholder="Procurar grupo para liberar…" value={busca} onChange={(e) => setBusca(e.target.value)} />
+      <ul className="tasks__lista">
+        {mostrar.map((g) => (
+          <li key={g.id} className="tasks__item">
+            <label className="whats__grupo">
+              <input type="checkbox" checked={g.tecnico} onChange={() => trocar(g)} /> {g.nome}
+            </label>
+          </li>
+        ))}
+      </ul>
+      {erro && <p className="hint">{erro}</p>}
+    </div>
   );
 }

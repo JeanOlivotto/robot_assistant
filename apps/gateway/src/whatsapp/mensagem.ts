@@ -168,6 +168,8 @@ export function pedidoSensivel(texto: string): boolean {
  * de código/arquivo — o atendente não tem acesso a nada disso, então só pode estar inventando.
  */
 export function respostaSuspeita(texto: string): boolean {
+  // Cara de segredo: chave de API, token, chave privada, string longa aleatória.
+  if (/\b(sk|pk|rk|ghp|gho|github_pat|xox[abp]|AKIA|AIza|eyJ)[A-Za-z0-9_-]{8,}|-----BEGIN|\b(?=[A-Za-z0-9_-]*\d)(?=[A-Za-z0-9_-]*[A-Za-z])[A-Za-z0-9_-]{32,}\b/.test(texto)) return true;
   if (/```|<\/?[a-z]+[^>]*>|\bfunction\b|\bconst \w+ =|\bimport \w|=>|;\s*$/m.test(texto)) return true;
   const t = semAcento(texto);
   return /\b(mandei|enviei|compartilhei|segue (o|a|os|as)|aqui (esta|estao|vai|vao) (o|a|os|as)|ta ai (o|a)|anexei|estou (mandando|enviando)|vou (mandar|enviar) (agora|ja))\b/.test(t);

@@ -10,6 +10,7 @@ describe('lerSaida', () => {
       figurinha: false,
       tom: 'brincadeira',
       pendencia: '',
+      consulta: '',
     });
   });
 
@@ -26,11 +27,12 @@ describe('lerSaida', () => {
       figurinha: false,
       tom: 'brincadeira',
       pendencia: '',
+      consulta: '',
     });
   });
 
   it('avisar ausente vira vazio', () => {
-    expect(lerSaida('{"resposta":"kkk boa"}')).toEqual({ resposta: 'kkk boa', avisar: '', expressao: '', figurinha: false, tom: 'brincadeira', pendencia: '' });
+    expect(lerSaida('{"resposta":"kkk boa"}')).toEqual({ resposta: 'kkk boa', avisar: '', expressao: '', figurinha: false, tom: 'brincadeira', pendencia: '', consulta: '' });
   });
 
   it('só a figurinha, sem texto, também vale', () => {
@@ -41,6 +43,7 @@ describe('lerSaida', () => {
       figurinha: true,
       tom: 'brincadeira',
       pendencia: '',
+      consulta: '',
     });
   });
 
@@ -48,6 +51,12 @@ describe('lerSaida', () => {
     const s = lerSaida('{"resposta":"Beleza, aviso ele.","tom":"sério","avisar":"endpoints","pendencia":"Fazer os endpoints que alinhamos de manhã"}');
     expect(s?.tom).toBe('serio');
     expect(s?.pendencia).toBe('Fazer os endpoints que alinhamos de manhã');
+  });
+
+  it('dúvida de código vem em "consulta"', () => {
+    expect(lerSaida('{"resposta":"pera","tom":"serio","consulta":"como funciona o login no previnity?"}')?.consulta).toBe(
+      'como funciona o login no previnity?',
+    );
   });
 
   it('expressão vem normalizada', () => {

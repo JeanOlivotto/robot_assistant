@@ -5,6 +5,7 @@ import { AtendenteService } from './atendente.service.js';
 import { WhatsappService } from './whatsapp.service.js';
 
 const Atender = z.object({ ligar: z.boolean() });
+const Tecnico = z.object({ grupo: z.string().min(5).max(80), ligar: z.boolean() });
 
 const Privacidade = z.object({
   ligar: z.boolean(),
@@ -47,6 +48,21 @@ export class WhatsappController {
     if (!parsed.success) throw new BadRequestException(z.prettifyError(parsed.error));
     this.whatsapp.definirAtender(parsed.data.ligar);
     return this.whatsapp.status();
+  }
+
+  /** Os grupos, e quais tiram dúvida de código com ele. */
+  @Get('grupos')
+  grupos() {
+    return this.whatsapp.grupos();
+  }
+
+  @Post('grupos/tecnico')
+  @HttpCode(200)
+  tecnico(@Body() body: unknown) {
+    const parsed = Tecnico.safeParse(body ?? {});
+    if (!parsed.success) throw new BadRequestException(z.prettifyError(parsed.error));
+    this.whatsapp.definirGrupoTecnico(parsed.data.grupo, parsed.data.ligar);
+    return this.whatsapp.grupos();
   }
 
   @Post('privacidade')

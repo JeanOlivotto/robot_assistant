@@ -36,7 +36,7 @@ const INSTRUCOES = [
 ].join(' ');
 
 /** Onde está a CLI do Claude: o app abre pelo bspwm/Windows sem o PATH do terminal. */
-function acharClaude() {
+export function acharClaude() {
   const casa = homedir();
   const candidatos = WINDOWS
     ? [join(process.env.APPDATA ?? '', 'npm', 'claude.cmd'), join(casa, '.local', 'bin', 'claude.exe'), join(casa, '.claude', 'local', 'claude.exe')]
