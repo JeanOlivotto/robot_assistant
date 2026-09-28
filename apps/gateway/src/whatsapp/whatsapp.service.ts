@@ -16,6 +16,7 @@ import makeWASocket, {
   type WAMessage,
 } from 'baileys';
 import QRCode from 'qrcode';
+import { Subject } from 'rxjs';
 import { APP_CONFIG, type AppConfig } from '../config/app-config.js';
 import { rootPath } from '../config/paths.js';
 import { MAX_VOICE_SECONDS, SttService } from '../stt/stt.service.js';
@@ -39,6 +40,8 @@ interface Combinado {
   ativo: boolean;
   /** Privacidade: não olha nada até este instante. 0 = desligada; -1 = até ele pedir para voltar. */
   privadoAte: number;
+  /** Quem chama o robô pelo nome numa conversa privada pode conversar com ele (só conversar). */
+  atender: boolean;
 }
 
 /** Uma conversa para onde dá para mandar: contato ou grupo. */
@@ -82,12 +85,19 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
   private readonly file: string;
   private readonly contatosFile: string;
   private salvarContatos: NodeJS.Timeout | null = null;
-  private c: Combinado = { ativo: false, privadoAte: 0 };
+  private c: Combinado = { ativo: false, privadoAte: 0, atender: true };
 
   private sock: Socket | null = null;
   private tentativas = 0;
   private religar: NodeJS.Timeout | null = null;
   private encerrando = false;
+
+  /** Mensagem guardada agora (nunca com a privacidade ligada) — o atendente escuta aqui. */
+  readonly chegou$ = new Subject<Recebida>();
+  /** O dono escreveu numa conversa pelo celular (a conversa é dele agora). */
+  readonly donoEscreveu$ = new Subject<string>();
+  /** O que o próprio robô mandou: volta como "fromMe" e não pode passar por mensagem do dono. */
+  private enviadas = new Set<string>();
 
   estado: EstadoWhatsapp = 'desligado';
   /** QR em data URL, enquanto espera o pareamento. */
@@ -168,10 +178,24 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
     this.save();
   }
 
+  get atender(): boolean {
+    return this.c.atender;
+  }
+
+  definirAtender(ligar: boolean): void {
+    this.c.atender = ligar;
+    this.save();
+    this.log.log(`WhatsApp: ${ligar ? 'atende' : 'não atende mais'} quem chama o robô`);
+  }
+
   /** Para o prompt do cérebro e para o app. */
   descricao(): string {
     if (!this.conectado) return this.c.ativo ? 'reconectando' : 'não conectado';
-    if (!this.privado()) return 'conectado';
+    if (!this.privado()) {
+      return this.c.atender
+        ? 'conectado; quem te chama pelo nome numa conversa privada fala com você direto (você só conversa, sem ferramentas, e recados chegam aqui)'
+        : 'conectado; você NÃO está respondendo quem te chama pelo nome';
+    }
     if (this.c.privadoAte === -1) return 'conectado, com PRIVACIDADE ligada (até o dono pedir para voltar)';
     const ate = new Intl.DateTimeFormat('pt-BR', { weekday: 'short', hour: '2-digit', minute: '2-digit', timeZone: this.cfg.TZ_NAME });
     return `conectado, com PRIVACIDADE ligada até ${ate.format(this.c.privadoAte)}`;
@@ -186,6 +210,7 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
       privadoAte: this.privado() ? this.c.privadoAte : 0,
       guardadas: this.recebidas.length,
       contatos: this.contatosDaAgenda(),
+      atender: this.c.atender,
     };
   }
 
@@ -330,7 +355,11 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
     if (this.privado()) return;
     const k = raw.key;
     const chat = k.remoteJid;
-    if (!chat || k.fromMe || !k.id) return;
+    if (!chat || !k.id) return;
+    if (k.fromMe) {
+      if (!this.enviadas.delete(k.id)) this.donoEscreveu$.next(chat);
+      return;
+    }
     if (isJidStatusBroadcast(chat) || isJidBroadcast(chat) || isJidNewsletter(chat)) return;
     const c = conteudo(raw.message);
     if (!c) return;
@@ -362,6 +391,7 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
     });
     const corte = Date.now() - GUARDA_MS;
     this.recebidas = this.recebidas.filter((r) => r.m.ts > corte).slice(-MAX_RECEBIDAS);
+    this.chegou$.next(this.recebidas.at(-1)!.m);
   }
 
   private async nomeDoGrupo(jid: string): Promise<string> {
@@ -492,7 +522,11 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
   /** Só chamado depois do "sim" do dono. */
   async enviar(chat: string, texto: string): Promise<void> {
     if (!this.sock || !this.conectado) throw new Error('o WhatsApp não está conectado');
-    await this.sock.sendMessage(chat, { text: texto });
+    const m = await this.sock.sendMessage(chat, { text: texto });
+    if (m?.key.id) {
+      this.enviadas.add(m.key.id);
+      if (this.enviadas.size > 200) this.enviadas.delete(this.enviadas.values().next().value!);
+    }
     this.log.log(`WhatsApp enviado para ${this.nomes.get(chat) ?? numeroDe(chat)} (${texto.length} caracteres)`);
   }
 

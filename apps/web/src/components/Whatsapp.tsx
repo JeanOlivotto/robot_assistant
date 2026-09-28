@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { conectarWhatsapp, desconectarWhatsapp, privacidadeWhatsapp, statusWhatsapp, type StatusWhatsapp } from '../lib/whatsapp';
+import { atenderWhatsapp, conectarWhatsapp, desconectarWhatsapp, privacidadeWhatsapp, statusWhatsapp, type StatusWhatsapp } from '../lib/whatsapp';
 
 /**
  * Seção WhatsApp da aba PC. O Miro entra como aparelho conectado (igual ao WhatsApp Web), mas
@@ -52,7 +52,15 @@ export function Whatsapp({ token }: { token: string }) {
               ? `🔒 Privacidade ligada${s.privadoAte > 0 ? ` até ${new Date(s.privadoAte).toLocaleString('pt-BR', { weekday: 'short', hour: '2-digit', minute: '2-digit' })}` : ''}: ele não olha nem guarda nenhuma mensagem.`
               : 'Privacidade desligada: ele guarda na memória as mensagens das últimas horas, para quando você pedir.'}
           </p>
+          <p className="hint pc__hint">
+            {s.atender
+              ? '💬 Quem te manda mensagem chamando o Miro ("Miro, …") conversa com ele — só conversa, assinado por ele, sem fazer nada nem contar nada seu. Recados chegam aqui no chat.'
+              : 'Ele não responde ninguém sozinho no WhatsApp.'}
+          </p>
           <div className="whats__acoes">
+            <button type="button" className="btn btn--ghost" disabled={ocupado} onClick={() => fazer(() => atenderWhatsapp(token, !s.atender))}>
+              {s.atender ? 'Não atender quem chama' : 'Atender quem chama o Miro'}
+            </button>
             <button type="button" className="btn btn--primary" disabled={ocupado} onClick={() => fazer(() => privacidadeWhatsapp(token, !s.privado))}>
               {s.privado ? 'Pode voltar a olhar' : 'Ligar privacidade'}
             </button>

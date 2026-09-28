@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { acharPorNome, assinar, conteudo, descrever, type Recebida } from './mensagem.js';
+import { acharPorNome, assinar, chamou, conteudo, descrever, type Recebida } from './mensagem.js';
 
 describe('conteudo', () => {
   it('lê texto simples e texto com link/resposta', () => {
@@ -62,6 +62,24 @@ describe('acharPorNome', () => {
 
   it('não acha pedaço de palavra', () => {
     expect(acharPorNome(lista, 'fab').achou).toBeUndefined();
+  });
+});
+
+describe('chamou', () => {
+  it('nome no começo, com ou sem saudação', () => {
+    expect(chamou('Miro, o Jean tá aí?', 'Miro')).toBe(true);
+    expect(chamou('oi miro tudo bem', 'Miro')).toBe(true);
+    expect(chamou('Bom dia, Miro!', 'Miro')).toBe(true);
+    expect(chamou('@Miro me ajuda', 'Miro')).toBe(true);
+  });
+
+  it('nome no fim, como quem chama', () => {
+    expect(chamou('tá por aí, Miro?', 'Miro')).toBe(true);
+  });
+
+  it('nome citado no meio não é chamado', () => {
+    expect(chamou('o Miro do Jean é engraçado kkk', 'Miro')).toBe(false);
+    expect(chamou('Mirosmar chegou', 'Miro')).toBe(false);
   });
 });
 

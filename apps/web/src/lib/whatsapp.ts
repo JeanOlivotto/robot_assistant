@@ -14,6 +14,8 @@ export interface StatusWhatsapp {
   guardadas: number;
   /** Quantos contatos da agenda do celular ele conhece (é por eles que acha "manda pra Jaque"). */
   contatos: number;
+  /** Responde (só conversando) quem chama o Miro pelo nome numa conversa privada. */
+  atender: boolean;
 }
 
 async function api(token: string, path: string, init: RequestInit = {}): Promise<StatusWhatsapp> {
@@ -28,5 +30,7 @@ async function api(token: string, path: string, init: RequestInit = {}): Promise
 export const statusWhatsapp = (token: string) => api(token, '');
 export const conectarWhatsapp = (token: string) => api(token, '/conectar', { method: 'POST' });
 export const desconectarWhatsapp = (token: string) => api(token, '/desconectar', { method: 'POST' });
+export const atenderWhatsapp = (token: string, ligar: boolean) =>
+  api(token, '/atender', { method: 'POST', body: JSON.stringify({ ligar }) });
 export const privacidadeWhatsapp = (token: string, ligar: boolean) =>
   api(token, '/privacidade', { method: 'POST', body: JSON.stringify({ ligar }) });

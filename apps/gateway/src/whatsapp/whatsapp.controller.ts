@@ -3,6 +3,8 @@ import { z } from 'zod';
 import { AppTokenGuard } from '../auth/app-token.guard.js';
 import { WhatsappService } from './whatsapp.service.js';
 
+const Atender = z.object({ ligar: z.boolean() });
+
 const Privacidade = z.object({
   ligar: z.boolean(),
   horas: z.number().positive().max(720).optional(),
@@ -30,6 +32,16 @@ export class WhatsappController {
   @HttpCode(200)
   async desconectar() {
     await this.whatsapp.desconectar();
+    return this.whatsapp.status();
+  }
+
+  /** Quem chama o robô pelo nome no WhatsApp conversa com ele (só conversa) — liga e desliga. */
+  @Post('atender')
+  @HttpCode(200)
+  atender(@Body() body: unknown) {
+    const parsed = Atender.safeParse(body ?? {});
+    if (!parsed.success) throw new BadRequestException(z.prettifyError(parsed.error));
+    this.whatsapp.definirAtender(parsed.data.ligar);
     return this.whatsapp.status();
   }
 

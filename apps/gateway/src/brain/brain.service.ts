@@ -361,15 +361,17 @@ const TOOLS: ChatCompletionTool[] = [
     function: {
       name: 'privacidade_whatsapp',
       description:
-        'Liga ou desliga a privacidade do WhatsApp. Ligada, você não olha nem guarda nenhuma mensagem que chega (e ' +
-        'apaga as que tinha). Use quando ele pedir privacidade, "não olha meu WhatsApp", ou "pode voltar a olhar".',
+        'Muda o que você faz no WhatsApp dele. "ligar": privacidade — ligada, você não olha nem guarda nenhuma ' +
+        'mensagem que chega (e apaga as que tinha); use quando ele pedir privacidade, "não olha meu WhatsApp", "pode ' +
+        'voltar a olhar". "atender": se você responde (só conversando) quem te chama pelo nome no WhatsApp dele — ' +
+        '"não responde ninguém no WhatsApp", "pode voltar a atender". Mande só o que ele pediu.',
       parameters: {
         type: 'object',
         properties: {
           ligar: { type: 'boolean', description: 'true = privacidade ligada (não olha); false = volta a poder olhar' },
           horas: { type: 'number', description: 'por quantas horas, se ele disser ("por duas horas"); omitir = até ele pedir' },
+          atender: { type: 'boolean', description: 'true = responde quem te chama pelo nome; false = não responde ninguém' },
         },
-        required: ['ligar'],
       },
     },
   },
@@ -768,7 +770,11 @@ export class BrainService {
       if (name === 'ler_whatsapp') return { result: await this.lerWhatsapp(args) };
       if (name === 'propor_whatsapp') return this.proporWhatsapp(args);
       if (name === 'privacidade_whatsapp') {
-        this.whatsapp.definirPrivacidade(args.ligar === true, typeof args.horas === 'number' ? args.horas : undefined);
+        if (typeof args.ligar === 'boolean') {
+          this.whatsapp.definirPrivacidade(args.ligar, typeof args.horas === 'number' ? args.horas : undefined);
+        }
+        if (typeof args.atender === 'boolean') this.whatsapp.definirAtender(args.atender);
+        if (typeof args.ligar !== 'boolean' && typeof args.atender !== 'boolean') return { result: 'erro: mande "ligar" ou "atender"' };
         return { result: `ok. WhatsApp agora: ${this.whatsapp.descricao()}` };
       }
       if (name === 'usar_computador') return { result: await this.usarComputador(args) };
