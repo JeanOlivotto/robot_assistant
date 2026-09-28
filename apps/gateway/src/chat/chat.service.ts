@@ -8,6 +8,7 @@ import { CalendarService } from '../calendar/calendar.service.js';
 import { deviceText } from '../calendar/device-text.js';
 import { APP_CONFIG, type AppConfig } from '../config/app-config.js';
 import { VisionService } from '../vision/vision.service.js';
+import { WhatsappService } from '../whatsapp/whatsapp.service.js';
 import { ChatStore } from './chat.store.js';
 
 export interface ChatState {
@@ -42,7 +43,7 @@ const PROPOSAL_TTL_MS = 30 * 60_000;
 /* "modo hacker" por voz ou texto — o robô também alterna sozinho com dois toques no BOOT. */
 const HACKER_OFF = /\b(sa[ií]r?|sai|desliga\w*|tira\w*|encerra\w*|volta\w*)\b[^.]{0,20}\bhacker\b/i;
 const HACKER_ON = /\bmodo hacker\b/i;
-const YES = /^(sim|s|pode|pode sim|confirma|confirmado|confirmo|ok|isso|bora|claro|manda ver)[\s!.]*$/i;
+const YES = /^(sim|s|pode|pode sim|confirma|confirmado|confirmo|ok|isso|bora|claro|manda ver|manda|pode mandar|envia|pode enviar)[\s!.]*$/i;
 const NO = /^(n[aã]o|cancela|cancelar|deixa|esquece|deixa pra l[aá])[\s!.]*$/i;
 
 /**
@@ -73,6 +74,7 @@ export class ChatService implements OnModuleInit, OnModuleDestroy {
     private readonly calendar: CalendarService,
     private readonly braco: BracoService,
     private readonly vision: VisionService,
+    private readonly whatsapp: WhatsappService,
   ) {
     this.timeFmt = new Intl.DateTimeFormat('pt-BR', {
       weekday: 'short',
@@ -230,9 +232,9 @@ export class ChatService implements OnModuleInit, OnModuleDestroy {
 
     // "sim"/"não" (digitado ou falado) com uma proposta aberta vale como o botão
     const pending = this.store.pendingProposals();
-    // Comando no computador só o dono aprova: "sim" de outra voz (ou de voz desconhecida) não vale.
+    // Comando no computador e mensagem no WhatsApp só o dono aprova: "sim" de outra voz (ou de voz desconhecida) não vale.
     const outraVoz = !!opts.voz && !(opts.voz.certeza === 'alta' && opts.voz.nome?.trim().toLowerCase() === (this.cfg.OWNER_NAME || '').trim().toLowerCase());
-    const aprovaComando = pending[0]?.proposal?.kind === 'command' && YES.test(text);
+    const aprovaComando = (pending[0]?.proposal?.kind === 'command' || pending[0]?.proposal?.kind === 'whatsapp') && YES.test(text);
     if (pending.length === 1 && (YES.test(text) || NO.test(text)) && !(aprovaComando && outraVoz)) {
       return this.handleConfirm(pending[0]!.proposal!.id, YES.test(text), opts.origem);
     }
@@ -284,7 +286,9 @@ export class ChatService implements OnModuleInit, OnModuleDestroy {
       if (reply.proposal) {
         this.cancelPending('substituída por outra proposta');
         const d = reply.proposal;
-        proposal = d.comando
+        proposal = d.whatsapp
+          ? { id: randomUUID(), kind: 'whatsapp', title: d.title, ...d.whatsapp, status: 'pending' }
+          : d.comando
           ? { id: randomUUID(), kind: 'command', title: d.title, comando: d.comando, maquina: d.maquina, status: 'pending' }
           : {
               id: randomUUID(),
@@ -312,10 +316,12 @@ export class ChatService implements OnModuleInit, OnModuleDestroy {
     if (!ok) {
       this.updateProposal(msg, { status: 'cancelled' });
       this.settleWaiting();
-      return this.robotSay(p.kind === 'command' ? 'Certo, não faço.' : 'Certo, não marquei.', 'neutral', 'reply', { para });
+      const nao = p.kind === 'command' ? 'Certo, não faço.' : p.kind === 'whatsapp' ? 'Certo, não mandei.' : 'Certo, não marquei.';
+      return this.robotSay(nao, 'neutral', 'reply', { para });
     }
 
     if (p.kind === 'command') return this.runApproved(msg, p, para);
+    if (p.kind === 'whatsapp') return this.sendApproved(msg, p, para);
 
     this.setState({ thinking: true });
     try {
@@ -361,6 +367,24 @@ export class ChatService implements OnModuleInit, OnModuleDestroy {
     const saida = r.saida.trim();
     const curta = saida.length > 400 ? `${saida.slice(0, 400)}…` : saida;
     return this.robotSay(curta ? `Feito.\n\n${curta}` : 'Feito.', 'happy', 'reply', { para });
+  }
+
+  /** O dono aprovou: só agora a mensagem sai, para a conversa e com o texto que estavam no cartão. */
+  private async sendApproved(msg: ChatMessage, p: Proposal, para?: string): Promise<ChatMessage | undefined> {
+    this.setState({ thinking: true });
+    try {
+      await this.whatsapp.enviar(p.chat ?? '', p.texto ?? '');
+      this.updateProposal(msg, { status: 'confirmed' });
+      return this.robotSay(`Mandei para ${p.destino ?? 'a conversa'}.`, 'happy', 'reply', { para });
+    } catch (err) {
+      const error = (err as Error).message;
+      this.log.error(`Falha ao mandar no WhatsApp: ${error}`);
+      this.updateProposal(msg, { status: 'failed', error });
+      return this.robotSay(`Não consegui mandar: ${error}`, 'sad', 'reply', { para });
+    } finally {
+      this.setState({ thinking: false });
+      this.settleWaiting();
+    }
   }
 
   private cancelPending(reason: string): void {

@@ -2,6 +2,7 @@ packages:
   - apps/*
   - packages/*
 allowBuilds:
+  baileys: false
   electron: true
   esbuild: true
   protobufjs: false

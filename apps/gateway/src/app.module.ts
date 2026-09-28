@@ -53,10 +53,12 @@ import { TaskService } from './tasks/task.service.js';
 import { SttService } from './stt/stt.service.js';
 import { TtsController } from './tts/tts.controller.js';
 import { TtsService } from './tts/tts.service.js';
+import { WhatsappController } from './whatsapp/whatsapp.controller.js';
+import { WhatsappService } from './whatsapp/whatsapp.service.js';
 import { WsRouter } from './ws/ws-router.service.js';
 
 @Module({
-  controllers: [DebugController, AppAuthController, VoiceController, PushController, TtsController, ClaudeUsageController, MeetingController, SpotifyController, FirmwareController, MemoryController, CalendarController, TaskController, PhotoController, BancoVozesController, RobotController, IdentidadeController, BracoController],
+  controllers: [DebugController, AppAuthController, VoiceController, PushController, TtsController, ClaudeUsageController, MeetingController, SpotifyController, FirmwareController, MemoryController, CalendarController, TaskController, PhotoController, BancoVozesController, RobotController, IdentidadeController, BracoController, WhatsappController],
   providers: [
     { provide: APP_CONFIG, useFactory: () => loadConfig() },
     WsRouter,
@@ -93,6 +95,7 @@ import { WsRouter } from './ws/ws-router.service.js';
     BancoVozesService,
     PresenceService,
     SpotifyService,
+    WhatsappService,
     FirmwareService,
     TokenGuard,
     AppTokenGuard,

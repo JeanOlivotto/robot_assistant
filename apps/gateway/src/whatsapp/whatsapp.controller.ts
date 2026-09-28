@@ -1,0 +1,44 @@
+import { BadRequestException, Body, Controller, Get, HttpCode, Post, UseGuards } from '@nestjs/common';
+import { z } from 'zod';
+import { AppTokenGuard } from '../auth/app-token.guard.js';
+import { WhatsappService } from './whatsapp.service.js';
+
+const Privacidade = z.object({
+  ligar: z.boolean(),
+  horas: z.number().positive().max(720).optional(),
+});
+
+/** Aba PC do app: parear pelo QR, ver se está conectado, ligar a privacidade na mão. */
+@Controller('api/whatsapp')
+@UseGuards(AppTokenGuard)
+export class WhatsappController {
+  constructor(private readonly whatsapp: WhatsappService) {}
+
+  @Get()
+  status() {
+    return this.whatsapp.status();
+  }
+
+  @Post('conectar')
+  @HttpCode(200)
+  async conectar() {
+    await this.whatsapp.conectar();
+    return this.whatsapp.status();
+  }
+
+  @Post('desconectar')
+  @HttpCode(200)
+  async desconectar() {
+    await this.whatsapp.desconectar();
+    return this.whatsapp.status();
+  }
+
+  @Post('privacidade')
+  @HttpCode(200)
+  privacidade(@Body() body: unknown) {
+    const parsed = Privacidade.safeParse(body ?? {});
+    if (!parsed.success) throw new BadRequestException(z.prettifyError(parsed.error));
+    this.whatsapp.definirPrivacidade(parsed.data.ligar, parsed.data.horas);
+    return this.whatsapp.status();
+  }
+}

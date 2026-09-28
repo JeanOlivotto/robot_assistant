@@ -11,11 +11,11 @@ export const PROPOSAL_STATUS = ['pending', 'confirmed', 'cancelled', 'expired', 
 
 /**
  * Algo que o robô quer fazer e precisa do "sim" do dono antes (regra do doc, seção 10):
- * escrever na agenda, ou rodar algo na máquina dele.
+ * escrever na agenda, rodar algo na máquina dele, ou mandar uma mensagem no WhatsApp dele.
  */
 export const Proposal = z.object({
   id: z.string(),
-  kind: z.enum(['event', 'command']),
+  kind: z.enum(['event', 'command', 'whatsapp']),
   title: z.string(),
   /** Só em 'event'. */
   start: epochMs.optional(),
@@ -24,6 +24,11 @@ export const Proposal = z.object({
   comando: z.string().optional(),
   /** Só em 'command': em qual computador (quando há mais de um conectado). */
   maquina: z.string().optional(),
+  /** Só em 'whatsapp': a conversa (jid) para onde vai, e o nome dela como o dono conhece. */
+  chat: z.string().optional(),
+  destino: z.string().optional(),
+  /** Só em 'whatsapp': o texto que vai sair, exatamente como aparece no cartão. */
+  texto: z.string().optional(),
   status: z.enum(PROPOSAL_STATUS),
   error: z.string().optional(),
 });

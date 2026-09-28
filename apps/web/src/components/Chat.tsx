@@ -17,6 +17,19 @@ const STATUS_TEXT: Record<Proposal['status'], string> = {
   failed: 'Não deu certo',
 };
 
+const CONFIRMED_TEXT: Record<Proposal['kind'], string> = {
+  event: STATUS_TEXT.confirmed,
+  command: '✅ Rodou',
+  whatsapp: '✅ Mandado',
+};
+
+/** O que o botão diz: [antes de apertar, depois de apertar]. */
+const BUTTON_TEXT: Record<Proposal['kind'], [string, string]> = {
+  event: ['Confirmar', 'Marcando…'],
+  command: ['Pode rodar', 'Rodando…'],
+  whatsapp: ['Pode mandar', 'Mandando…'],
+};
+
 function ProposalCard({ p, onConfirm }: { p: Proposal; onConfirm(ok: boolean): void }) {
   const [sent, setSent] = useState<boolean | null>(null);
   const pending = p.status === 'pending';
@@ -28,6 +41,12 @@ function ProposalCard({ p, onConfirm }: { p: Proposal; onConfirm(ok: boolean): v
         <>
           <code className="proposal-comando">{p.comando}</code>
           {p.maquina && <div className="proposal-when">no computador {p.maquina}</div>}
+        </>
+      ) : p.kind === 'whatsapp' ? (
+        /* Mensagem no WhatsApp: o texto exato e o destino — sai só o que você está vendo. */
+        <>
+          <div className="proposal-when">para {p.destino}</div>
+          <div className="proposal-whatsapp">{p.texto}</div>
         </>
       ) : (
         <div className="proposal-when">
@@ -45,7 +64,7 @@ function ProposalCard({ p, onConfirm }: { p: Proposal; onConfirm(ok: boolean): v
               onConfirm(true);
             }}
           >
-            {sent === true ? (p.kind === 'command' ? 'Rodando…' : 'Marcando…') : p.kind === 'command' ? 'Pode rodar' : 'Confirmar'}
+            {BUTTON_TEXT[p.kind][sent === true ? 1 : 0]}
           </button>
           <button
             type="button"
@@ -61,7 +80,7 @@ function ProposalCard({ p, onConfirm }: { p: Proposal; onConfirm(ok: boolean): v
         </div>
       ) : (
         <div className="proposal-status">
-          {STATUS_TEXT[p.status]}
+          {p.status === 'confirmed' ? CONFIRMED_TEXT[p.kind] : STATUS_TEXT[p.status]}
           {p.error && p.status === 'failed' ? `: ${p.error}` : ''}
         </div>
       )}

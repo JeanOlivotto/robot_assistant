@@ -12,6 +12,7 @@ import {
   NOME_SISTEMA,
   type Sistema,
 } from '../lib/braco';
+import { Whatsapp } from './Whatsapp';
 
 const EXEMPLO: Record<Sistema, string> = {
   linux: 'code ~/Projects/Jean/{projeto}',
@@ -152,6 +153,8 @@ export function Computador({ token }: { token: string }) {
           + Nova ação
         </button>
       )}
+
+      <Whatsapp token={token} />
     </div>
   );
 }

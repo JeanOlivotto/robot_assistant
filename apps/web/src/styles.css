@@ -1240,6 +1240,36 @@ button {
   overflow-wrap: anywhere;
 }
 
+/* A mensagem de WhatsApp que vai sair, como um balão — é exatamente isso que o contato recebe. */
+.proposal-whatsapp {
+  margin: 6px 0 2px;
+  padding: 9px 11px;
+  font-size: 14px;
+  line-height: 1.45;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* ── WhatsApp (aba PC) ─────────────────────────────────────────── */
+.whats__qr {
+  display: block;
+  width: 240px;
+  max-width: 100%;
+  margin: 10px auto;
+  border-radius: 10px;
+  background: #fff;
+}
+.whats__acoes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 8px;
+}
+
 /* ── Fotos no chat ─────────────────────────────────────────────── */
 .attach {
   width: 42px;
