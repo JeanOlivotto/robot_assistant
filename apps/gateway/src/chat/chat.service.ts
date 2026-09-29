@@ -10,6 +10,7 @@ import { APP_CONFIG, type AppConfig } from '../config/app-config.js';
 import { VisionService } from '../vision/vision.service.js';
 import { WhatsappService } from '../whatsapp/whatsapp.service.js';
 import { ChatStore } from './chat.store.js';
+import { simOuNao } from './sim-nao.js';
 
 export interface ChatState {
   thinking: boolean;
@@ -43,8 +44,6 @@ const PROPOSAL_TTL_MS = 30 * 60_000;
 /* "modo hacker" por voz ou texto — o robô também alterna sozinho com dois toques no BOOT. */
 const HACKER_OFF = /\b(sa[ií]r?|sai|desliga\w*|tira\w*|encerra\w*|volta\w*)\b[^.]{0,20}\bhacker\b/i;
 const HACKER_ON = /\bmodo hacker\b/i;
-const YES = /^(sim|s|pode|pode sim|confirma|confirmado|confirmo|ok|isso|bora|claro|manda ver|manda|pode mandar|envia|pode enviar)[\s!.]*$/i;
-const NO = /^(n[aã]o|cancela|cancelar|deixa|esquece|deixa pra l[aá])[\s!.]*$/i;
 
 /**
  * A conversa com o dono: mensagens em ordem, propostas que só viram evento com o "sim",
@@ -234,14 +233,18 @@ export class ChatService implements OnModuleInit, OnModuleDestroy {
     });
     this.acordar(); // alguém falou com ele: o da mesa acorda e presta atenção
 
-    // "sim"/"não" (digitado ou falado) com uma proposta aberta vale como o botão
-    const pending = this.store.pendingProposals();
-    // Comando no computador e mensagem no WhatsApp só o dono aprova: "sim" de outra voz (ou de voz desconhecida) não vale.
-    const outraVoz = !!opts.voz && !(opts.voz.certeza === 'alta' && opts.voz.nome?.trim().toLowerCase() === (this.cfg.OWNER_NAME || '').trim().toLowerCase());
-    // Gravar a ligação de alguém também é decisão só dele.
-    const aprovaComando = ['command', 'whatsapp', 'reuniao'].includes(pending[0]?.proposal?.kind ?? '') && YES.test(text);
-    if (pending.length === 1 && (YES.test(text) || NO.test(text)) && !(aprovaComando && outraVoz)) {
-      return this.handleConfirm(pending[0]!.proposal!.id, YES.test(text), opts.origem);
+    // "sim"/"não" (digitado ou falado, "sim, pode mandar", "Miro, manda aí") com uma proposta aberta vale
+    // como o botão — a mais recente, se houver mais de uma (ex.: uma ligação chegou no meio).
+    const aberta = this.store.pendingProposals().at(-1)?.proposal;
+    const resposta = aberta ? simOuNao(text, [this.cfg.ROBOT_NAME]) : null;
+    if (aberta && resposta !== null) {
+      // Comando no computador, mensagem no WhatsApp e gravar ligação só o dono aprova: "sim" de outra voz
+      // (ou de voz que não deu para ter certeza) não vale — e ele fica sabendo por quê.
+      const outraVoz = !!opts.voz && !(opts.voz.certeza === 'alta' && opts.voz.nome?.trim().toLowerCase() === (this.cfg.OWNER_NAME || '').trim().toLowerCase());
+      if (resposta && outraVoz && ['command', 'whatsapp', 'reuniao'].includes(aberta.kind)) {
+        return this.robotSay('Pela voz não tive certeza de que é você. Digita "sim" ou aperta o botão.', 'thinking', 'reply', { replyVia: via, para: opts.origem });
+      }
+      return this.handleConfirm(aberta.id, resposta, opts.origem);
     }
 
     // "entra em modo hacker" / "sai do modo hacker": muda a cor do rosto e responde na hora.
@@ -380,7 +383,8 @@ export class ChatService implements OnModuleInit, OnModuleDestroy {
   private async sendApproved(msg: ChatMessage, p: Proposal, para?: string): Promise<ChatMessage | undefined> {
     this.setState({ thinking: true });
     try {
-      if (p.texto) await this.whatsapp.enviar(p.chat ?? '', p.texto);
+      if (p.texto && p.audio) await this.whatsapp.enviarAudio(p.chat ?? '', p.texto);
+      else if (p.texto) await this.whatsapp.enviar(p.chat ?? '', p.texto);
       if (p.figurinha) await this.whatsapp.enviarFigurinha(p.chat ?? '', p.figurinha);
       this.updateProposal(msg, { status: 'confirmed' });
       return this.robotSay(`Mandei para ${p.destino ?? 'a conversa'}.`, 'happy', 'reply', { para });

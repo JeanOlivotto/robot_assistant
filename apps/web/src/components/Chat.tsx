@@ -49,7 +49,10 @@ function ProposalCard({ p, onConfirm }: { p: Proposal; onConfirm(ok: boolean): v
       ) : p.kind === 'whatsapp' ? (
         /* Mensagem no WhatsApp: o texto exato e o destino — sai só o que você está vendo. */
         <>
-          <div className="proposal-when">para {p.destino}</div>
+          <div className="proposal-when">
+            para {p.destino}
+            {p.audio && ' · 🎙️ vai como áudio, com a voz dele'}
+          </div>
           {p.texto && <div className="proposal-whatsapp">{p.texto}</div>}
           {p.figurinha && (
             <div className="proposal-figurinha">

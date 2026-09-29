@@ -14,7 +14,7 @@ import { SilencioService } from '../proactive/silencio.service.js';
 import { TaskService } from '../tasks/task.service.js';
 import { IdentidadeService } from '../identidade/identidade.service.js';
 import { BancoVozesService } from '../vozes/banco.service.js';
-import { assinar } from '../whatsapp/mensagem.js';
+import { apresentar, assinar } from '../whatsapp/mensagem.js';
 import { WhatsappService } from '../whatsapp/whatsapp.service.js';
 import { describeAgenda, EMOTIONS, splitEmotion, systemPrompt } from './prompts.js';
 import { DIAS, resolveDay, resolveWhen } from './resolve-date.js';
@@ -30,7 +30,7 @@ export interface ProposalDraft {
   /** Em qual máquina roda (o nome dela); sem isso, na que ele estiver usando na hora. */
   maquina?: string;
   /** Mensagem no WhatsApp do dono: para qual conversa, o texto exato e/ou uma figurinha com a cara dele. */
-  whatsapp?: { chat: string; destino: string; texto: string; figurinha?: Face };
+  whatsapp?: { chat: string; destino: string; texto: string; figurinha?: Face; audio?: boolean };
 }
 
 export interface BrainReply {
@@ -356,6 +356,12 @@ const TOOLS: ChatCompletionTool[] = [
             type: 'string',
             enum: Object.keys(EMOTIONS),
             description: 'manda também uma figurinha animada com a SUA cara nessa expressão (quando ele pedir, ou combinar). Só figurinha: texto vazio',
+          },
+          audio: {
+            type: 'boolean',
+            description:
+              'true = o texto vai FALADO, como mensagem de voz (áudio) com a SUA voz — quando ele pedir áudio. Só com como="robo" ' +
+              '(a voz é sua). Escreva como se fala: curto, sem emoji, link ou lista; a apresentação entra sozinha no começo',
           },
         },
         required: ['como'],
@@ -871,9 +877,18 @@ export class BrainService {
       return `recusado: "${nome}" não veio de uma apresentação clara ("sou…", "meu nome é…"). A transcrição pode ter errado — pergunte o nome de novo.`;
     }
     const v = this.banco.salvarPendente(nome);
-    return v
-      ? `voz salva como ${v.nome} (${v.amostras.length} amostra(s)). Da próxima vez você reconhece.`
-      : 'erro: não tem voz esperando para salvar — peça para a pessoa mandar um áudio falando';
+    if ('erro' in v) {
+      if (v.erro === 'outra-voz') {
+        return (
+          `recusado: você já conhece a voz de ${v.nome}, e essa NÃO é ela — quem está falando não é ${v.nome}. ` +
+          `Diga isso com firmeza (sem acusar de nada, pode ser com humor), NÃO trate a pessoa como ${v.nome} e pergunte de ` +
+          'novo quem está falando. Nada foi salvo.'
+        );
+      }
+      if (v.erro === 'ja-e-de') return `recusado: essa voz você já conhece — é de ${v.nome}. Pergunte se é ${v.nome} mesmo. Nada foi salvo.`;
+      return 'erro: não tem voz esperando para salvar — peça para a pessoa mandar um áudio falando';
+    }
+    return `voz salva como ${v.nome} (${v.amostras.length} amostra(s)). Da próxima vez você reconhece.`;
   }
 
   /** Só a própria pessoa (reconhecida pela voz) ou o dono apagam uma voz. Digitado = o dono, no app dele. */
@@ -911,7 +926,9 @@ export class BrainService {
     const quem = voz?.certeza === 'alta' ? semAcento(voz.nome ?? '') : null;
     if (voz && this.vozDeOutro(voz) && quem !== semAcento(atual)) return `recusado: só ${atual} ou ${this.cfg.OWNER_NAME || 'o dono'} corrigem esse nome`;
     const v = this.banco.renomear(atual, certo);
-    return v ? `pronto: a voz que estava como ${atual} agora é ${v.nome}` : `não tem voz salva como ${atual}`;
+    if (!v) return `não tem voz salva como ${atual}`;
+    if ('erro' in v) return `recusado: ${v.nome} já tem outra voz no banco — a de ${atual} não é a mesma pessoa. Nada mudou.`;
+    return `pronto: a voz que estava como ${atual} agora é ${v.nome}`;
   }
 
   /** Voz reconhecida com certeza, e não é a do dono. */
@@ -968,13 +985,23 @@ export class BrainService {
     if (!r.destino) return { result: `não deu: ${r.erro}` };
     const d = r.destino;
     const doRobo = args.como === 'robo';
-    const texto = escrito && doRobo ? assinar(escrito, this.identidade.nome, this.cfg.OWNER_NAME) : escrito;
-    const oQue = [texto && `"${texto}"`, figurinha && `uma figurinha sua (${String(args.figurinha)})`].filter(Boolean).join(' + ');
+    const audio = args.audio === true;
+    if (audio) {
+      if (!doRobo) return { result: 'erro: áudio sai com a SUA voz — só como "robo" (você falando dele). Se ele quer que pareça ele, vai por escrito.' };
+      if (!escrito) return { result: 'erro: falta o texto que você vai falar no áudio' };
+      if (!this.whatsapp.temVoz) return { result: 'não dá para mandar áudio agora: a voz do servidor está desligada. Ofereça mandar por escrito.' };
+    }
+    // Áudio não tem a assinatura escrita: você se apresenta falando (e é isso que aparece no cartão).
+    const texto = !escrito || !doRobo ? escrito : audio ? apresentar(escrito, this.identidade.nome, this.cfg.OWNER_NAME) : assinar(escrito, this.identidade.nome, this.cfg.OWNER_NAME);
+    if (audio && texto.length > 600) return { result: 'erro: áudio longo demais — resuma em poucas frases' };
+    const oQue = [texto && (audio ? `um áudio com a sua voz dizendo "${texto}"` : `"${texto}"`), figurinha && `uma figurinha sua (${String(args.figurinha)})`]
+      .filter(Boolean)
+      .join(' + ');
     return {
       result: `mensagem preparada para ${d.nome}${d.grupo ? ' (grupo)' : ''}, ${doRobo ? 'em SEU nome (assinada por você)' : 'em nome dele'}, esperando o dono aprovar: ${oQue}. Diga para quem, em nome de quem e o que vai, e peça o "sim" — não diga que já mandou.`,
       proposal: {
         title: `WhatsApp para ${d.nome}${doRobo ? ` (como ${this.identidade.nome})` : ''}`,
-        whatsapp: { chat: d.id, destino: d.nome, texto, ...(figurinha ? { figurinha } : {}) },
+        whatsapp: { chat: d.id, destino: d.nome, texto, ...(figurinha ? { figurinha } : {}), ...(audio ? { audio } : {}) },
       },
     };
   }

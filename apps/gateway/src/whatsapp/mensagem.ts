@@ -116,6 +116,12 @@ export function assinar(texto: string, robo: string, dono: string): string {
   return texto.startsWith(quem) ? texto : `${quem}\n${texto}`;
 }
 
+/** O áudio não leva a assinatura escrita: ele se apresenta falando, no começo. */
+export function apresentar(texto: string, robo: string, dono: string): string {
+  const quem = `Aqui é o ${robo}${dono ? `, assistente do ${dono}` : ''}.`;
+  return texto.startsWith(quem) ? texto : `${quem} ${texto}`;
+}
+
 /**
  * A mensagem chama o robô pelo nome? Só vale como vocativo — no começo ("Miro, tudo bem?", "oi
  * Miro") ou no fim ("tá aí, Miro?") —, não citado no meio ("o Miro do Jean é legal").

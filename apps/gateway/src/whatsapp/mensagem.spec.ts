@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { acharPorNome, aplicarMencoes, assinar, chamou, conteudo, descrever, mencionou, pedidoSensivel, respostaSuspeita, type Recebida } from './mensagem.js';
+import { acharPorNome, aplicarMencoes, apresentar, assinar, chamou, conteudo, descrever, mencionou, pedidoSensivel, respostaSuspeita, type Recebida } from './mensagem.js';
 
 describe('conteudo', () => {
   it('lê texto simples e texto com link/resposta', () => {
@@ -201,5 +201,13 @@ describe('conteudo: resposta a uma mensagem', () => {
 
   it('sem citação, sem o campo', () => {
     expect(conteudo({ conversation: 'oi' })).toEqual({ tipo: 'texto', texto: 'oi' });
+  });
+});
+
+describe('apresentar (áudio, sem assinatura escrita)', () => {
+  it('ele se apresenta falando, uma vez só', () => {
+    const t = apresentar('Pessoal, foco no New Prevent hoje.', 'Miro', 'Jean');
+    expect(t).toBe('Aqui é o Miro, assistente do Jean. Pessoal, foco no New Prevent hoje.');
+    expect(apresentar(t, 'Miro', 'Jean')).toBe(t);
   });
 });

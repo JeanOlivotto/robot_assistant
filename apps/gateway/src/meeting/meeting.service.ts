@@ -397,7 +397,13 @@ export class MeetingService implements OnModuleInit {
     if (!v) throw new MeetingError(`não tem Pessoa ${pessoa} nesta reunião`, 404);
     const limpo = nome.trim().slice(0, 40);
     if (!limpo) throw new MeetingError('falta o nome', 400);
-    if (v.embedding) this.banco.cadastrar(limpo, v.embedding);
+    // A ata troca o nome de qualquer jeito; o banco só aceita se a voz bater com o nome (ou for nova):
+    // "Pessoa 2 é o Jean" com a voz de outro não pode entrar no cadastro do Jean.
+    if (v.embedding) {
+      const recusa = this.banco.conferir(limpo, v.embedding);
+      if (recusa) this.log.warn(`Pessoa ${pessoa} ficou como ${limpo} na ata, mas a voz não foi para o banco (${recusa.erro}: ${recusa.nome})`);
+      else this.banco.cadastrar(limpo, v.embedding);
+    }
     v.nome = limpo;
 
     const troca = (s: string) => s.replace(new RegExp(`\\bPessoa ${pessoa}\\b`, 'g'), limpo);

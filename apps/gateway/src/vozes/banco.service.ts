@@ -34,6 +34,13 @@ export interface Reconhecimento {
   certeza: 'alta' | 'duvida';
 }
 
+/**
+ * Por que uma voz não entrou no banco: `outra-voz` = o nome já tem uma voz, e esta não é ela (alguém
+ * dizendo "sou o Jean" sem ser); `ja-e-de` = esta voz já é de outra pessoa do banco.
+ */
+export type Conflito = { erro: 'outra-voz' | 'ja-e-de'; nome: string };
+export type Recusa = { erro: 'sem-voz' } | Conflito;
+
 const norm = (s: string) =>
   s
     .toLowerCase()
@@ -113,9 +120,29 @@ export class BancoVozesService {
     this.pendente = { embedding, at: Date.now() };
   }
 
-  /** A pessoa disse o nome: a voz pendente entra no banco. Null se não há voz esperando. */
-  salvarPendente(nome: string): VozConhecida | null {
-    if (!this.pendente || Date.now() - this.pendente.at > PENDENTE_MS) return null;
+  /**
+   * Esta voz pode ficar com esse nome? Nome que já está no banco só aceita a MESMA voz — senão
+   * qualquer um dizendo "sou o Jean" entraria no cadastro dele e passaria a ser reconhecido como
+   * ele (e aprovaria o que só o dono aprova). E voz que já é de alguém não vira outra pessoa.
+   */
+  conferir(nome: string, embedding: number[]): Conflito | null {
+    const dele = this.vozes.find((x) => norm(x.nome) === norm(nome));
+    if (dele && cosseno(embedding, media(dele.amostras)) < DUVIDA) return { erro: 'outra-voz', nome: dele.nome };
+    const outro = this.vozes.find((x) => x !== dele && cosseno(embedding, media(x.amostras)) >= RECONHECE);
+    return outro ? { erro: 'ja-e-de', nome: outro.nome } : null;
+  }
+
+  /**
+   * A pessoa disse o nome: a voz pendente entra no banco — se bater com o nome (veja `conferir`).
+   * Recusada, a voz continua esperando: a pessoa pode dizer quem é de verdade.
+   */
+  salvarPendente(nome: string): VozConhecida | Recusa {
+    if (!this.pendente || Date.now() - this.pendente.at > PENDENTE_MS) return { erro: 'sem-voz' };
+    const recusa = this.conferir(nome, this.pendente.embedding);
+    if (recusa) {
+      this.log.warn(`Voz recusada como "${nome}": ${recusa.erro === 'outra-voz' ? 'não bate com a voz cadastrada' : `já é de ${recusa.nome}`}`);
+      return recusa;
+    }
     const v = this.cadastrar(nome, this.pendente.embedding);
     this.pendente = null;
     return v;
@@ -126,12 +153,16 @@ export class BancoVozesService {
     return this.vozes.some((v) => norm(v.nome) === norm(nome));
   }
 
-  /** O nome foi salvo errado ("Gui" no lugar de "Jean"): corrige. Se o nome certo já existe, junta as duas. */
-  renomear(atual: string, certo: string): VozConhecida | null {
+  /**
+   * O nome foi salvo errado ("Gui" no lugar de "Jean"): corrige. Se o nome certo já existe, junta as
+   * duas — só se forem a mesma voz (senão seria um jeito de entrar no cadastro de outra pessoa).
+   */
+  renomear(atual: string, certo: string): VozConhecida | Conflito | null {
     const v = this.vozes.find((x) => norm(x.nome) === norm(atual));
     const limpo = certo.trim().slice(0, 40);
     if (!v || !limpo) return null;
     const outra = this.vozes.find((x) => x !== v && norm(x.nome) === norm(limpo));
+    if (outra && cosseno(media(v.amostras), media(outra.amostras)) < DUVIDA) return { erro: 'outra-voz', nome: outra.nome };
     if (outra) {
       outra.amostras = [...outra.amostras, ...v.amostras].slice(-MAX_AMOSTRAS);
       outra.atualizadaEm = Date.now();
