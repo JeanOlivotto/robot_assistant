@@ -3,6 +3,7 @@ import { Injectable, Logger, Optional } from '@nestjs/common';
 import { BehaviorSubject, Subject } from 'rxjs';
 import type { WebSocket } from 'ws';
 import { AcoesService, broadcastDe, mesmaRede, montar, paramsDe, type Rede } from './acoes.service.js';
+import { semSenha } from './seguranca.js';
 
 /** Uma ação que a máquina sabe fazer sem aprovação: cadastrada no painel ou anunciada por ela (acoes.json). */
 export interface Acao {
@@ -261,7 +262,7 @@ export class BracoService {
       }, timeoutMs);
       this.pendentes.set(id, { ws: c.ws, resolve, timer });
       c.ws.send(JSON.stringify({ t: 'run', id, ...corpo }));
-      this.log.log(`Pedido para ${c.nome}: ${corpo.acao ?? corpo.cmd ?? (corpo.consultar ? 'consulta de código' : `programar ${corpo.programar?.projeto}`)}`);
+      this.log.log(`Pedido para ${c.nome}: ${corpo.acao ?? (corpo.cmd && semSenha(corpo.cmd)) ?? (corpo.consultar ? 'consulta de código' : `programar ${corpo.programar?.projeto}`)}`);
     });
   }
 }

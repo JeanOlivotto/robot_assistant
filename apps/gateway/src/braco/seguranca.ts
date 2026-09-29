@@ -34,3 +34,13 @@ export function comandoSimples(cmd: string): boolean {
   if (ENCADEAMENTO.test(c)) return false;
   return !PROIBIDOS.test(c);
 }
+
+/**
+ * Senha que entra no sudo pelo stdin (`echo 'senha' | sudo -S …`) não vai para o log: vira '***'.
+ * O comando roda como veio; só o que fica escrito é mascarado.
+ */
+const SENHA_NO_SUDO = /\b((?:echo|printf)\s+)("[^"]*"|'[^']*'|[^\s|]+)(\s*\|\s*sudo\b)/gi;
+
+export function semSenha(cmd: string): string {
+  return cmd.replace(SENHA_NO_SUDO, "$1'***'$3");
+}

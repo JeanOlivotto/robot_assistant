@@ -27,6 +27,11 @@ export function escapar(valor, windows = WINDOWS) {
   return windows ? `'${v.replace(/'/g, "''")}'` : `'${v.replace(/'/g, `'\\''`)}'`;
 }
 
+/** Senha que entra no sudo pelo stdin (`echo 'senha' | sudo -S …`) vira '***' no log; o comando roda como veio. */
+export function semSenha(cmd) {
+  return cmd.replace(/\b((?:echo|printf)\s+)("[^"]*"|'[^']*'|[^\s|]+)(\s*\|\s*sudo\b)/gi, "$1'***'$3");
+}
+
 /** Monta o comando de uma ação, trocando {param} pelos argumentos escapados. */
 export function montar(acao, args = {}, windows = WINDOWS) {
   return acao.comando.replace(/\{(\w+)\}/g, (_, nome) => {
@@ -213,11 +218,11 @@ export class Braco {
       } catch (err) {
         return Promise.resolve({ ok: false, saida: '', erro: err.message });
       }
-      console.log(`[braço] ação ${acao.nome}: ${comando}`);
+      console.log(`[braço] ação ${acao.nome}: ${semSenha(comando)}`);
       return rodar(comando);
     }
     if (pedido.cmd) {
-      console.log(`[braço] comando aprovado: ${pedido.cmd}`);
+      console.log(`[braço] comando aprovado: ${semSenha(pedido.cmd)}`);
       return rodar(pedido.cmd);
     }
     return Promise.resolve({ ok: false, saida: '', erro: 'pedido vazio' });
