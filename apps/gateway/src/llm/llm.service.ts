@@ -168,6 +168,48 @@ export class LlmService {
     throw lastError instanceof Error ? lastError : new Error('nenhum modelo respondeu');
   }
 
+  /**
+   * Pesquisa na internet: o gpt-oss do Groq tem busca embutida (browser_search), sem chave nova. Chamada
+   * à parte, no 20b primeiro — o limite por minuto dele é separado, o do modelo principal fica livre.
+   * Devolve o que achou, curto, com as fontes.
+   */
+  async pesquisar(pergunta: string): Promise<string> {
+    const alvos = this.targets
+      .filter((t) => t.fast && /gpt-oss/.test(t.model) && !/safeguard/.test(t.model))
+      .sort((a, b) => Number(/120b/.test(a.model)) - Number(/120b/.test(b.model)));
+    if (!alvos.length) throw new Error('a busca na internet precisa do gpt-oss no Groq');
+    let erro: unknown;
+    for (const t of alvos) {
+      const started = Date.now();
+      try {
+        const res = await t.client.chat.completions.create({
+          model: t.model,
+          messages: [
+            {
+              role: 'system',
+              content:
+                'Pesquise na internet e responda em português do Brasil, curto e só com fatos: o que achou (números, datas, ' +
+                'versões, nomes) e, no fim, as fontes (só o site, ex.: nodejs.org). Não achou ou as fontes discordam: diga isso.',
+            },
+            { role: 'user', content: pergunta },
+          ],
+          // Ferramenta do próprio Groq (não é function calling): o SDK não conhece o tipo.
+          tools: [{ type: 'browser_search' } as unknown as ChatCompletionTool],
+          temperature: 0.2,
+          max_tokens: 1200,
+        });
+        const texto = limparCitacoes(res.choices[0]?.message?.content ?? '');
+        this.log.debug(`${t.label} pesquisou em ${Date.now() - started} ms (${res.usage?.total_tokens ?? '?'} tokens)`);
+        if (texto) return texto;
+        erro = new Error('a busca voltou vazia');
+      } catch (err) {
+        erro = err;
+        this.log.warn(`${t.label} não conseguiu pesquisar em ${Date.now() - started} ms (${(err as Error).message})`);
+      }
+    }
+    throw erro instanceof Error ? erro : new Error('a busca falhou');
+  }
+
   /** O modelo rápido que sai do limite por minuto mais cedo, se for em até RATE_WAIT_MAX_MS. */
   private soonestFast(): { target: Target; wait: number } | null {
     const now = Date.now();
@@ -200,4 +242,13 @@ export function penaltyFor(err: unknown): number {
     return s ? Math.ceil(Number(s[1]) * 1000) + 1000 : 60_000;
   }
   return PENALTY_MS;
+}
+
+/** Tira as marcas de citação do gpt-oss ("【1†L6-L8】"): na tela e na voz, são só ruído. */
+export function limparCitacoes(texto: string): string {
+  return texto
+    .replace(/【[^】]*】/g, '')
+    .replace(/[ \t]+([.,;:!?])/g, '$1')
+    .replace(/[ \t]{2,}/g, ' ')
+    .trim();
 }

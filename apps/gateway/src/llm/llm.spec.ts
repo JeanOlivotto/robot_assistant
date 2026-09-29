@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { AppConfig } from '../config/app-config.js';
-import { LlmService, penaltyFor } from './llm.service.js';
+import { LlmService, limparCitacoes, penaltyFor } from './llm.service.js';
 
 describe('penaltyFor', () => {
   it('limite por minuto: espera só o que o provedor pediu (+1 s)', () => {
@@ -128,5 +128,54 @@ describe('LlmService: dia ruim (Groq no limite, NVIDIA fora do ar)', () => {
     lento.mockResolvedValue(ok('lento'));
     expect((await svc.complete([{ role: 'user', content: 'oi' }])).content).toBe('lento');
     expect((await svc.complete([{ role: 'user', content: 'de novo' }])).content).toBe('grande');
+  });
+});
+
+describe('LlmService: pesquisar na internet', () => {
+  const make = () => {
+    const svc = new LlmService({
+      LLM_BASE_URL: 'https://api.groq.com/openai/v1',
+      LLM_API_KEY: 'x',
+      LLM_MODEL: 'openai/gpt-oss-120b',
+      LLM_EXTRA_MODELS: 'openai/gpt-oss-20b,qwen/qwen3.8-27b',
+      LLM_FALLBACK_BASE_URL: 'https://integrate.api.nvidia.com/v1',
+      LLM_FALLBACK_API_KEY: 'y',
+      LLM_FALLBACK_MODELS: 'lento',
+    } as unknown as AppConfig);
+    const creates = [vi.fn(), vi.fn(), vi.fn(), vi.fn()];
+    const targets = (svc as unknown as { targets: { client: unknown }[] }).targets;
+    creates.forEach((create, i) => (targets[i]!.client = { chat: { completions: { create } } }));
+    const [grande, pequeno, qwen, nvidia] = creates as [ReturnType<typeof vi.fn>, ReturnType<typeof vi.fn>, ReturnType<typeof vi.fn>, ReturnType<typeof vi.fn>];
+    return { svc, grande, pequeno, qwen, nvidia };
+  };
+
+  it('usa o 20b com a busca embutida (o limite por minuto do principal fica livre)', async () => {
+    const { svc, grande, pequeno, qwen, nvidia } = make();
+    pequeno.mockResolvedValue({ choices: [{ message: { content: 'Node 26.10.0 【1†L6-L8】. Fonte: nodejs.org' } }] });
+    expect(await svc.pesquisar('versão do node')).toBe('Node 26.10.0. Fonte: nodejs.org');
+    expect(pequeno.mock.calls[0]![0].tools).toEqual([{ type: 'browser_search' }]);
+    expect(grande).not.toHaveBeenCalled();
+    expect(qwen).not.toHaveBeenCalled();
+    expect(nvidia).not.toHaveBeenCalled();
+  });
+
+  it('o 20b no limite: pesquisa pelo 120b', async () => {
+    const { svc, grande, pequeno } = make();
+    pequeno.mockRejectedValue(Object.assign(new Error('429'), { status: 429 }));
+    grande.mockResolvedValue({ choices: [{ message: { content: 'achei' } }] });
+    expect(await svc.pesquisar('x')).toBe('achei');
+  });
+
+  it('nenhum conseguiu: erro (o Miro diz que não achou, não inventa)', async () => {
+    const { svc, grande, pequeno } = make();
+    pequeno.mockRejectedValue(new Error('fora'));
+    grande.mockResolvedValue({ choices: [{ message: { content: '' } }] });
+    await expect(svc.pesquisar('x')).rejects.toThrow();
+  });
+});
+
+describe('limparCitacoes', () => {
+  it('tira as marcas do gpt-oss sem estragar o texto', () => {
+    expect(limparCitacoes('É a 26.10.0 【1†L6-L8】 (Current) 【3†L1】.')).toBe('É a 26.10.0 (Current).');
   });
 });
