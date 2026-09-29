@@ -188,8 +188,11 @@ export class SttService {
     return { text, seconds, segments };
   }
 
-  /** Roda o ffmpeg com a saída pedida e devolve os bytes. Arquivos temporários (MP4 não faz stream). */
-  private async ffmpeg(audio: Buffer, outArgs: string[]): Promise<Buffer> {
+  /**
+   * Roda o ffmpeg com a saída pedida e devolve os bytes. Arquivos temporários (MP4 não faz stream).
+   * Público: o WhatsApp usa para virar a fala do robô em mensagem de voz (Opus).
+   */
+  async ffmpeg(audio: Buffer, outArgs: string[]): Promise<Buffer> {
     const base = join(tmpdir(), `robo-${randomUUID()}`);
     const input = `${base}.in`;
     const output = `${base}.out`;

@@ -8,6 +8,7 @@ describe('lerSaida', () => {
       avisar: 'a Jaque quer falar da nota',
       expressao: '',
       figurinha: false,
+      audio: false,
       tom: 'brincadeira',
       pendencia: '',
       consulta: '',
@@ -25,6 +26,7 @@ describe('lerSaida', () => {
       avisar: '',
       expressao: 'confuso',
       figurinha: false,
+      audio: false,
       tom: 'brincadeira',
       pendencia: '',
       consulta: '',
@@ -32,7 +34,7 @@ describe('lerSaida', () => {
   });
 
   it('avisar ausente vira vazio', () => {
-    expect(lerSaida('{"resposta":"kkk boa"}')).toEqual({ resposta: 'kkk boa', avisar: '', expressao: '', figurinha: false, tom: 'brincadeira', pendencia: '', consulta: '' });
+    expect(lerSaida('{"resposta":"kkk boa"}')).toEqual({ resposta: 'kkk boa', avisar: '', expressao: '', figurinha: false, audio: false, tom: 'brincadeira', pendencia: '', consulta: '' });
   });
 
   it('só a figurinha, sem texto, também vale', () => {
@@ -41,6 +43,7 @@ describe('lerSaida', () => {
       avisar: '',
       expressao: 'irritado',
       figurinha: true,
+      audio: false,
       tom: 'brincadeira',
       pendencia: '',
       consulta: '',
@@ -57,6 +60,17 @@ describe('lerSaida', () => {
     expect(lerSaida('{"resposta":"pera","tom":"serio","consulta":"como funciona o login no previnity?"}')?.consulta).toBe(
       'como funciona o login no previnity?',
     );
+  });
+
+  it('"audio": true pede a resposta em voz', () => {
+    expect(lerSaida('{"resposta":"Pô, que isso, relaxa aí","audio":true}')?.audio).toBe(true);
+    expect(lerSaida('{"resposta":"oi"}')?.audio).toBe(false);
+  });
+
+  it('"calar": ficar quieto quando não era com ele', () => {
+    expect(lerSaida('{"calar": true}')?.calar).toBe(true);
+    // Mandou calar mas também escreveu: vale a resposta.
+    expect(lerSaida('{"calar": true, "resposta": "opa"}')?.calar).toBeUndefined();
   });
 
   it('expressão vem normalizada', () => {

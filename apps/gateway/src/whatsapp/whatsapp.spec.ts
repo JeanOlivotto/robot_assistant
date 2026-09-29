@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import type { AppConfig } from '../config/app-config.js';
 import type { SttService } from '../stt/stt.service.js';
+import type { TtsService } from '../tts/tts.service.js';
 import type { VisionService } from '../vision/vision.service.js';
 import { WhatsappService } from './whatsapp.service.js';
 
@@ -14,7 +15,7 @@ type Interno = {
 };
 
 const make = (dir: string) =>
-  new WhatsappService({ DATA_DIR: dir, TZ_NAME: 'America/Sao_Paulo' } as unknown as AppConfig, {} as SttService, {} as VisionService);
+  new WhatsappService({ DATA_DIR: dir, TZ_NAME: 'America/Sao_Paulo' } as unknown as AppConfig, {} as SttService, {} as VisionService, {} as TtsService);
 
 const audio = (id: string) => ({
   key: { remoteJid: '5511999990001@s.whatsapp.net', id, fromMe: false },

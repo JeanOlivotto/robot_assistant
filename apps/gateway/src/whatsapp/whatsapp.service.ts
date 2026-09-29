@@ -21,6 +21,7 @@ import { Subject } from 'rxjs';
 import { APP_CONFIG, type AppConfig } from '../config/app-config.js';
 import { rootPath } from '../config/paths.js';
 import { MAX_VOICE_SECONDS, SttService } from '../stt/stt.service.js';
+import { TtsService } from '../tts/tts.service.js';
 import { VisionService } from '../vision/vision.service.js';
 import { figurinha } from './figurinha.js';
 import { acharPorNome, aplicarMencoes, arroba, conteudo, corpo, descrever, type Recebida, semAcento } from './mensagem.js';
@@ -130,6 +131,7 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
     @Inject(APP_CONFIG) private readonly cfg: AppConfig,
     private readonly stt: SttService,
     private readonly vision: VisionService,
+    private readonly tts: TtsService,
   ) {
     this.authDir = rootPath(`${cfg.DATA_DIR}/whatsapp-auth`);
     this.file = rootPath(`${cfg.DATA_DIR}/whatsapp.json`);
@@ -593,10 +595,32 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
   }
 
   /** Figurinha animada com a cara do robô. Só pelo atendente (em nome dele) ou depois do "sim" do dono. */
-  async enviarFigurinha(chat: string, face: Face): Promise<void> {
+  async enviarFigurinha(chat: string, face: Face): Promise<string | undefined> {
     if (!this.sock || !this.conectado) throw new Error('o WhatsApp não está conectado');
     const m = await this.sock.sendMessage(chat, { sticker: await figurinha(face), isAnimated: true });
     if (m?.key.id) this.enviadas.add(m.key.id);
+    return m?.key.id ?? undefined;
+  }
+
+  /** Dá para mandar mensagem de voz? Precisa da voz do servidor (edge-tts ou ElevenLabs). */
+  get temVoz(): boolean {
+    return !!this.tts.provider;
+  }
+
+  /**
+   * A fala do robô como mensagem de voz (a bolinha azul, não arquivo): o WhatsApp só mostra assim se
+   * vier em Opus dentro de OGG. Só pelo atendente, em nome dele.
+   */
+  async enviarAudio(chat: string, texto: string, opts: { citando?: string } = {}): Promise<string | undefined> {
+    if (!this.sock || !this.conectado) throw new Error('o WhatsApp não está conectado');
+    // "@Fábio" falado vira "arroba Fábio": na voz, é só o nome.
+    const mp3 = await this.tts.synth(texto.replace(/@(?=\p{L})/gu, ''));
+    const ogg = await this.stt.ffmpeg(mp3, ['-vn', '-ac', '1', '-ar', '48000', '-c:a', 'libopus', '-b:a', '32k', '-application', 'voip', '-f', 'ogg']);
+    const quoted = opts.citando ? this.recebidas.find((x) => x.m.id === opts.citando)?.raw : undefined;
+    const m = await this.sock.sendMessage(chat, { audio: ogg, mimetype: 'audio/ogg; codecs=opus', ptt: true }, quoted ? { quoted } : undefined);
+    if (m?.key.id) this.enviadas.add(m.key.id);
+    this.log.log(`WhatsApp: áudio enviado para ${this.nomes.get(chat) ?? numeroDe(chat)} (${texto.length} caracteres)`);
+    return m?.key.id ?? undefined;
   }
 
   /**
@@ -637,7 +661,7 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
    * aquela mensagem. Em grupo, "@Nome" no texto vira menção de verdade; `marcar` (jids) entra
    * marcado no começo.
    */
-  async enviar(chat: string, texto: string, opts: { citando?: string; marcar?: string[] } = {}): Promise<void> {
+  async enviar(chat: string, texto: string, opts: { citando?: string; marcar?: string[] } = {}): Promise<string | undefined> {
     if (!this.sock || !this.conectado) throw new Error('o WhatsApp não está conectado');
     const quoted = opts.citando ? this.recebidas.find((x) => x.m.id === opts.citando)?.raw : undefined;
     let final = texto;
@@ -660,6 +684,7 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
       if (this.enviadas.size > 200) this.enviadas.delete(this.enviadas.values().next().value!);
     }
     this.log.log(`WhatsApp enviado para ${this.nomes.get(chat) ?? numeroDe(chat)} (${texto.length} caracteres)`);
+    return m?.key.id ?? undefined;
   }
 
   private save(): void {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { acharPorNome, aplicarMencoes, assinar, chamou, conteudo, descrever, pedidoSensivel, respostaSuspeita, type Recebida } from './mensagem.js';
+import { acharPorNome, aplicarMencoes, assinar, chamou, conteudo, descrever, mencionou, pedidoSensivel, respostaSuspeita, type Recebida } from './mensagem.js';
 
 describe('conteudo', () => {
   it('lê texto simples e texto com link/resposta', () => {
@@ -173,5 +173,33 @@ describe('descrever', () => {
     const audio = { ...base, tipo: 'audio' as const, texto: '', segundos: 8 };
     expect(descrever(audio, '10:00', 'me liga depois')).toBe('10:00 · Fábio: [áudio] me liga depois');
     expect(descrever(audio, '10:00')).toBe('10:00 · Fábio: [áudio de 8s, sem transcrição]');
+  });
+});
+
+describe('mencionou', () => {
+  it('o nome em qualquer lugar da frase', () => {
+    expect(mencionou('será que o Miro sabe disso?', ['Miro'])).toBe(true);
+    expect(mencionou('pergunta pro miro', ['Miro'])).toBe(true);
+    expect(mencionou('Míro', ['Miro'])).toBe(true);
+  });
+
+  it('pedaço de outra palavra não conta', () => {
+    expect(mencionou('mirou e errou', ['Miro'])).toBe(false);
+    expect(mencionou('', ['Miro'])).toBe(false);
+  });
+});
+
+describe('conteudo: resposta a uma mensagem', () => {
+  it('guarda o id da mensagem citada', () => {
+    expect(conteudo({ extendedTextMessage: { text: 'kkkk verdade', contextInfo: { stanzaId: 'ABC123' } } })).toEqual({
+      tipo: 'texto',
+      texto: 'kkkk verdade',
+      citou: 'ABC123',
+    });
+    expect(conteudo({ audioMessage: { seconds: 4, contextInfo: { stanzaId: 'XYZ' } } })?.citou).toBe('XYZ');
+  });
+
+  it('sem citação, sem o campo', () => {
+    expect(conteudo({ conversation: 'oi' })).toEqual({ tipo: 'texto', texto: 'oi' });
   });
 });

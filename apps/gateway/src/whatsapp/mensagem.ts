@@ -18,6 +18,8 @@ export interface Recebida {
   texto: string;
   /** Duração do áudio, em segundos. */
   segundos?: number;
+  /** A mensagem que esta responde (o "responder" do WhatsApp), quando cita uma. */
+  citou?: string;
 }
 
 type Tipo = Recebida['tipo'];
@@ -40,9 +42,21 @@ export function desembrulhar(m: proto.IMessage | null | undefined): proto.IMessa
 }
 
 /** Tipo e texto legível de uma mensagem; null para o que não é conversa (reação, aviso de sistema…). */
-export function conteudo(m: proto.IMessage | null | undefined): { tipo: Tipo; texto: string; segundos?: number } | null {
+export function conteudo(m: proto.IMessage | null | undefined): { tipo: Tipo; texto: string; segundos?: number; citou?: string } | null {
   const msg = desembrulhar(m);
   if (!msg) return null;
+  const c = tipoETexto(msg);
+  const citou = citada(msg);
+  return c && citou ? { ...c, citou } : c;
+}
+
+/** O id da mensagem que esta cita ("responder"), venha ela como texto, foto, áudio… */
+function citada(msg: proto.IMessage): string | undefined {
+  const com = msg.extendedTextMessage ?? msg.imageMessage ?? msg.videoMessage ?? msg.audioMessage ?? msg.stickerMessage ?? msg.documentMessage;
+  return com?.contextInfo?.stanzaId || undefined;
+}
+
+function tipoETexto(msg: proto.IMessage): { tipo: Tipo; texto: string; segundos?: number } | null {
   if (msg.conversation) return { tipo: 'texto', texto: msg.conversation };
   if (msg.extendedTextMessage?.text) return { tipo: 'texto', texto: msg.extendedTextMessage.text };
   if (msg.audioMessage) return { tipo: 'audio', texto: '', segundos: Number(msg.audioMessage.seconds ?? 0) || undefined };
@@ -114,6 +128,15 @@ export function chamou(texto: string, nomes: string[], opts: { soNoComeco?: bool
     .map(semAcento)
     .filter(Boolean)
     .some((n) => new RegExp(`^${saudacao}${n}\\b`).test(t) || (!opts.soNoComeco && new RegExp(`\\b${n}$`).test(t)));
+}
+
+/**
+ * O nome aparece em qualquer lugar da frase ("será que o Miro sabe?", "pergunta pro miro"): pode ser
+ * com ele ou só sobre ele — quem decide é o modelo, que pode ficar quieto.
+ */
+export function mencionou(texto: string, nomes: string[]): boolean {
+  const t = semAcento(texto);
+  return !!t && nomes.map(semAcento).filter(Boolean).some((n) => new RegExp(`\\b${n}\\b`).test(t));
 }
 
 /** O "@" que o WhatsApp entende: o número (ou o LID) do jid, sem domínio nem aparelho. */
