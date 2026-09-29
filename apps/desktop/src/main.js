@@ -16,6 +16,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { BrowserWindow, Menu, Notification, Tray, app, desktopCapturer, globalShortcut, ipcMain, powerMonitor, screen, session, shell } from 'electron';
 import { Braco } from './braco.js';
+import { olhar, reparar } from './olho.js';
 import { Ouvinte } from './ouvinte.js';
 
 const AQUI = dirname(fileURLToPath(import.meta.url));
@@ -79,6 +80,7 @@ let posicionadoEm = 0;
 let relativo = null;
 let andando = null; // a caminhada em curso (setInterval)
 let passear = true; // passeia pela tela sozinho (bandeja liga/desliga)
+let comentarCodigo = true; // espia o VS Code e comenta de vez em quando (olho.js; bandeja liga/desliga)
 let ocupada = false; // balão aberto ou mouse em cima: fica quieta
 let arrastadaEm = 0;
 let dormindo = false; // o robô está dormindo: a carinha não se mexe até alguém acordá-lo
@@ -142,6 +144,7 @@ function cantoInicial() {
   if (typeof salvo.passear === 'boolean') passear = salvo.passear;
   if (typeof salvo.ouvir === 'boolean') ouvir = salvo.ouvir;
   if (typeof salvo.usarComputador === 'boolean') usarComputador = salvo.usarComputador;
+  if (typeof salvo.comentarCodigo === 'boolean') comentarCodigo = salvo.comentarCodigo;
   return cantoNo(screen.getPrimaryDisplay().workArea);
 }
 
@@ -492,6 +495,25 @@ setInterval(() => {
 }, 15_000);
 app.on('will-quit', () => braco.desligar());
 
+/* ── o olho no código (olho.js) ───────────────────────────────────────── */
+
+/*
+ * A cada minuto, repara se o VS Code está em foco (guarda o último); a cada 20 min, se você está
+ * mexendo no PC, manda o arquivo aberto e o git diff — o servidor decide se o Miro comenta.
+ * Vai pela conexão do braço: com "Deixar o Miro usar este computador" desligado, não sai nada.
+ */
+const OLHAR_A_CADA_MS = 20 * 60_000;
+setInterval(() => comentarCodigo && void reparar(), 60_000);
+const espiar = async () => {
+  if (!comentarCodigo || !braco.conectado || powerMonitor.getSystemIdleTime() > 300) return;
+  const olhada = await olhar(OLHAR_A_CADA_MS).catch(() => null);
+  if (olhada) braco.olhar(olhada);
+};
+setTimeout(() => {
+  void espiar();
+  setInterval(() => void espiar(), OLHAR_A_CADA_MS);
+}, 5 * 60_000);
+
 /* ── seguir o monitor em uso, andando ────────────────────────────────── */
 
 function pararDeAndar() {
@@ -649,6 +671,15 @@ function atualizarBandeja() {
           if (usarComputador) braco.ligar();
           else braco.desligar();
           atualizarBandeja();
+        },
+      },
+      {
+        label: `${nomeDele} comenta o que eu programo`,
+        type: 'checkbox',
+        checked: comentarCodigo,
+        click: (item) => {
+          comentarCodigo = item.checked;
+          salvarEstado({ comentarCodigo });
         },
       },
       {

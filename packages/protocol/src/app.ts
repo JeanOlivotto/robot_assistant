@@ -42,8 +42,11 @@ export const Proposal = z.object({
   error: z.string().optional(),
 });
 
-/** 'whatsapp': recado que o robô repassa ao dono sobre o WhatsApp (quem aparece nele NÃO está na conversa). */
-export const MESSAGE_KINDS = ['reply', 'proactive', 'reminder', 'meeting', 'whatsapp'] as const;
+/**
+ * 'whatsapp': recado que o robô repassa ao dono sobre o WhatsApp (quem aparece nele NÃO está na conversa).
+ * 'codigo': comentário dele sobre o que o dono está programando — aparece só no computador, sem push.
+ */
+export const MESSAGE_KINDS = ['reply', 'proactive', 'reminder', 'meeting', 'whatsapp', 'codigo'] as const;
 
 /** Por onde a mensagem do dono chegou. */
 export const MESSAGE_VIA = ['text', 'voice', 'siri'] as const;
@@ -81,6 +84,8 @@ export const ChatMessage = z.object({
    * fala; os outros guardam no histórico em silêncio. Sem o campo: é para todos (lembrete, aviso).
    */
   para: z.string().max(64).optional(),
+  /** Só o app deste computador abre balão (ex.: comentário sobre o código que está aberto nele). */
+  paraMaquina: z.string().max(60).optional(),
 });
 
 export const RobotView = z.object({

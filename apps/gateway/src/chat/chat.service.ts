@@ -165,7 +165,7 @@ export class ChatService implements OnModuleInit, OnModuleDestroy {
     text: string,
     face: Face,
     kind: MessageKind,
-    opts: { proposal?: Proposal; expectsReply?: boolean; replyVia?: MessageVia; para?: string } = {},
+    opts: { proposal?: Proposal; expectsReply?: boolean; replyVia?: MessageVia; para?: string; paraMaquina?: string } = {},
   ): ChatMessage {
     const msg: ChatMessage = {
       id: randomUUID(),
@@ -176,13 +176,14 @@ export class ChatService implements OnModuleInit, OnModuleDestroy {
       face,
       proposal: opts.proposal,
       ...(opts.para ? { para: opts.para } : {}),
+      ...(opts.paraMaquina ? { paraMaquina: opts.paraMaquina } : {}),
     };
     this.push(msg);
     this.said$.next({ message: msg, replyVia: opts.replyVia });
     this.react$.next({ face, ms: 5000 });
     this.setState({
       // Resposta a quem perguntou de outro aparelho não vira balão na telinha da mesa (só a cara reage).
-      preview: opts.para ? this.state.preview : deviceText(text, LIMITS.PREVIEW_MAX_BYTES),
+      preview: opts.para || opts.paraMaquina ? this.state.preview : deviceText(text, LIMITS.PREVIEW_MAX_BYTES),
       waitingSince: opts.expectsReply ? msg.ts : this.state.waitingSince,
     });
     return msg;

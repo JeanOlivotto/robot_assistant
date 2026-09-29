@@ -101,6 +101,11 @@ export class MeetingService implements OnModuleInit {
     }
   }
 
+  /** Alguma reunião gravando agora (o Miro não interrompe com comentário à toa). */
+  get gravando(): boolean {
+    return this.active.size > 0;
+  }
+
   get ready(): boolean {
     return this.stt.enabled && this.llm.enabled;
   }

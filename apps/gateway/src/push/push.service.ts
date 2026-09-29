@@ -67,6 +67,8 @@ export class PushService implements OnModuleInit, OnModuleDestroy {
       const kind = message.kind ?? 'reply';
       // Resposta: só se ninguém está olhando o app, e nunca para a Siri (ela já falou em voz alta).
       if (kind === 'reply' && (replyVia === 'siri' || this.app.anyVisible)) return;
+      // Comentário sobre o código: é para quem está no computador, não para o celular.
+      if (kind === 'codigo') return;
       void this.notify({
         title: kind === 'reminder' ? 'Lembrete' : kind === 'meeting' ? 'Reunião' : kind === 'whatsapp' ? 'WhatsApp' : this.identidade.nome, // o nome que ele escolheu
         body: message.text,

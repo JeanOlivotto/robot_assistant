@@ -143,6 +143,11 @@ export class Braco {
     return this.ws?.readyState === WebSocket.OPEN;
   }
 
+  /** O que está aberto no VS Code e o que mudou (olho.js): o Miro comenta, se achar que vale. */
+  olhar(olhada) {
+    if (this.conectado) this.ws.send(JSON.stringify({ t: 'olhar', ...olhada }));
+  }
+
   /** Ações que você autorizou nesta máquina (acoes.json: [{ nome, descricao, params, comando }]). */
   acoes() {
     try {

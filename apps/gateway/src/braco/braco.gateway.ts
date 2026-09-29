@@ -51,10 +51,19 @@ const Arquivo = z.object({
   dados: z.string().max(Math.ceil((ARQUIVO_MAX_BYTES * 4) / 3) + 8),
 });
 
+/** O que o dono está programando no VS Code desta máquina (para o Miro comentar de vez em quando). */
+const Olhar = z.object({
+  t: z.literal('olhar'),
+  projeto: z.string().max(100),
+  arquivo: z.string().max(300).default(''),
+  diff: z.string().max(12_000).default(''),
+  commits: z.string().max(3000).default(''),
+});
+
 /** O dono está mexendo nesta máquina (teclado/mouse): comandos sem máquina escolhida vão para ela. */
 const Ativo = z.object({ t: z.literal('ativo') });
 
-const Entrada = z.discriminatedUnion('t', [Hello, Result, Ativo, Fim, Arquivo]);
+const Entrada = z.discriminatedUnion('t', [Hello, Result, Ativo, Fim, Arquivo, Olhar]);
 
 /**
  * Porta de entrada do braço em /braco: o app do computador (entra com a mesma senha do app) ou o
@@ -108,6 +117,7 @@ export class BracoGateway implements OnModuleInit {
       this.log.log(`Máquina ${msg.host} entrou de ${ip}`);
       this.braco.conectou(ws, msg.host, msg.acoes, msg.sistema, msg.mac, msg.rede);
     } else if (msg.t === 'ativo') this.braco.ativa(ws);
+    else if (msg.t === 'olhar') this.braco.olhou(ws, { projeto: msg.projeto, arquivo: msg.arquivo, diff: msg.diff, commits: msg.commits });
     else if (msg.t === 'fim') this.braco.terminou(msg.id, { ok: msg.ok, saida: msg.saida, erro: msg.erro });
     else if (msg.t === 'arquivo') this.braco.resultado(msg.id, { ok: true, saida: '', arquivo: { nome: msg.nome, dados: Buffer.from(msg.dados, 'base64') } });
     else this.braco.resultado(msg.id, { ok: msg.ok, saida: msg.saida, erro: msg.erro });

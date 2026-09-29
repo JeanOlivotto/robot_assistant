@@ -21,6 +21,17 @@ export interface Resultado {
   arquivo?: { nome: string; dados: Buffer };
 }
 
+/** O que o app do computador viu no VS Code: projeto, arquivo aberto e o que mudou (git). */
+export interface Olhada {
+  maquina: string;
+  projeto: string;
+  arquivo: string;
+  /** `git diff` do que ainda não foi commitado (resumido, sem arquivos sensíveis). */
+  diff: string;
+  /** Commits dos últimos minutos, quando não há mudança pendente. */
+  commits: string;
+}
+
 /** Maior arquivo que o braço traz da máquina (o WhatsApp aceita mais, mas vem inteiro pela conexão). */
 export const ARQUIVO_MAX_BYTES = 16 * 1024 * 1024;
 
@@ -105,6 +116,16 @@ export class BracoService {
   ativa(ws: WebSocket): void {
     const c = this.conexoes.get(ws);
     if (c) c.ativaEm = Date.now();
+  }
+
+  /** O que o dono está programando numa máquina (o app dela mandou) — para o Miro comentar. */
+  readonly olhou$ = new Subject<Olhada>();
+
+  olhou(ws: WebSocket, o: Omit<Olhada, 'maquina'>): void {
+    const c = this.conexoes.get(ws);
+    if (!c) return;
+    c.ativaEm = Date.now(); // está programando nela: é a máquina em uso
+    this.olhou$.next({ ...o, maquina: c.nome });
   }
 
   /** Sem argumento: desliga todas (usado nos testes e no fim). */

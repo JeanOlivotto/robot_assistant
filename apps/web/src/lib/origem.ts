@@ -44,6 +44,7 @@ export function cabecalhosDeOnde(): Record<string, string> {
 }
 
 /** A mensagem é para este aparelho reagir (balão, voz)? Sem destino, é para todos. */
-export function eParaMim(m: { para?: string }): boolean {
+export function eParaMim(m: { para?: string; paraMaquina?: string }): boolean {
+  if (m.paraMaquina) return m.paraMaquina.toLowerCase() === minhaMaquina()?.toLowerCase();
   return !m.para || m.para === minhaOrigem();
 }
