@@ -5,7 +5,7 @@ import { z } from 'zod';
 import { tokenEquals } from '../auth/token.js';
 import { APP_CONFIG, type AppConfig } from '../config/app-config.js';
 import { rejectUpgrade, WsRouter } from '../ws/ws-router.service.js';
-import { BracoService } from './braco.service.js';
+import { ARQUIVO_MAX_BYTES, BracoService } from './braco.service.js';
 
 const Hello = z.object({
   t: z.literal('hello'),
@@ -43,10 +43,18 @@ const Fim = z.object({
   erro: z.string().max(500).optional(),
 });
 
+/** O arquivo pedido (para mandar no WhatsApp), em base64. Falhou (não existe, grande demais): vem como 'result'. */
+const Arquivo = z.object({
+  t: z.literal('arquivo'),
+  id: z.string().max(64),
+  nome: z.string().min(1).max(255),
+  dados: z.string().max(Math.ceil((ARQUIVO_MAX_BYTES * 4) / 3) + 8),
+});
+
 /** O dono está mexendo nesta máquina (teclado/mouse): comandos sem máquina escolhida vão para ela. */
 const Ativo = z.object({ t: z.literal('ativo') });
 
-const Entrada = z.discriminatedUnion('t', [Hello, Result, Ativo, Fim]);
+const Entrada = z.discriminatedUnion('t', [Hello, Result, Ativo, Fim, Arquivo]);
 
 /**
  * Porta de entrada do braço em /braco: o app do computador (entra com a mesma senha do app) ou o
@@ -55,7 +63,8 @@ const Entrada = z.discriminatedUnion('t', [Hello, Result, Ativo, Fim]);
 @Injectable()
 export class BracoGateway implements OnModuleInit {
   private readonly log = new Logger(BracoGateway.name);
-  private readonly wss = new WebSocketServer({ noServer: true, maxPayload: 256 * 1024 });
+  // Cabe um arquivo de até ARQUIVO_MAX_BYTES em base64 (a mensagem 'arquivo').
+  private readonly wss = new WebSocketServer({ noServer: true, maxPayload: Math.ceil((ARQUIVO_MAX_BYTES * 4) / 3) + 64 * 1024 });
 
   constructor(
     @Inject(APP_CONFIG) private readonly cfg: AppConfig,
@@ -100,6 +109,7 @@ export class BracoGateway implements OnModuleInit {
       this.braco.conectou(ws, msg.host, msg.acoes, msg.sistema, msg.mac, msg.rede);
     } else if (msg.t === 'ativo') this.braco.ativa(ws);
     else if (msg.t === 'fim') this.braco.terminou(msg.id, { ok: msg.ok, saida: msg.saida, erro: msg.erro });
+    else if (msg.t === 'arquivo') this.braco.resultado(msg.id, { ok: true, saida: '', arquivo: { nome: msg.nome, dados: Buffer.from(msg.dados, 'base64') } });
     else this.braco.resultado(msg.id, { ok: msg.ok, saida: msg.saida, erro: msg.erro });
   }
 }

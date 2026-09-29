@@ -10,6 +10,8 @@
  */
 import { spawn } from 'node:child_process';
 import { readFileSync } from 'node:fs';
+import { readFile, stat } from 'node:fs/promises';
+import { basename, isAbsolute, join } from 'node:path';
 import { homedir, hostname, networkInterfaces } from 'node:os';
 import { consultar } from './consultor.js';
 import { programar } from './programador.js';
@@ -30,6 +32,35 @@ export function escapar(valor, windows = WINDOWS) {
 /** Senha que entra no sudo pelo stdin (`echo 'senha' | sudo -S …`) vira '***' no log; o comando roda como veio. */
 export function semSenha(cmd) {
   return cmd.replace(/\b((?:echo|printf)\s+)("[^"]*"|'[^']*'|[^\s|]+)(\s*\|\s*sudo\b)/gi, "$1'***'$3");
+}
+
+/* Chave, senha, token: não sai daqui nem com o "sim" (o servidor também barra — esta é a última porta). */
+const ARQUIVO_SENSIVEL =
+  /(^|[\/\\])(\.ssh|\.gnupg|\.aws|\.kube|\.docker)([\/\\]|$)|(^|[\/\\])\.env(\.[^\/\\]*)?$|\.(pem|key|p12|pfx|kdbx|keystore|jks)$|(^|[\/\\])id_(rsa|dsa|ecdsa|ed25519)[^\/\\]*$|credentials|secrets?([\/\\.]|$)|\.netrc$|\.pgpass$|wallet\.dat$/i;
+
+/** "~/Downloads/x.pdf", "%USERPROFILE%\\x.pdf" ou relativo à pasta do usuário → caminho completo. */
+export function caminhoCompleto(c) {
+  const limpo = String(c).trim().replace(/^["']|["']$/g, '');
+  const expandido = limpo
+    .replace(/^~(?=$|[\/\\])/, homedir())
+    .replace(/%([^%]+)%/g, (_, v) => process.env[v] ?? `%${v}%`)
+    .replace(/^\$HOME(?=$|[\/\\])/, homedir());
+  return isAbsolute(expandido) ? expandido : join(homedir(), expandido);
+}
+
+/** Lê o arquivo pedido para mandar no WhatsApp (o dono já aprovou no cartão). */
+export async function lerArquivo({ caminho, max }) {
+  const completo = caminhoCompleto(caminho);
+  if (ARQUIVO_SENSIVEL.test(completo)) return { erro: 'esse arquivo parece chave, senha ou token: não sai daqui' };
+  let info;
+  try {
+    info = await stat(completo);
+  } catch {
+    return { erro: `não achei o arquivo ${completo}` };
+  }
+  if (!info.isFile()) return { erro: `${completo} não é um arquivo (é uma pasta?)` };
+  if (info.size > max) return { erro: `o arquivo tem ${Math.round(info.size / 1024 / 1024)} MB — o máximo é ${Math.round(max / 1024 / 1024)} MB` };
+  return { nome: basename(completo), dados: (await readFile(completo)).toString('base64') };
 }
 
 /** Monta o comando de uma ação, trocando {param} pelos argumentos escapados. */
@@ -204,6 +235,15 @@ export class Braco {
       const agora = this.ws; // pode ter reconectado no meio
       if (agora?.readyState === WebSocket.OPEN) agora.send(JSON.stringify({ t: 'fim', id: msg.id, ...r, saida: (r.saida ?? '').slice(0, SAIDA_MAX) }));
       return;
+    }
+    // Arquivo para mandar no WhatsApp: vai inteiro (base64), não o texto colado.
+    if (msg.arquivo) {
+      if (!this.ligado) return ws.send(JSON.stringify({ t: 'result', id: msg.id, ok: false, saida: '', erro: 'o uso do computador está desligado nele' }));
+      const r = await lerArquivo(msg.arquivo);
+      console.log(`[braço] arquivo ${msg.arquivo.caminho}: ${r.erro ?? `${r.nome} ok`}`);
+      if (ws.readyState !== WebSocket.OPEN) return;
+      if (r.erro) return ws.send(JSON.stringify({ t: 'result', id: msg.id, ok: false, saida: '', erro: r.erro }));
+      return ws.send(JSON.stringify({ t: 'arquivo', id: msg.id, nome: r.nome, dados: r.dados }));
     }
     // Dúvida de código (grupo liberado no WhatsApp): só LÊ os projetos e responde em palavras.
     if (msg.consultar) {

@@ -23,7 +23,7 @@ export const Proposal = z.object({
   end: epochMs.optional(),
   /** Só em 'command': a linha que vai rodar, exatamente como foi proposta. */
   comando: z.string().optional(),
-  /** Só em 'command': em qual computador (quando há mais de um conectado). */
+  /** Em 'command' (e no arquivo de 'whatsapp'): em qual computador (quando há mais de um conectado). */
   maquina: z.string().optional(),
   /** Só em 'whatsapp': a conversa (jid) para onde vai, e o nome dela como o dono conhece. */
   chat: z.string().optional(),
@@ -34,6 +34,8 @@ export const Proposal = z.object({
   figurinha: z.enum(FACES).optional(),
   /** Só em 'whatsapp': o `texto` vai falado, como mensagem de voz, com a voz do robô. */
   audio: z.boolean().optional(),
+  /** Só em 'whatsapp': caminho de um arquivo no computador do dono, que vai anexado (o texto vira legenda). */
+  arquivo: z.string().max(500).optional(),
   /** Só em 'reuniao': a ligação do WhatsApp — quando ela acabar, a gravação dela encerra sozinha. */
   ligacao: z.string().max(100).optional(),
   status: z.enum(PROPOSAL_STATUS),

@@ -17,7 +17,12 @@ export interface Resultado {
   ok: boolean;
   saida: string;
   erro?: string;
+  /** Só no pedido de arquivo: o arquivo que veio da máquina. */
+  arquivo?: { nome: string; dados: Buffer };
 }
+
+/** Maior arquivo que o braço traz da máquina (o WhatsApp aceita mais, mas vem inteiro pela conexão). */
+export const ARQUIVO_MAX_BYTES = 16 * 1024 * 1024;
 
 /** Sistema da máquina: define em que shell o comando roda (sh no Linux/Mac, PowerShell no Windows). */
 export type Sistema = 'linux' | 'windows' | 'mac';
@@ -146,6 +151,16 @@ export class BracoService {
     return { ...r, maquina: m.nome };
   }
 
+  /**
+   * Traz um arquivo da máquina do dono — só para mandar no WhatsApp depois do "sim" dele no cartão
+   * (é o chat que chama isto, na aprovação). Nunca direto de um pedido do modelo.
+   */
+  async pegarArquivo(caminho: string, maquina?: string): Promise<Resultado> {
+    const m = this.escolher(maquina);
+    if (!m) return this.semMaquina(maquina);
+    return this.enviar(m.nome, { arquivo: { caminho, max: ARQUIVO_MAX_BYTES } }, randomUUID(), 90_000);
+  }
+
   /** A máquina avisou que o trabalho acabou. */
   terminou(id: string, r: Resultado): void {
     const t = this.emAndamento.get(id);
@@ -249,6 +264,7 @@ export class BracoService {
       cmd?: string;
       programar?: { projeto: string; pedido: string; motor: string };
       consultar?: { pergunta: string };
+      arquivo?: { caminho: string; max: number };
     },
     id: string = randomUUID(),
     timeoutMs = TIMEOUT_MS,
@@ -262,7 +278,7 @@ export class BracoService {
       }, timeoutMs);
       this.pendentes.set(id, { ws: c.ws, resolve, timer });
       c.ws.send(JSON.stringify({ t: 'run', id, ...corpo }));
-      this.log.log(`Pedido para ${c.nome}: ${corpo.acao ?? (corpo.cmd && semSenha(corpo.cmd)) ?? (corpo.consultar ? 'consulta de código' : `programar ${corpo.programar?.projeto}`)}`);
+      this.log.log(`Pedido para ${c.nome}: ${corpo.acao ?? (corpo.cmd && semSenha(corpo.cmd)) ?? (corpo.consultar ? 'consulta de código' : corpo.arquivo ? `arquivo ${corpo.arquivo.caminho}` : `programar ${corpo.programar?.projeto}`)}`);
     });
   }
 }

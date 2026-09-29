@@ -5,7 +5,7 @@ import type {
 } from 'openai/resources/chat/completions';
 import type { ChatMessage, Face } from '@robo/protocol';
 import { BracoService } from '../braco/braco.service.js';
-import { comandoSimples } from '../braco/seguranca.js';
+import { arquivoSensivel, comandoSimples } from '../braco/seguranca.js';
 import { CalendarService } from '../calendar/calendar.service.js';
 import { APP_CONFIG, type AppConfig } from '../config/app-config.js';
 import { LlmService } from '../llm/llm.service.js';
@@ -30,7 +30,7 @@ export interface ProposalDraft {
   /** Em qual máquina roda (o nome dela); sem isso, na que ele estiver usando na hora. */
   maquina?: string;
   /** Mensagem no WhatsApp do dono: para qual conversa, o texto exato e/ou uma figurinha com a cara dele. */
-  whatsapp?: { chat: string; destino: string; texto: string; figurinha?: Face; audio?: boolean };
+  whatsapp?: { chat: string; destino: string; texto: string; figurinha?: Face; audio?: boolean; arquivo?: string; maquina?: string };
 }
 
 export interface BrainReply {
@@ -363,6 +363,14 @@ const TOOLS: ChatCompletionTool[] = [
               'true = o texto vai FALADO, como mensagem de voz (áudio) com a SUA voz — quando ele pedir áudio. Só com como="robo" ' +
               '(a voz é sua). Escreva como se fala: curto, sem emoji, link ou lista; a apresentação entra sozinha no começo',
           },
+          arquivo: {
+            type: 'string',
+            description:
+              'caminho COMPLETO de um arquivo no computador dele, que vai ANEXADO (inteiro, como documento) — quando ele pedir ' +
+              'para mandar um arquivo. Nunca cole o conteúdo do arquivo no texto. Não sabe o caminho? Ache antes com ' +
+              'propor_comando simples (ls/find no Linux, Get-ChildItem no Windows). O texto, se houver, vai como legenda',
+          },
+          maquina: { type: 'string', description: 'com arquivo: em qual computador ele está, se houver mais de um (omitir = o que ele está usando)' },
         },
         required: ['como'],
       },
@@ -977,7 +985,13 @@ export class BrainService {
   private proporWhatsapp(args: Record<string, unknown>): { result: string; proposal?: ProposalDraft } {
     const escrito = String(args.texto ?? '').trim().slice(0, 2000);
     const figurinha = EMOTIONS[String(args.figurinha ?? '').toLowerCase()];
-    if (!escrito && !figurinha) return { result: 'erro: falta o texto da mensagem (ou a figurinha)' };
+    const arquivo = String(args.arquivo ?? '').trim();
+    const maquina = args.maquina ? String(args.maquina).trim() : undefined;
+    if (!escrito && !figurinha && !arquivo) return { result: 'erro: falta o texto da mensagem (ou a figurinha, ou o arquivo)' };
+    if (arquivo) {
+      if (arquivoSensivel(arquivo)) return { result: `recusado: "${arquivo}" parece chave, senha ou token — isso não sai pelo WhatsApp. Se ele quiser mesmo, manda com as próprias mãos.` };
+      if (!this.braco.escolher(maquina)) return { result: 'não dá: o computador dele não está conectado agora (o arquivo sai de lá)' };
+    }
     if (args.como !== 'dono' && args.como !== 'robo') {
       return { result: 'erro: falta dizer em nome de quem ("dono" ou "robo"). Se não souber, pergunte a ele.' };
     }
@@ -994,14 +1008,26 @@ export class BrainService {
     // Áudio não tem a assinatura escrita: você se apresenta falando (e é isso que aparece no cartão).
     const texto = !escrito || !doRobo ? escrito : audio ? apresentar(escrito, this.identidade.nome, this.cfg.OWNER_NAME) : assinar(escrito, this.identidade.nome, this.cfg.OWNER_NAME);
     if (audio && texto.length > 600) return { result: 'erro: áudio longo demais — resuma em poucas frases' };
-    const oQue = [texto && (audio ? `um áudio com a sua voz dizendo "${texto}"` : `"${texto}"`), figurinha && `uma figurinha sua (${String(args.figurinha)})`]
+    const nomeArquivo = arquivo.split(/[\\/]/).pop();
+    const oQue = [
+      arquivo && `o arquivo ${nomeArquivo} anexado`,
+      texto && (audio ? `um áudio com a sua voz dizendo "${texto}"` : arquivo ? `com a legenda "${texto}"` : `"${texto}"`),
+      figurinha && `uma figurinha sua (${String(args.figurinha)})`,
+    ]
       .filter(Boolean)
       .join(' + ');
     return {
       result: `mensagem preparada para ${d.nome}${d.grupo ? ' (grupo)' : ''}, ${doRobo ? 'em SEU nome (assinada por você)' : 'em nome dele'}, esperando o dono aprovar: ${oQue}. Diga para quem, em nome de quem e o que vai, e peça o "sim" — não diga que já mandou.`,
       proposal: {
         title: `WhatsApp para ${d.nome}${doRobo ? ` (como ${this.identidade.nome})` : ''}`,
-        whatsapp: { chat: d.id, destino: d.nome, texto, ...(figurinha ? { figurinha } : {}), ...(audio ? { audio } : {}) },
+        whatsapp: {
+          chat: d.id,
+          destino: d.nome,
+          texto,
+          ...(figurinha ? { figurinha } : {}),
+          ...(audio ? { audio } : {}),
+          ...(arquivo ? { arquivo, ...(maquina ? { maquina } : {}) } : {}),
+        },
       },
     };
   }

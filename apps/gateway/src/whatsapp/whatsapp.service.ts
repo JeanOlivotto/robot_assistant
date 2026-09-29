@@ -631,6 +631,23 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
     return m?.key.id ?? undefined;
   }
 
+  /**
+   * Um arquivo do computador do dono, como documento anexado (nome e conteúdo inteiros, não o texto
+   * colado). `legenda` vai junto, embaixo. Só depois do "sim" do dono.
+   */
+  async enviarArquivo(chat: string, dados: Buffer, nome: string, legenda?: string): Promise<string | undefined> {
+    if (!this.sock || !this.conectado) throw new Error('o WhatsApp não está conectado');
+    const m = await this.sock.sendMessage(chat, {
+      document: dados,
+      fileName: nome,
+      mimetype: tipoDoArquivo(nome),
+      ...(legenda ? { caption: legenda } : {}),
+    });
+    if (m?.key.id) this.enviadas.add(m.key.id);
+    this.log.log(`WhatsApp: arquivo ${nome} (${Math.round(dados.length / 1024)} KB) enviado para ${this.nomes.get(chat) ?? numeroDe(chat)}`);
+    return m?.key.id ?? undefined;
+  }
+
   /** Dá para mandar mensagem de voz? Precisa da voz do servidor (edge-tts ou ElevenLabs). */
   get temVoz(): boolean {
     return !!this.tts.provider;
@@ -726,6 +743,29 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
       this.log.error(`Falha ao salvar o WhatsApp: ${(err as Error).message}`);
     }
   }
+}
+
+const TIPOS: Record<string, string> = {
+  pdf: 'application/pdf',
+  txt: 'text/plain',
+  csv: 'text/csv',
+  json: 'application/json',
+  xml: 'application/xml',
+  zip: 'application/zip',
+  png: 'image/png',
+  jpg: 'image/jpeg',
+  jpeg: 'image/jpeg',
+  doc: 'application/msword',
+  docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  xls: 'application/vnd.ms-excel',
+  xlsx: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  ppt: 'application/vnd.ms-powerpoint',
+  pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+};
+
+/** O tipo pelo nome — o WhatsApp mostra o ícone e abre com o app certo. */
+export function tipoDoArquivo(nome: string): string {
+  return TIPOS[nome.split('.').pop()?.toLowerCase() ?? ''] ?? 'application/octet-stream';
 }
 
 /** "5511999998888@s.whatsapp.net" → "+5511999998888". LID não é telefone: vira "alguém". */

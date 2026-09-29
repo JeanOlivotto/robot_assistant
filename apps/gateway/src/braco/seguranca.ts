@@ -36,6 +36,17 @@ export function comandoSimples(cmd: string): boolean {
 }
 
 /**
+ * Arquivo que nunca sai do computador pelo WhatsApp, nem com o "sim" do dono: chave, senha, token.
+ * O cartão mostra o caminho, mas um texto de terceiro pode induzir o modelo — esta trava não depende dele.
+ */
+const ARQUIVO_SENSIVEL =
+  /(^|[\/\\])(\.ssh|\.gnupg|\.aws|\.kube|\.docker)([\/\\]|$)|(^|[\/\\])\.env(\.[^\/\\]*)?$|\.(pem|key|p12|pfx|kdbx|keystore|jks)$|(^|[\/\\])id_(rsa|dsa|ecdsa|ed25519)[^\/\\]*$|credentials|secrets?([\/\\.]|$)|\.netrc$|\.pgpass$|wallet\.dat$/i;
+
+export function arquivoSensivel(caminho: string): boolean {
+  return ARQUIVO_SENSIVEL.test(caminho.trim());
+}
+
+/**
  * Senha que entra no sudo pelo stdin (`echo 'senha' | sudo -S …`) não vai para o log: vira '***'.
  * O comando roda como veio; só o que fica escrito é mascarado.
  */

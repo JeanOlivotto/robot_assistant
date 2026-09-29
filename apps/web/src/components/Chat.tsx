@@ -53,6 +53,12 @@ function ProposalCard({ p, onConfirm }: { p: Proposal; onConfirm(ok: boolean): v
             para {p.destino}
             {p.audio && ' · 🎙️ vai como áudio, com a voz dele'}
           </div>
+          {p.arquivo && (
+            <div className="proposal-when">
+              📎 {p.arquivo.split(/[\\/]/).pop()} (anexado, inteiro){p.maquina ? ` · do computador ${p.maquina}` : ''}
+              <code className="proposal-comando">{p.arquivo}</code>
+            </div>
+          )}
           {p.texto && <div className="proposal-whatsapp">{p.texto}</div>}
           {p.figurinha && (
             <div className="proposal-figurinha">

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { comandoSimples, semSenha } from './seguranca.js';
+import { arquivoSensivel, comandoSimples, semSenha } from './seguranca.js';
 
 describe('comando simples (roda sem aprovação)', () => {
   it('abrir programa, site, pasta e consultar passam', () => {
@@ -52,5 +52,30 @@ describe('senha do sudo fora do log', () => {
 
   it('não mexe no que não é senha', () => {
     for (const c of ['sudo reboot', 'echo "oi" | grep o', 'xdg-open ~/Downloads']) expect(semSenha(c)).toBe(c);
+  });
+});
+
+describe('arquivo que não sai do computador', () => {
+  it('chaves, senhas e tokens: barrados', () => {
+    for (const c of [
+      '~/.ssh/id_rsa',
+      '/home/jean/.ssh/config',
+      'C:\\Users\\Dev\\.ssh\\id_ed25519',
+      '~/projeto/.env',
+      '~/projeto/.env.production',
+      '~/certs/servidor.pem',
+      '~/Downloads/certificado.pfx',
+      '~/.aws/credentials',
+      '~/app/config/secrets.json',
+      '~/senhas.kdbx',
+    ]) {
+      expect(arquivoSensivel(c), c).toBe(true);
+    }
+  });
+
+  it('documento comum passa', () => {
+    for (const c of ['~/Downloads/relatorio.pdf', 'C:\\Users\\Dev\\Documents\\proposta.docx', '~/projeto/README.md', '~/env-notes.txt', '~/keynote.pdf']) {
+      expect(arquivoSensivel(c), c).toBe(false);
+    }
   });
 });

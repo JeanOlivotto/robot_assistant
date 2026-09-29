@@ -4,6 +4,7 @@ import { BehaviorSubject, Subject } from 'rxjs';
 import { LIMITS, type AppReuniao, type ChatMessage, type ChatVoz, type Face, type MessageVia, type Mode, type Proposal } from '@robo/protocol';
 import { BrainService } from '../brain/brain.service.js';
 import { BracoService } from '../braco/braco.service.js';
+import { arquivoSensivel } from '../braco/seguranca.js';
 import { CalendarService } from '../calendar/calendar.service.js';
 import { deviceText } from '../calendar/device-text.js';
 import { APP_CONFIG, type AppConfig } from '../config/app-config.js';
@@ -383,8 +384,15 @@ export class ChatService implements OnModuleInit, OnModuleDestroy {
   private async sendApproved(msg: ChatMessage, p: Proposal, para?: string): Promise<ChatMessage | undefined> {
     this.setState({ thinking: true });
     try {
+      // O arquivo só sai do computador agora, depois do "sim" — e vai inteiro, como anexo.
+      if (p.arquivo && arquivoSensivel(p.arquivo)) throw new Error('esse arquivo parece chave, senha ou token: não sai pelo WhatsApp');
+      const arquivo = p.arquivo ? await this.braco.pegarArquivo(p.arquivo, p.maquina) : null;
+      if (arquivo && (!arquivo.ok || !arquivo.arquivo)) throw new Error(arquivo.erro ?? 'não consegui pegar o arquivo no computador');
       if (p.texto && p.audio) await this.whatsapp.enviarAudio(p.chat ?? '', p.texto);
-      else if (p.texto) await this.whatsapp.enviar(p.chat ?? '', p.texto);
+      else if (p.texto && !arquivo) await this.whatsapp.enviar(p.chat ?? '', p.texto);
+      if (arquivo?.arquivo) {
+        await this.whatsapp.enviarArquivo(p.chat ?? '', arquivo.arquivo.dados, arquivo.arquivo.nome, p.audio ? undefined : p.texto || undefined);
+      }
       if (p.figurinha) await this.whatsapp.enviarFigurinha(p.chat ?? '', p.figurinha);
       this.updateProposal(msg, { status: 'confirmed' });
       return this.robotSay(`Mandei para ${p.destino ?? 'a conversa'}.`, 'happy', 'reply', { para });
