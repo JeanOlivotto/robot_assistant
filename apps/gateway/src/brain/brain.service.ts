@@ -131,7 +131,7 @@ const TOOLS: ChatCompletionTool[] = [
         type: 'object',
         properties: {
           texto: { type: 'string', description: 'o que fazer, curto, do ponto de vista dele' },
-          pessoa: { type: 'string', description: 'com quem é, se houver' },
+          pessoa: { type: 'string', description: 'com quem é — sem ninguém, omita o campo (nunca null)' },
         },
         required: ['texto'],
       },

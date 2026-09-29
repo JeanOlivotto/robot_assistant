@@ -17,6 +17,11 @@ const PENALTY_MS = 5 * 60_000;
  * levava 30 s até desistir.
  */
 const RATE_WAIT_MAX_MS = 20_000;
+/*
+ * Quanto esperar, no total, pelos rápidos numa mensagem. O Groq às vezes libera e pede de novo
+ * ("try again in 30ms"): vale insistir nele dentro disto em vez de ir para a reserva.
+ */
+const RATE_WAIT_BUDGET_MS = 25_000;
 
 interface Target {
   client: OpenAI;
@@ -113,8 +118,9 @@ export class LlmService {
         return msg;
       } catch (err) {
         const penalty = penaltyFor(err);
-        this.penalizedUntil.set(t.label, Date.now() + penalty);
-        if (t.fast && penalty < PENALTY_MS) this.rateLimitedUntil.set(t.label, Date.now() + penalty);
+        if (penalty) this.penalizedUntil.set(t.label, Date.now() + penalty);
+        if (t.fast && penalty && penalty < PENALTY_MS) this.rateLimitedUntil.set(t.label, Date.now() + penalty);
+        else this.rateLimitedUntil.delete(t.label);
         this.log.warn(`${t.label} falhou em ${Date.now() - started} ms (${(err as Error).message}) — tentando o próximo`);
         throw err;
       }
@@ -122,14 +128,18 @@ export class LlmService {
 
     let lastError: unknown;
     // Com a reserva na frente, não faz sentido esperar pelo Groq antes dela.
-    let waited = !!opts?.reservaPrimeiro;
+    let esperou = opts?.reservaPrimeiro ? RATE_WAIT_BUDGET_MS : 0;
+    // Reserva que deu timeout há pouco: tentar de novo custa 15 s à toa. Fica para o fim, se nada mais der.
+    const deixadas: Target[] = [];
     for (const t of order) {
-      // Antes de ir para a reserva lenta: algum rápido libera logo? Espera por ele (uma vez só).
-      if (!t.fast && !waited) {
-        const soon = this.soonestFast();
-        if (soon) {
-          waited = true;
-          this.log.log(`Todos os rápidos no limite — esperando ${Math.round(soon.wait / 1000)} s pelo ${soon.target.label}`);
+      if (!t.fast) {
+        // Antes da reserva lenta: algum rápido libera logo? Espera por ele — e de novo, se ele pedir
+        // mais um pouco, enquanto couber no orçamento.
+        for (let vez = 0; vez < 5; vez++) {
+          const soon = this.soonestFast();
+          if (!soon || esperou + soon.wait > RATE_WAIT_BUDGET_MS) break;
+          esperou += soon.wait;
+          this.log.log(`Todos os rápidos no limite — esperando ${(soon.wait / 1000).toFixed(1)} s pelo ${soon.target.label}`);
           await new Promise((r) => setTimeout(r, soon.wait));
           try {
             return await attempt(soon.target);
@@ -137,7 +147,18 @@ export class LlmService {
             lastError = err;
           }
         }
+        if (this.isPenalized(t.label, Date.now())) {
+          deixadas.push(t);
+          continue;
+        }
       }
+      try {
+        return await attempt(t);
+      } catch (err) {
+        lastError = err;
+      }
+    }
+    for (const t of deixadas) {
       try {
         return await attempt(t);
       } catch (err) {
@@ -168,9 +189,12 @@ export class LlmService {
 /**
  * Quanto tempo o modelo que falhou fica de lado. Limite por minuto (429) passa rápido — o próprio
  * provedor diz quanto esperar ("try again in 14.8s") —, então não vale tirá-lo da fila por 5 min.
+ * Pedido recusado (400: o modelo errou o formato de uma ferramenta nesta mensagem) é coisa daquela
+ * mensagem, não do modelo: não fica de castigo.
  */
 export function penaltyFor(err: unknown): number {
   const e = err as { status?: number; message?: string };
+  if (e?.status === 400) return 0;
   if (e?.status === 429 || /rate limit/i.test(e?.message ?? '')) {
     const s = /try again in ([\d.]+)\s*s/i.exec(e?.message ?? '');
     return s ? Math.ceil(Number(s[1]) * 1000) + 1000 : 60_000;
