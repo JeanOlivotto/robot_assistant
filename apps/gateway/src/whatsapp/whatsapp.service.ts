@@ -14,6 +14,7 @@ import makeWASocket, {
   isPnUser,
   useMultiFileAuthState,
   type Contact,
+  type WACallEvent,
   type WAMessage,
 } from 'baileys';
 import QRCode from 'qrcode';
@@ -85,6 +86,15 @@ function loggerQuieto(log: Logger) {
  *
  * Privacidade: com ela ligada, o que chega é descartado na hora e a lista é apagada.
  */
+/** Uma ligação do WhatsApp: quem liga, e se está chegando ou acabou (recusada, perdida, desligada). */
+export interface Ligacao {
+  id: string;
+  nome: string;
+  grupo: boolean;
+  video: boolean;
+  fase: 'chegando' | 'acabou';
+}
+
 @Injectable()
 export class WhatsappService implements OnModuleInit, OnModuleDestroy {
   private readonly log = new Logger(WhatsappService.name);
@@ -106,6 +116,8 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
   readonly chegou$ = new Subject<Recebida>();
   /** O dono escreveu numa conversa pelo celular (a conversa é dele agora). */
   readonly donoEscreveu$ = new Subject<string>();
+  /** Ligação chegando, ou acabando (nunca com a privacidade ligada). O áudio não vem: só o aviso. */
+  readonly ligacao$ = new Subject<Ligacao>();
   /** O que o próprio robô mandou: volta como "fromMe" e não pode passar por mensagem do dono. */
   private enviadas = new Set<string>();
 
@@ -295,6 +307,7 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
         if (type === 'notify' || (type === 'append' && !raw.key.fromMe)) void this.aoReceber(raw);
       }
     });
+    sock.ev.on('call', (cs) => cs.forEach((c) => void this.aoLigar(c)));
     sock.ev.on('contacts.upsert', (cs) => cs.forEach((c) => this.guardarContato(c)));
     sock.ev.on('messaging-history.set', ({ contacts }) => contacts.forEach((c) => this.guardarContato(c)));
     sock.ev.on('contacts.update', (cs) => cs.forEach((c) => this.guardarContato(c)));
@@ -445,6 +458,22 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
     this.recebidas = this.recebidas.filter((r) => r.m.ts > corte).slice(-MAX_RECEBIDAS);
     if (!this.salvarRecebidas) this.salvarRecebidas = setTimeout(() => this.gravarRecebidas(), 3_000);
     this.chegou$.next(this.recebidas.at(-1)!.m);
+  }
+
+  /** Alguém ligando (ou a ligação acabando): só o aviso — quem grava é o app do PC, se o dono quiser. */
+  private async aoLigar(c: WACallEvent): Promise<void> {
+    if (this.privado()) return;
+    const fase = c.status === 'offer' ? 'chegando' : ['timeout', 'reject', 'terminate'].includes(c.status) ? 'acabou' : null;
+    if (!fase) return;
+    const grupo = !!c.isGroup && !!c.groupJid;
+    const nome = grupo
+      ? await this.nomeDoGrupo(c.groupJid!)
+      : (this.destinos.get(c.from)?.nome ??
+        (c.callerPn && this.destinos.get(c.callerPn)?.nome) ??
+        this.nomes.get(c.from) ??
+        (c.callerPn && this.nomes.get(c.callerPn)) ??
+        numeroDe(c.callerPn ?? c.from));
+    this.ligacao$.next({ id: c.id, nome, grupo, video: !!c.isVideo, fase });
   }
 
   private async nomeDoGrupo(jid: string): Promise<string> {

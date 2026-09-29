@@ -11,11 +11,12 @@ export const PROPOSAL_STATUS = ['pending', 'confirmed', 'cancelled', 'expired', 
 
 /**
  * Algo que o robô quer fazer e precisa do "sim" do dono antes (regra do doc, seção 10):
- * escrever na agenda, rodar algo na máquina dele, ou mandar uma mensagem no WhatsApp dele.
+ * escrever na agenda, rodar algo na máquina dele, mandar uma mensagem no WhatsApp dele, ou gravar
+ * (como reunião) uma ligação que está chegando no WhatsApp.
  */
 export const Proposal = z.object({
   id: z.string(),
-  kind: z.enum(['event', 'command', 'whatsapp']),
+  kind: z.enum(['event', 'command', 'whatsapp', 'reuniao']),
   title: z.string(),
   /** Só em 'event'. */
   start: epochMs.optional(),
@@ -31,6 +32,8 @@ export const Proposal = z.object({
   texto: z.string().optional(),
   /** Só em 'whatsapp': figurinha animada com a cara do robô nessa expressão, depois do texto. */
   figurinha: z.enum(FACES).optional(),
+  /** Só em 'reuniao': a ligação do WhatsApp — quando ela acabar, a gravação dela encerra sozinha. */
+  ligacao: z.string().max(100).optional(),
   status: z.enum(PROPOSAL_STATUS),
   error: z.string().optional(),
 });
@@ -143,7 +146,22 @@ export const AppAgenda = z.object({ t: z.literal('agenda'), ts: epochMs, items: 
 
 export const AppPong = z.object({ t: z.literal('pong'), ts: epochMs });
 
-export const AppServerMessage = z.discriminatedUnion('t', [Snapshot, MessageUpsert, RobotUpdate, AppAgenda, AppPong]);
+/**
+ * Gravar (ou parar de gravar) uma reunião no computador: o dono disse "grava" para uma ligação do
+ * WhatsApp, talvez pelo celular, e quem grava é o app do PC — só o da `maquina`, quando vier.
+ * A reunião que o PC abrir logo depois ganha o título da ligação no servidor.
+ */
+export const AppReuniao = z.object({
+  t: z.literal('reuniao'),
+  ts: epochMs,
+  acao: z.enum(['gravar', 'encerrar']),
+  ligacao: z.string().max(100),
+  maquina: z.string().max(60).optional(),
+  /** Só em 'encerrar': a reunião que gravava a ligação — só ela para. */
+  reuniao: z.string().max(100).optional(),
+});
+
+export const AppServerMessage = z.discriminatedUnion('t', [Snapshot, MessageUpsert, RobotUpdate, AppAgenda, AppPong, AppReuniao]);
 
 export type Proposal = z.infer<typeof Proposal>;
 export type ChatMessage = z.infer<typeof ChatMessage>;
@@ -152,3 +170,4 @@ export type ChatVoz = z.infer<typeof ChatVoz>;
 export type RobotView = z.infer<typeof RobotView>;
 export type AppClientMessage = z.infer<typeof AppClientMessage>;
 export type AppServerMessage = z.infer<typeof AppServerMessage>;
+export type AppReuniao = z.infer<typeof AppReuniao>;

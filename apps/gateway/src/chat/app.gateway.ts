@@ -47,6 +47,7 @@ export class AppGateway implements OnModuleInit, OnModuleDestroy {
       this.chat.messages$.subscribe((message) => this.broadcast({ t: 'message', ts: Date.now(), message })),
       this.robot.view$.subscribe((robot) => this.broadcast({ t: 'robot', ts: Date.now(), robot })),
       this.calendar.appAgenda$.subscribe((items) => this.broadcast({ t: 'agenda', ts: Date.now(), items })),
+      this.chat.reuniao$.subscribe((r) => this.broadcast(r)),
       // Mensagem nova com o app aberto na tela: ele já viu, o robô não fica cobrando resposta.
       this.chat.state$.subscribe((s) => {
         if (s.waitingSince && this.anyVisibleOpen) queueMicrotask(() => this.chat.seen());

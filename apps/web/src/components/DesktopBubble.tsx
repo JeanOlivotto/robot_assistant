@@ -106,7 +106,13 @@ interface Balao {
 const RECENTE_MS = 30 * 60_000;
 
 function BolhaLogada({ token, andando }: { token: string; andando: 'esquerda' | 'direita' | null }) {
-  const robo = useRobo(token);
+  // "Grava" numa ligação do WhatsApp (daqui ou do celular): o painel deste computador abre e grava.
+  // Com mais de um PC, só o que o servidor escolheu (o que você está usando).
+  const robo = useRobo(token, (r) => {
+    if (r.acao !== 'gravar') return;
+    if (r.maquina && desktop?.maquina?.().toLowerCase() !== r.maquina.toLowerCase()) return;
+    desktop?.comando?.('reuniao:gravar');
+  });
   const [balao, setBalao] = useState<Balao | null>(null);
   const [resposta, setResposta] = useState('');
   const [esperando, setEsperando] = useState(false);

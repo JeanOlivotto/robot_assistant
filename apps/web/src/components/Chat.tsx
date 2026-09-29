@@ -23,6 +23,7 @@ const CONFIRMED_TEXT: Record<Proposal['kind'], string> = {
   event: STATUS_TEXT.confirmed,
   command: '✅ Rodou',
   whatsapp: '✅ Mandado',
+  reuniao: '🎙️ Gravando no computador',
 };
 
 /** O que o botão diz: [antes de apertar, depois de apertar]. */
@@ -30,6 +31,7 @@ const BUTTON_TEXT: Record<Proposal['kind'], [string, string]> = {
   event: ['Confirmar', 'Marcando…'],
   command: ['Pode rodar', 'Rodando…'],
   whatsapp: ['Pode mandar', 'Mandando…'],
+  reuniao: ['Grava', 'Abrindo…'],
 };
 
 function ProposalCard({ p, onConfirm }: { p: Proposal; onConfirm(ok: boolean): void }) {
@@ -55,6 +57,9 @@ function ProposalCard({ p, onConfirm }: { p: Proposal; onConfirm(ok: boolean): v
             </div>
           )}
         </>
+      ) : p.kind === 'reuniao' ? (
+        /* Ligação no WhatsApp: quem grava é o app do computador (o som do PC) — atender por lá. */
+        <div className="proposal-when">grava o som do computador: atenda a ligação por lá</div>
       ) : (
         <div className="proposal-when">
           {dayLabel(p.start!)} · {hhmm(p.start!)} – {hhmm(p.end!)}

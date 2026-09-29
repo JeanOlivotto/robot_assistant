@@ -64,7 +64,12 @@ function useNow(everyMs: number): number {
 }
 
 function Main({ token, onLogout }: { token: string; onLogout(): void }) {
-  const robo = useRobo(token);
+  // Acabou a ligação que estava gravando: encerra aquela reunião (a ata sai sozinha).
+  const robo = useRobo(token, (r) => {
+    if (DESKTOP === 'painel' && r.acao === 'encerrar' && r.reuniao) {
+      window.dispatchEvent(new CustomEvent('robo:encerrar-reuniao', { detail: { reuniao: r.reuniao } }));
+    }
+  });
   const [tab, setTab] = useState<Tab>(initialTab);
   const now = useNow(30_000);
   const r = robo.robot;

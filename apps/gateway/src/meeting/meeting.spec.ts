@@ -21,7 +21,7 @@ function make(llmReply: string, stt?: Partial<SttService>, vozes?: Partial<Vozes
     ...stt,
   } as unknown as SttService;
   const llm = { enabled: true, complete: vi.fn().mockResolvedValue({ content: llmReply }) } as unknown as LlmService;
-  const chat = { robotSay: vi.fn() } as unknown as ChatService;
+  const chat = { robotSay: vi.fn(), reuniaoDaLigacao: vi.fn(() => undefined) } as unknown as ChatService;
   const vozesSvc = { enabled: false, diarizar: vi.fn().mockResolvedValue(null), ...vozes } as unknown as VozesService;
   // As ações da ata viram pendências: o serviço de verdade, num diretório temporário.
   const tasks = new TaskService(cfg);

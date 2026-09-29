@@ -87,7 +87,7 @@ export class MeetingController {
     const convite = req.guestToken ? this.invites.check(req.guestToken) : null;
     // Quem gravou por convite entra no título, para você saber de onde veio a ata.
     const titulo = parsed.data.titulo || convite?.titulo || undefined;
-    const m = this.meetings.start(titulo);
+    const m = this.meetings.start(titulo, { convidado: !!req.guestToken });
     if (req.guestToken) this.invites.note(req.guestToken, m.id);
     return slim(m);
   }

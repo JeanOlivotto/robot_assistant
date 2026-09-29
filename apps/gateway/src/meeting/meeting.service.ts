@@ -105,10 +105,14 @@ export class MeetingService implements OnModuleInit {
     return this.stt.enabled && this.llm.enabled;
   }
 
-  start(titulo?: string): Meeting {
+  /** `convidado`: gravada por link de convite — nunca é a ligação do dono. */
+  start(titulo?: string, opts: { convidado?: boolean } = {}): Meeting {
+    const id = randomUUID();
+    // Aberta logo depois do "Grava" de uma ligação: é ela (encerra junto com a ligação).
+    const daLigacao = opts.convidado ? undefined : this.chat.reuniaoDaLigacao(id);
     const m: Meeting = {
-      id: randomUUID(),
-      titulo: (titulo ?? '').trim() || 'Reunião',
+      id,
+      titulo: (titulo ?? '').trim() || daLigacao || 'Reunião',
       startedAt: Date.now(),
       status: 'gravando',
       segments: 0,

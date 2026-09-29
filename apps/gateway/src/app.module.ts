@@ -55,6 +55,7 @@ import { TtsController } from './tts/tts.controller.js';
 import { TtsService } from './tts/tts.service.js';
 import { AtendenteService } from './whatsapp/atendente.service.js';
 import { WhatsappController } from './whatsapp/whatsapp.controller.js';
+import { LigacaoService } from './whatsapp/ligacao.service.js';
 import { WhatsappService } from './whatsapp/whatsapp.service.js';
 import { WsRouter } from './ws/ws-router.service.js';
 
@@ -97,6 +98,7 @@ import { WsRouter } from './ws/ws-router.service.js';
     PresenceService,
     SpotifyService,
     WhatsappService,
+    LigacaoService,
     AtendenteService,
     FirmwareService,
     TokenGuard,

@@ -3,6 +3,7 @@ import {
   AppServerMessage,
   type AgendaItem,
   type AppClientMessage,
+  type AppReuniao,
   type ChatMessage,
   type RobotView,
 } from '@robo/protocol';
@@ -38,13 +39,18 @@ function upsert(list: ChatMessage[], msg: ChatMessage): ChatMessage[] {
   return copy;
 }
 
-/** Conexão com o gateway (/app): reconecta sozinha e volta na hora quando o app reabre. */
-export function useRobo(token: string): Robo {
+/**
+ * Conexão com o gateway (/app): reconecta sozinha e volta na hora quando o app reabre.
+ * `aoReuniao`: o servidor pediu para gravar/encerrar uma ligação (só o app do computador liga).
+ */
+export function useRobo(token: string, aoReuniao?: (r: AppReuniao) => void): Robo {
   const [conn, setConn] = useState<Conn>('connecting');
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [robot, setRobot] = useState<RobotView | null>(null);
   const [agenda, setAgenda] = useState<AgendaItem[]>([]);
   const wsRef = useRef<WebSocket | null>(null);
+  const aoReuniaoRef = useRef(aoReuniao);
+  aoReuniaoRef.current = aoReuniao;
 
   useEffect(() => {
     let attempt = 0;
@@ -85,6 +91,9 @@ export function useRobo(token: string): Robo {
             break;
           case 'agenda':
             setAgenda(msg.items);
+            break;
+          case 'reuniao':
+            aoReuniaoRef.current?.(msg);
             break;
           case 'pong':
             break;

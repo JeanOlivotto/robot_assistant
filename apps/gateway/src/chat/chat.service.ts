@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { Inject, Injectable, Logger, type OnModuleDestroy, type OnModuleInit } from '@nestjs/common';
 import { BehaviorSubject, Subject } from 'rxjs';
-import { LIMITS, type ChatMessage, type ChatVoz, type Face, type MessageVia, type Mode, type Proposal } from '@robo/protocol';
+import { LIMITS, type AppReuniao, type ChatMessage, type ChatVoz, type Face, type MessageVia, type Mode, type Proposal } from '@robo/protocol';
 import { BrainService } from '../brain/brain.service.js';
 import { BracoService } from '../braco/braco.service.js';
 import { CalendarService } from '../calendar/calendar.service.js';
@@ -66,6 +66,10 @@ export class ChatService implements OnModuleInit, OnModuleDestroy {
   readonly said$ = new Subject<{ message: ChatMessage; replyVia?: MessageVia }>();
   /** Modo visual pedido na conversa — o rosto do robô fica vermelho no 'hacker'. */
   readonly mode$ = new Subject<Mode>();
+  /** Gravar / encerrar a gravação de uma ligação no app do computador. */
+  readonly reuniao$ = new Subject<AppReuniao>();
+  /** A ligação que o dono mandou gravar: a reunião aberta logo depois é ela. */
+  private gravando: { ligacao: string; titulo: string; em: number; reuniao?: string } | null = null;
 
   constructor(
     @Inject(APP_CONFIG) private readonly cfg: AppConfig,
@@ -234,7 +238,8 @@ export class ChatService implements OnModuleInit, OnModuleDestroy {
     const pending = this.store.pendingProposals();
     // Comando no computador e mensagem no WhatsApp só o dono aprova: "sim" de outra voz (ou de voz desconhecida) não vale.
     const outraVoz = !!opts.voz && !(opts.voz.certeza === 'alta' && opts.voz.nome?.trim().toLowerCase() === (this.cfg.OWNER_NAME || '').trim().toLowerCase());
-    const aprovaComando = (pending[0]?.proposal?.kind === 'command' || pending[0]?.proposal?.kind === 'whatsapp') && YES.test(text);
+    // Gravar a ligação de alguém também é decisão só dele.
+    const aprovaComando = ['command', 'whatsapp', 'reuniao'].includes(pending[0]?.proposal?.kind ?? '') && YES.test(text);
     if (pending.length === 1 && (YES.test(text) || NO.test(text)) && !(aprovaComando && outraVoz)) {
       return this.handleConfirm(pending[0]!.proposal!.id, YES.test(text), opts.origem);
     }
@@ -316,12 +321,14 @@ export class ChatService implements OnModuleInit, OnModuleDestroy {
     if (!ok) {
       this.updateProposal(msg, { status: 'cancelled' });
       this.settleWaiting();
-      const nao = p.kind === 'command' ? 'Certo, não faço.' : p.kind === 'whatsapp' ? 'Certo, não mandei.' : 'Certo, não marquei.';
+      const nao =
+        p.kind === 'command' ? 'Certo, não faço.' : p.kind === 'whatsapp' ? 'Certo, não mandei.' : p.kind === 'reuniao' ? 'Certo, não gravo.' : 'Certo, não marquei.';
       return this.robotSay(nao, 'neutral', 'reply', { para });
     }
 
     if (p.kind === 'command') return this.runApproved(msg, p, para);
     if (p.kind === 'whatsapp') return this.sendApproved(msg, p, para);
+    if (p.kind === 'reuniao') return this.gravarLigacao(msg, p, para);
 
     this.setState({ thinking: true });
     try {
@@ -386,6 +393,51 @@ export class ChatService implements OnModuleInit, OnModuleDestroy {
       this.setState({ thinking: false });
       this.settleWaiting();
     }
+  }
+
+  /**
+   * O dono disse "grava" para a ligação: o app do computador (o que ele está usando) abre a reunião
+   * e grava o som do PC — por isso a ligação tem que ser atendida lá.
+   */
+  private gravarLigacao(msg: ChatMessage, p: Proposal, para?: string): ChatMessage {
+    const maquina = this.braco.escolher()?.nome;
+    this.gravando = { ligacao: p.ligacao ?? p.id, titulo: p.title, em: Date.now() };
+    this.updateProposal(msg, { status: 'confirmed' });
+    this.settleWaiting();
+    this.reuniao$.next({ t: 'reuniao', ts: Date.now(), acao: 'gravar', ligacao: p.ligacao ?? p.id, ...(maquina ? { maquina } : {}) });
+    return this.robotSay(
+      `Beleza, ${maquina ? `gravando no ${maquina}` : 'gravando no computador'}. Atende a ligação por lá que no fim eu faço a ata.`,
+      'happy',
+      'reply',
+      { para },
+    );
+  }
+
+  /**
+   * A ligação acabou (desligada, recusada, perdida): o cartão que ninguém respondeu expira, e a
+   * gravação que começou por ela encerra — a ata sai sozinha.
+   */
+  ligacaoAcabou(ligacao: string): void {
+    const msg = this.store.recent(100).findLast((m) => m.proposal?.kind === 'reuniao' && m.proposal.ligacao === ligacao);
+    if (!msg?.proposal) return;
+    if (msg.proposal.status === 'pending') {
+      this.updateProposal(msg, { status: 'expired', error: 'a ligação acabou' });
+      this.settleWaiting();
+    } else if (msg.proposal.status === 'confirmed' && this.gravando?.ligacao === ligacao && this.gravando.reuniao) {
+      this.reuniao$.next({ t: 'reuniao', ts: Date.now(), acao: 'encerrar', ligacao, reuniao: this.gravando.reuniao });
+      this.gravando = null;
+    }
+  }
+
+  /**
+   * Reunião abrindo sem título: se o dono acabou de mandar gravar uma ligação, é ela — o título
+   * vira "Ligação com X" e a reunião fica ligada à ligação (para encerrar quando ela acabar).
+   */
+  reuniaoDaLigacao(reuniao: string): string | undefined {
+    const g = this.gravando;
+    if (!g || g.reuniao || Date.now() - g.em > 2 * 60_000) return undefined;
+    g.reuniao = reuniao;
+    return g.titulo;
   }
 
   private cancelPending(reason: string): void {
