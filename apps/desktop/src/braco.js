@@ -104,6 +104,8 @@ export class Braco {
     this.ws = null;
     this.tentativa = null;
     this.ultimoAtivo = 0;
+    /** Trabalhos rodando agora (comando, programador, consulta): com algum, o app não se reinicia para atualizar. */
+    this.trabalhando = 0;
   }
 
   get conectado() {
@@ -175,28 +177,12 @@ export class Braco {
         return;
       }
       if (msg.t !== 'run') return;
-      // Trabalho de programador: leva minutos. Responde "começou" já, e o fim chega depois ('fim').
-      if (msg.programar) {
-        if (!this.ligado) return ws.send(JSON.stringify({ t: 'result', id: msg.id, ok: false, saida: '', erro: 'o uso do computador está desligado nele' }));
-        ws.send(JSON.stringify({ t: 'result', id: msg.id, ok: true, saida: 'começou' }));
-        const r = await programar(msg.programar);
-        console.log(`[programador] ${r.ok ? 'pronto' : `falhou: ${r.erro}`}`);
-        const agora = this.ws; // pode ter reconectado no meio
-        if (agora?.readyState === WebSocket.OPEN) agora.send(JSON.stringify({ t: 'fim', id: msg.id, ...r, saida: (r.saida ?? '').slice(0, SAIDA_MAX) }));
-        return;
+      this.trabalhando += 1;
+      try {
+        await this.#executar(ws, msg);
+      } finally {
+        this.trabalhando -= 1;
       }
-      // Dúvida de código (grupo liberado no WhatsApp): só LÊ os projetos e responde em palavras.
-      if (msg.consultar) {
-        if (!this.ligado) return ws.send(JSON.stringify({ t: 'result', id: msg.id, ok: false, saida: '', erro: 'o uso do computador está desligado nele' }));
-        const r = await consultar(msg.consultar);
-        console.log(`[consultor] ${r.ok ? 'respondeu' : `falhou: ${r.erro}`}`);
-        const agora = this.ws;
-        if (agora?.readyState === WebSocket.OPEN) agora.send(JSON.stringify({ t: 'result', id: msg.id, ...r, saida: (r.saida ?? '').slice(0, SAIDA_MAX) }));
-        return;
-      }
-      const r = await this.#atender(msg);
-      console.log(`[braço] ${r.ok ? 'ok' : `falhou: ${r.erro ?? ''}`}`);
-      if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ t: 'result', id: msg.id, ...r }));
     });
     ws.addEventListener('close', () => {
       if (this.ws !== ws) return; // uma conexão mais nova já tomou o lugar
@@ -205,6 +191,32 @@ export class Braco {
       if (this.ligado) this.tentativa = setTimeout(() => this.#conectar(), RECONECTA_MS);
     });
     ws.addEventListener('error', () => {}); // o close vem logo depois e reconecta
+  }
+
+  /** Um pedido do servidor: programador, consulta de código, ou comando/ação. */
+  async #executar(ws, msg) {
+    // Trabalho de programador: leva minutos. Responde "começou" já, e o fim chega depois ('fim').
+    if (msg.programar) {
+      if (!this.ligado) return ws.send(JSON.stringify({ t: 'result', id: msg.id, ok: false, saida: '', erro: 'o uso do computador está desligado nele' }));
+      ws.send(JSON.stringify({ t: 'result', id: msg.id, ok: true, saida: 'começou' }));
+      const r = await programar(msg.programar);
+      console.log(`[programador] ${r.ok ? 'pronto' : `falhou: ${r.erro}`}`);
+      const agora = this.ws; // pode ter reconectado no meio
+      if (agora?.readyState === WebSocket.OPEN) agora.send(JSON.stringify({ t: 'fim', id: msg.id, ...r, saida: (r.saida ?? '').slice(0, SAIDA_MAX) }));
+      return;
+    }
+    // Dúvida de código (grupo liberado no WhatsApp): só LÊ os projetos e responde em palavras.
+    if (msg.consultar) {
+      if (!this.ligado) return ws.send(JSON.stringify({ t: 'result', id: msg.id, ok: false, saida: '', erro: 'o uso do computador está desligado nele' }));
+      const r = await consultar(msg.consultar);
+      console.log(`[consultor] ${r.ok ? 'respondeu' : `falhou: ${r.erro}`}`);
+      const agora = this.ws;
+      if (agora?.readyState === WebSocket.OPEN) agora.send(JSON.stringify({ t: 'result', id: msg.id, ...r, saida: (r.saida ?? '').slice(0, SAIDA_MAX) }));
+      return;
+    }
+    const r = await this.#atender(msg);
+    console.log(`[braço] ${r.ok ? 'ok' : `falhou: ${r.erro ?? ''}`}`);
+    if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ t: 'result', id: msg.id, ...r }));
   }
 
   #atender(pedido) {

@@ -13,6 +13,12 @@ let mexeuEm = Date.now();
 /** A ligação (modo chamada) liga isto enquanto está aberta. */
 export const ocupado = { chamada: false };
 
+/*
+ * O app do computador pergunta isto antes de se reinstalar para atualizar (main.js): com reunião
+ * gravando ou ligação aberta, ele espera.
+ */
+(window as { roboOcupado?: () => boolean }).roboOcupado = () => ocupado.chamada || gravando();
+
 function gravando(): boolean {
   try {
     return !!localStorage.getItem(GRAVANDO_KEY);

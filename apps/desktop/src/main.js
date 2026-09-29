@@ -14,7 +14,7 @@ import { createWriteStream, mkdirSync, readFileSync, renameSync, rmSync, statSyn
 import { hostname } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { BrowserWindow, Menu, Tray, app, desktopCapturer, globalShortcut, ipcMain, powerMonitor, screen, session, shell } from 'electron';
+import { BrowserWindow, Menu, Notification, Tray, app, desktopCapturer, globalShortcut, ipcMain, powerMonitor, screen, session, shell } from 'electron';
 import { Braco } from './braco.js';
 import { Ouvinte } from './ouvinte.js';
 
@@ -92,6 +92,7 @@ let modoBolha = 'carinha';
 let visivel = true;
 let painelAberto = false;
 let vozLigada = false;
+let ultimaFalaEm = 0; // a última vez que o ouvido pegou um "Miro, …" (conversa por voz em andamento)
 
 /* ── o que fica guardado entre uma vez e outra ──────────────────────── */
 
@@ -403,7 +404,10 @@ app.on('will-quit', () => soltarSomDoSistema());
 
 const ouvinte = new Ouvinte({
   pasta: join(app.getPath('userData'), 'ouvido'),
-  aoCandidato: (c) => bolha?.webContents.send('ouvinte:candidato', c),
+  aoCandidato: (c) => {
+    ultimaFalaEm = Date.now();
+    bolha?.webContents.send('ouvinte:candidato', c);
+  },
   aoEstado: (e) => {
     console.log(`[ouvido] ${e}`);
     bolha?.webContents.send('ouvinte:estado', e);
@@ -658,6 +662,22 @@ function atualizarBandeja() {
         },
       },
       { type: 'separator' },
+      ...(atualizador
+        ? [
+            atualizacao
+              ? { label: `Atualizar agora (versão ${atualizacao})`, click: () => void aplicarAtualizacao(true) }
+              : {
+                  label: `Procurar atualização (versão ${app.getVersion()})`,
+                  click: async () => {
+                    const r = await procurarAtualizacao();
+                    const body = r?.isUpdateAvailable
+                      ? `Baixando a versão ${r.updateInfo.version}: instalo sozinho no próximo bom momento (ou em "Atualizar agora").`
+                      : 'Já está na versão mais nova.';
+                    new Notification({ title: nomeDele, body }).show();
+                  },
+                },
+          ]
+        : []),
       { label: 'Sair', click: () => app.quit() },
     ]),
   );
@@ -757,21 +777,70 @@ ipcMain.on('voz', (_e, ligada) => {
 /* ── atualização (instalado no Windows) ──────────────────────────────── */
 
 /*
- * A página vem do servidor (deploy já atualiza), mas o app em si (este arquivo, o ouvido) só
- * muda com instalador novo: o GitHub Actions publica cada versão como release, e o app baixa
- * sozinho e instala quando você o fecha (ou na próxima vez que o Windows ligar).
+ * A página vem do servidor (deploy já atualiza), mas o app em si (este arquivo, o ouvido, o braço)
+ * só muda com instalador novo: o GitHub Actions publica cada versão como release, e o app baixa
+ * sozinho. Antes ela só entrava quando você fechava o app — e ele fica aberto dias. Agora, baixou,
+ * ele se reinstala e reabre sozinho (uns segundos) no primeiro bom momento: você sem mexer no PC
+ * há uns minutos, sem reunião gravando, sem ligação, sem conversa por voz e sem o braço rodando
+ * nada. Pela bandeja dá para mandar na hora.
  */
+const PROCURAR_A_CADA_MS = 30 * 60_000;
+const PARADO_S = 180;
+let atualizador = null;
+let atualizacao = null; // a versão baixada, esperando um bom momento
+
 async function atualizarSozinho() {
   try {
     const { default: updater } = await import('electron-updater');
     const { autoUpdater } = updater;
     autoUpdater.logger = { info: (m) => console.log(`[update] ${m}`), warn: (m) => console.log(`[update] ${m}`), error: (m) => console.error(`[update] ${m}`), debug: () => {} };
-    autoUpdater.autoInstallOnAppQuit = true;
-    await autoUpdater.checkForUpdates();
-    setInterval(() => void autoUpdater.checkForUpdates().catch(() => undefined), 6 * 60 * 60_000);
+    autoUpdater.autoInstallOnAppQuit = true; // fechou antes do bom momento: instala ao sair, como antes
+    autoUpdater.on('update-downloaded', (info) => {
+      atualizacao = info.version;
+      console.log(`[update] versão ${atualizacao} baixada: instala no primeiro bom momento`);
+      atualizarBandeja();
+    });
+    atualizador = autoUpdater;
+    atualizarBandeja();
+    setInterval(() => void procurarAtualizacao(), PROCURAR_A_CADA_MS);
+    setInterval(() => void aplicarAtualizacao(), 60_000);
+    await procurarAtualizacao();
   } catch (err) {
     console.error(`[update] ${err.message}`);
   }
+}
+
+function procurarAtualizacao() {
+  return atualizador?.checkForUpdates().catch((err) => console.error(`[update] ${err.message}`));
+}
+
+/** O que uma reinstalação agora cortaria no meio (ou null, se nada). */
+async function ocupadoAgora() {
+  if (braco.trabalhando > 0) return 'o braço está rodando algo';
+  if (Date.now() - ultimaFalaEm < PARADO_S * 1000) return 'vocês estão conversando por voz';
+  for (const w of [bolha, painel]) {
+    if (!w || w.isDestroyed()) continue;
+    // A página diz se está gravando reunião ou numa ligação (lib/atualizar.ts).
+    const ocupada = await w.webContents
+      .executeJavaScript('window.roboOcupado ? window.roboOcupado() : !!localStorage.getItem("robo.gravando")', true)
+      .catch(() => false);
+    if (ocupada) return 'tem reunião ou ligação em andamento';
+  }
+  return null;
+}
+
+/** Instala a versão baixada e reabre — se for um bom momento (ou `agora`: você pediu, só espera o que está em andamento). */
+async function aplicarAtualizacao(agora = false) {
+  if (!atualizacao || !atualizador) return;
+  if (!agora && powerMonitor.getSystemIdleTime() < PARADO_S) return;
+  const motivo = await ocupadoAgora();
+  if (motivo) {
+    if (agora) new Notification({ title: nomeDele, body: `Atualizo assim que terminar: ${motivo}.` }).show();
+    return;
+  }
+  console.log(`[update] instalando ${atualizacao} e reabrindo`);
+  app.saindo = true;
+  atualizador.quitAndInstall(true, true); // silencioso, e abre de novo quando terminar
 }
 
 /* ── ciclo de vida ───────────────────────────────────────────────────── */
