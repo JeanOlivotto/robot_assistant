@@ -41,6 +41,8 @@ export interface Meeting {
   endedAt?: number;
   /** processando = a ata ainda está saindo (o robô avisa no chat quando ficar pronta). */
   status?: 'gravando' | 'processando' | 'pronta';
+  /** Gravação de uma ligação do WhatsApp: encerra sozinha quando o som some. */
+  ligacao?: boolean;
   segments: number;
   seconds: number;
   chars: number;
@@ -176,6 +178,8 @@ export class MeetingRecorder {
   private mime?: string;
   private ctx: AudioContext | null = null;
   private analyser: AnalyserNode | null = null;
+  /** Só o som da aba/do computador (sem o microfone): é por ele que se sabe se a chamada ainda está viva. */
+  private analyserChamada: AnalyserNode | null = null;
   private samples = new Uint8Array(256);
 
   /**
@@ -223,6 +227,9 @@ export class MeetingRecorder {
         const aba = this.ctx.createMediaStreamSource(new MediaStream(this.tela.getAudioTracks()));
         aba.connect(mix);
         aba.connect(this.analyser);
+        this.analyserChamada = this.ctx.createAnalyser();
+        this.analyserChamada.fftSize = 512;
+        aba.connect(this.analyserChamada);
         this.sources.push(aba);
         try {
           const mic = this.ctx.createMediaStreamSource(await acquireMic());
@@ -267,8 +274,17 @@ export class MeetingRecorder {
 
   /** 0..1, só para o medidor. */
   level(): number {
-    if (!this.analyser) return 0;
-    this.analyser.getByteTimeDomainData(this.samples);
+    return this.pico(this.analyser);
+  }
+
+  /** 0..1 do som da chamada, sem o microfone (barulho da sala não conta). Sem aba/computador: o microfone. */
+  nivelDaChamada(): number {
+    return this.pico(this.analyserChamada ?? this.analyser);
+  }
+
+  private pico(analyser: AnalyserNode | null): number {
+    if (!analyser) return 0;
+    analyser.getByteTimeDomainData(this.samples);
     let peak = 0;
     for (const v of this.samples) peak = Math.max(peak, Math.abs(v - 128));
     return Math.min(1, peak / 64);
@@ -300,6 +316,7 @@ export class MeetingRecorder {
     this.rec = null;
     this.ctx = null; // o AudioContext é do app inteiro: não se fecha aqui
     this.analyser = null;
+    this.analyserChamada = null;
     if (this.usouMic) releaseMic(); // o mic é emprestado: devolve
     this.usouMic = false;
     this.doneResolve?.();

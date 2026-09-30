@@ -146,7 +146,7 @@ function Main({ token, onLogout }: { token: string; onLogout(): void }) {
     if (!fresh.length) return;
     spokenUpTo.current = Math.max(...fresh.map((m) => m.ts));
     // Resposta a pergunta feita em outro aparelho: fica no chat, mas não fala aqui.
-    const minhas = fresh.filter(eParaMim);
+    const minhas = fresh.filter((m) => eParaMim(m) && !m.mudo);
     if (minhas.length) void speak(minhas[minhas.length - 1]!.text);
   }, [robo.messages, speakOn, convo]);
 

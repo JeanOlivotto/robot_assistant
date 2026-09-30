@@ -47,6 +47,8 @@ export interface Meeting {
   endedAt?: number;
   /** gravando → processando (vozes + ata) → pronta. Atas antigas não têm o campo: estão prontas. */
   status?: 'gravando' | 'processando' | 'pronta';
+  /** Gravação de uma ligação do WhatsApp: o app encerra sozinho quando o som some. */
+  ligacao?: boolean;
   segments: number;
   transcript: string;
   seconds: number;
@@ -113,11 +115,12 @@ export class MeetingService implements OnModuleInit {
   /** `convidado`: gravada por link de convite — nunca é a ligação do dono. */
   start(titulo?: string, opts: { convidado?: boolean } = {}): Meeting {
     const id = randomUUID();
-    // Aberta logo depois do "Grava" de uma ligação: é ela (encerra junto com a ligação).
+    // Aberta logo depois do "Grava" de uma ligação: é ela (o app encerra quando ela silenciar).
     const daLigacao = opts.convidado ? undefined : this.chat.reuniaoDaLigacao(id);
     const m: Meeting = {
       id,
       titulo: (titulo ?? '').trim() || daLigacao || 'Reunião',
+      ...(daLigacao ? { ligacao: true } : {}),
       startedAt: Date.now(),
       status: 'gravando',
       segments: 0,

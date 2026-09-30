@@ -86,6 +86,8 @@ export const ChatMessage = z.object({
   para: z.string().max(64).optional(),
   /** Só o app deste computador abre balão (ex.: comentário sobre o código que está aberto nele). */
   paraMaquina: z.string().max(60).optional(),
+  /** Aparece no chat, mas ninguém lê em voz alta (ex.: "gravando" com a ligação já tocando). */
+  mudo: z.boolean().optional(),
 });
 
 export const RobotView = z.object({

@@ -29,11 +29,15 @@ const palavras = (t: string, nomes: string[]) => {
   return limpo.split(' ').filter((w) => w && !semNome.has(w));
 };
 
-/** true = sim, false = não, null = não é resposta (é outra coisa). */
-export function simOuNao(texto: string, nomes: string[] = []): boolean | null {
+/**
+ * true = sim, false = não, null = não é resposta (é outra coisa). `acompanham`: palavras que o
+ * cartão aceita a mais sem virar pedido novo ("grava a ligação" para o cartão da ligação).
+ */
+export function simOuNao(texto: string, nomes: string[] = [], acompanham: string[] = []): boolean | null {
   const w = palavras(texto, nomes);
   if (!w.length || w.length > 6) return null;
-  if (w.some((x) => NAO_NUCLEO.has(x)) && w.every((x) => NAO.has(x))) return false;
-  if (w.some((x) => SIM_NUCLEO.has(x)) && w.every((x) => SIM.has(x))) return true;
+  const extra = new Set(acompanham);
+  if (w.some((x) => NAO_NUCLEO.has(x)) && w.every((x) => NAO.has(x) || extra.has(x))) return false;
+  if (w.some((x) => SIM_NUCLEO.has(x)) && w.every((x) => SIM.has(x) || extra.has(x))) return true;
   return null;
 }

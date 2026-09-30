@@ -24,4 +24,11 @@ describe('sim ou não para a proposta em aberto', () => {
       expect(simOuNao(t, ['Miro']), t).toBe(null);
     }
   });
+
+  it('o cartão pode aceitar palavras a mais ("grava a ligação")', () => {
+    const lig = ['a', 'essa', 'ligacao', 'chamada'];
+    for (const t of ['Miro, grava a ligação', 'pode gravar essa chamada', 'grava']) expect(simOuNao(t, ['Miro'], lig), t).toBe(true);
+    expect(simOuNao('não grava a ligação', ['Miro'], lig)).toBe(null);
+    expect(simOuNao('grava a ligação', ['Miro'])).toBe(null); // sem o cartão da ligação, é pedido novo
+  });
 });

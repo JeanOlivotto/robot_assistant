@@ -12,7 +12,7 @@ import { LigacaoService } from './ligacao.service.js';
 import type { Ligacao, WhatsappService } from './whatsapp.service.js';
 
 function montar() {
-  const cfg = { DATA_DIR: mkdtempSync(join(tmpdir(), 'ligacao-')), TZ_NAME: 'America/Sao_Paulo', OWNER_NAME: 'Jean' } as unknown as AppConfig;
+  const cfg = { DATA_DIR: mkdtempSync(join(tmpdir(), 'ligacao-')), TZ_NAME: 'America/Sao_Paulo', OWNER_NAME: 'Jean', ROBOT_NAME: 'Miro' } as unknown as AppConfig;
   const store = new ChatStore(cfg);
   const braco = { escolher: () => ({ nome: 'arch' }) } as unknown as BracoService;
   const chat = new ChatService(cfg, store, {} as never, {} as never, braco, {} as never, {} as never);
@@ -36,7 +36,7 @@ describe('ligação no WhatsApp', () => {
     expect(chat.history(50).filter((x) => x.proposal).length).toBe(1);
   });
 
-  it('"Grava": manda o PC em uso gravar, a reunião leva o título, e encerra quando a ligação acaba', async () => {
+  it('"Grava": manda o PC em uso gravar e a reunião leva o título — o "terminate" de atender no PC não encerra', async () => {
     const { chat, pedidos, cartao, ligar } = montar();
     ligar('L1', 'chegando');
     await chat.confirm(cartao('L1')!.proposal!.id, true);
@@ -46,8 +46,9 @@ describe('ligação no WhatsApp', () => {
     expect(chat.reuniaoDaLigacao('R1')).toBe('Ligação com Eduardo');
     expect(chat.reuniaoDaLigacao('R2')).toBeUndefined(); // a próxima reunião já não é a ligação
 
-    ligar('L1', 'acabou');
-    expect(pedidos.at(-1)).toMatchObject({ acao: 'encerrar', ligacao: 'L1', reuniao: 'R1' });
+    ligar('L1', 'acabou'); // o WhatsApp manda isso também quando você atende no computador
+    expect(pedidos.filter((p) => p.acao === 'encerrar')).toEqual([]);
+    expect(cartao('L1')?.proposal?.status).toBe('confirmed');
   });
 
   it('ligação que acaba sem resposta: o cartão expira e nada grava', () => {
@@ -65,5 +66,14 @@ describe('ligação no WhatsApp', () => {
     expect(cartao('L3')?.proposal?.status).toBe('cancelled');
     expect(pedidos).toEqual([]);
     expect(chat.reuniaoDaLigacao('R1')).toBeUndefined();
+  });
+
+  it('"grava a ligação" falado grava na hora, sem falar nada — mesmo sem certeza da voz', async () => {
+    const { chat, pedidos, cartao, ligar } = montar();
+    ligar('L4', 'chegando');
+    await chat.ask('Miro, grava a ligação', 'voice', { voz: { certeza: 'duvida' } });
+    expect(cartao('L4')?.proposal?.status).toBe('confirmed');
+    expect(pedidos).toEqual([expect.objectContaining({ acao: 'gravar', ligacao: 'L4' })]);
+    expect(chat.history(50).at(-1)).toMatchObject({ from: 'robot', mudo: true });
   });
 });

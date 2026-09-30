@@ -190,7 +190,7 @@ function BolhaLogada({ token, andando }: { token: string; andando: 'esquerda' | 
     // Se você abriu o balão para conversar, ele continua "seu": não some sozinho.
     setBalao((b) => ({ msg: ultima, desde: Date.now(), porClique: b?.porClique ?? false }));
     setEsperando(false);
-    if (voz || falarProxima.current) {
+    if (!ultima.mudo && (voz || falarProxima.current)) {
       // Respondendo a um pedido falado: depois de falar, a conversa fica aberta — você continua
       // sem repetir o nome (antes só depois de "Miro?" ou de uma pergunta dele).
       const conversa = falarProxima.current;

@@ -32,6 +32,10 @@ type Phase = 'checking' | 'unavailable' | 'idle' | 'recording' | 'finalizing' | 
  * o painel avisa pelo armazenamento do app, que as duas janelas compartilham.
  */
 export const GRAVANDO_KEY = 'robo.gravando';
+/** Gravando uma ligação: este tempo sem som nenhum = a ligação acabou (encerra e gera a ata). */
+const LIGACAO_SILENCIO_MS = 60_000;
+/** Abaixo disso no medidor é silêncio (chiado de fundo não conta como alguém falando). */
+const LIGACAO_NIVEL_MIN = 0.04;
 function marcarGravando(g: { desde: number; titulo: string } | null): void {
   if (!DESKTOP) return;
   try {
@@ -392,6 +396,7 @@ export function MeetingView({
   const queue = useRef<Blob[]>([]);
   const uploading = useRef<Promise<void> | null>(null);
   const startedAt = useRef(0);
+  const daLigacao = useRef(false);
 
   useEffect(() => {
     let alive = true;
@@ -482,6 +487,7 @@ export function MeetingView({
     try {
       const m = await startMeeting(token, titulo);
       meetingId.current = m.id;
+      daLigacao.current = !!m.ligacao;
       startedAt.current = Date.now();
       const rec = new MeetingRecorder(
         (blob) => {
@@ -526,6 +532,18 @@ export function MeetingView({
 
   const finishRef = useRef(finish);
   finishRef.current = finish;
+
+  // Ligação do WhatsApp: o servidor não sabe quando ela acaba (o aviso de "atendeu em outro aparelho" é
+  // igual ao de "desligou"), então quem percebe é o som — um minuto de silêncio e a ata sai sozinha.
+  useEffect(() => {
+    if (phase !== 'recording' || !daLigacao.current) return;
+    let ouviuEm = Date.now();
+    const id = setInterval(() => {
+      if ((recorder.current?.nivelDaChamada() ?? 0) > LIGACAO_NIVEL_MIN) ouviuEm = Date.now();
+      else if (Date.now() - ouviuEm > LIGACAO_SILENCIO_MS) void finishRef.current();
+    }, 500);
+    return () => clearInterval(id);
+  }, [phase]);
 
   // "Miro, encerra a reunião" (comando de voz no computador), ou a ligação que ela gravava acabou —
   // aí só se for esta reunião.

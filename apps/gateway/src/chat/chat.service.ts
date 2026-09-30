@@ -42,6 +42,8 @@ export interface AskOptions {
 }
 
 const PROPOSAL_TTL_MS = 30 * 60_000;
+/** "Grava a ligação", "pode gravar essa chamada": no cartão da ligação isso ainda é só um "sim". */
+const LIGACAO_ACOMPANHA = 'a o essa esta ela ligacao chamada conversa reuniao call tudo ata e faz faca'.split(' ');
 /* "modo hacker" por voz ou texto — o robô também alterna sozinho com dois toques no BOOT. */
 const HACKER_OFF = /\b(sa[ií]r?|sai|desliga\w*|tira\w*|encerra\w*|volta\w*)\b[^.]{0,20}\bhacker\b/i;
 const HACKER_ON = /\bmodo hacker\b/i;
@@ -165,7 +167,7 @@ export class ChatService implements OnModuleInit, OnModuleDestroy {
     text: string,
     face: Face,
     kind: MessageKind,
-    opts: { proposal?: Proposal; expectsReply?: boolean; replyVia?: MessageVia; para?: string; paraMaquina?: string } = {},
+    opts: { proposal?: Proposal; expectsReply?: boolean; replyVia?: MessageVia; para?: string; paraMaquina?: string; mudo?: boolean } = {},
   ): ChatMessage {
     const msg: ChatMessage = {
       id: randomUUID(),
@@ -177,6 +179,7 @@ export class ChatService implements OnModuleInit, OnModuleDestroy {
       proposal: opts.proposal,
       ...(opts.para ? { para: opts.para } : {}),
       ...(opts.paraMaquina ? { paraMaquina: opts.paraMaquina } : {}),
+      ...(opts.mudo ? { mudo: true } : {}),
     };
     this.push(msg);
     this.said$.next({ message: msg, replyVia: opts.replyVia });
@@ -238,12 +241,13 @@ export class ChatService implements OnModuleInit, OnModuleDestroy {
     // "sim"/"não" (digitado ou falado, "sim, pode mandar", "Miro, manda aí") com uma proposta aberta vale
     // como o botão — a mais recente, se houver mais de uma (ex.: uma ligação chegou no meio).
     const aberta = this.store.pendingProposals().at(-1)?.proposal;
-    const resposta = aberta ? simOuNao(text, [this.cfg.ROBOT_NAME]) : null;
+    const resposta = aberta ? simOuNao(text, [this.cfg.ROBOT_NAME], aberta.kind === 'reuniao' ? LIGACAO_ACOMPANHA : []) : null;
     if (aberta && resposta !== null) {
-      // Comando no computador, mensagem no WhatsApp e gravar ligação só o dono aprova: "sim" de outra voz
-      // (ou de voz que não deu para ter certeza) não vale — e ele fica sabendo por quê.
+      // Comando no computador e mensagem no WhatsApp só o dono aprova: "sim" de outra voz (ou de voz que
+      // não deu para ter certeza) não vale — e ele fica sabendo por quê. Gravar a ligação não passa por
+      // isso: com o telefone tocando não dá tempo de discutir voz, e gravar só liga o PC do próprio dono.
       const outraVoz = !!opts.voz && !(opts.voz.certeza === 'alta' && opts.voz.nome?.trim().toLowerCase() === (this.cfg.OWNER_NAME || '').trim().toLowerCase());
-      if (resposta && outraVoz && ['command', 'whatsapp', 'reuniao'].includes(aberta.kind)) {
+      if (resposta && outraVoz && ['command', 'whatsapp'].includes(aberta.kind)) {
         return this.robotSay('Pela voz não tive certeza de que é você. Digita "sim" ou aperta o botão.', 'thinking', 'reply', { replyVia: via, para: opts.origem });
       }
       return this.handleConfirm(aberta.id, resposta, opts.origem);
@@ -418,33 +422,25 @@ export class ChatService implements OnModuleInit, OnModuleDestroy {
     this.updateProposal(msg, { status: 'confirmed' });
     this.settleWaiting();
     this.reuniao$.next({ t: 'reuniao', ts: Date.now(), acao: 'gravar', ligacao: p.ligacao ?? p.id, ...(maquina ? { maquina } : {}) });
-    return this.robotSay(
-      `Beleza, ${maquina ? `gravando no ${maquina}` : 'gravando no computador'}. Atende a ligação por lá que no fim eu faço a ata.`,
-      'happy',
-      'reply',
-      { para },
-    );
+    // Mudo: a ligação já está tocando — ele não fala por cima (nem abre a conversa ouvindo), só grava.
+    return this.robotSay(`🔴 Gravando ${maquina ? `no ${maquina}` : 'no computador'}. No fim eu faço a ata.`, 'happy', 'reply', { para, mudo: true });
   }
 
   /**
-   * A ligação acabou (desligada, recusada, perdida): o cartão que ninguém respondeu expira, e a
-   * gravação que começou por ela encerra — a ata sai sozinha.
+   * A ligação parou de tocar aqui: o cartão que ninguém respondeu expira. A gravação NÃO encerra —
+   * o WhatsApp manda o mesmo "terminate" quando você atende em outro aparelho e quando desligam, então
+   * daqui não dá para saber se a ligação acabou ou começou. Quem encerra é o PC, pelo silêncio.
    */
   ligacaoAcabou(ligacao: string): void {
     const msg = this.store.recent(100).findLast((m) => m.proposal?.kind === 'reuniao' && m.proposal.ligacao === ligacao);
-    if (!msg?.proposal) return;
-    if (msg.proposal.status === 'pending') {
-      this.updateProposal(msg, { status: 'expired', error: 'a ligação acabou' });
-      this.settleWaiting();
-    } else if (msg.proposal.status === 'confirmed' && this.gravando?.ligacao === ligacao && this.gravando.reuniao) {
-      this.reuniao$.next({ t: 'reuniao', ts: Date.now(), acao: 'encerrar', ligacao, reuniao: this.gravando.reuniao });
-      this.gravando = null;
-    }
+    if (msg?.proposal?.status !== 'pending') return;
+    this.updateProposal(msg, { status: 'expired', error: 'a ligação acabou' });
+    this.settleWaiting();
   }
 
   /**
    * Reunião abrindo sem título: se o dono acabou de mandar gravar uma ligação, é ela — o título
-   * vira "Ligação com X" e a reunião fica ligada à ligação (para encerrar quando ela acabar).
+   * vira "Ligação com X" e a reunião fica marcada como ligação (o PC encerra quando ela silenciar).
    */
   reuniaoDaLigacao(reuniao: string): string | undefined {
     const g = this.gravando;
