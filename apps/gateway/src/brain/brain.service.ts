@@ -510,6 +510,7 @@ export class BrainService {
 
   private async responder(history: ChatMessage[], opts: { spoken?: boolean }): Promise<BrainReply> {
     const now = new Date();
+    const apresentarPara = this.apresentarPara(history.at(-1));
     const messages: ChatCompletionMessageParam[] = [
       {
         role: 'system',
@@ -518,6 +519,7 @@ export class BrainService {
           spoken: opts.spoken,
           todayAgenda: await this.todayAgenda(now),
           pedidoDoComputador: this.maquinaDoPedido,
+          apresentarPara,
         }),
       },
       ...toLlmHistory(history.slice(-HISTORY), this.cfg.TZ_NAME),
@@ -541,6 +543,8 @@ export class BrainService {
           messages.push({ role: 'user', content: '[instrução interna do sistema] Agora responda para ele, em uma ou duas frases.' });
           continue;
         }
+        // Respondeu a quem ainda não o conhecia (e o prompt mandou se apresentar): da próxima vez, não repete.
+        if (text && apresentarPara?.nome) this.identidade.apresentouSePara(apresentarPara.nome);
         return { text: text || '...', face, proposal };
       }
       usouFerramenta = true;
@@ -927,7 +931,25 @@ export class BrainService {
       if (v.erro === 'ja-e-de') return `recusado: essa voz você já conhece — é de ${v.nome}. Pergunte se é ${v.nome} mesmo. Nada foi salvo.`;
       return 'erro: não tem voz esperando para salvar — peça para a pessoa mandar um áudio falando';
     }
+    // Ela se apresentou numa conversa que já é com você (e você com ela): não precisa se apresentar de novo.
+    this.identidade.apresentouSePara(v.nome);
     return `voz salva como ${v.nome} (${v.amostras.length} amostra(s)). Da próxima vez você reconhece.`;
+  }
+
+  /**
+   * Quem fala e ainda não conhece o robô: voz do banco para quem ele nunca se apresentou, ou voz que ele
+   * não conhece (aí sem nome). O dono não precisa — e, enquanto a voz dele não está no banco, a voz
+   * desconhecida no app dele provavelmente é ele mesmo.
+   */
+  private apresentarPara(m?: ChatMessage): { nome?: string } | undefined {
+    if (m?.from !== 'user' || !m.voz) return undefined;
+    const dono = this.cfg.OWNER_NAME || '';
+    if (m.voz.certeza === 'alta' && m.voz.nome) {
+      const ehDono = !!dono && semAcento(m.voz.nome) === semAcento(dono);
+      return ehDono || this.identidade.jaSeApresentouPara(m.voz.nome) ? undefined : { nome: m.voz.nome };
+    }
+    if (m.voz.certeza === 'desconhecida' && !!dono && this.banco.conhece(dono)) return {};
+    return undefined;
   }
 
   /** Só a própria pessoa (reconhecida pela voz) ou o dono apagam uma voz. Digitado = o dono, no app dele. */

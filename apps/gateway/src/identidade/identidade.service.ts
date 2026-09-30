@@ -24,6 +24,8 @@ interface Identidade {
   nome?: string;
   /** O que ele decidiu sobre si: gostos, jeito, opiniões, história. */
   sobre: string[];
+  /** Para quem ele já se apresentou (nomes do banco de vozes, sem acento). */
+  apresentadoPara?: string[];
 }
 
 /**
@@ -75,6 +77,18 @@ export class IdentidadeService {
     this.save();
     this.log.log(`Ele escolheu um nome: ${antes} → ${limpo}`);
     return limpo;
+  }
+
+  /** Já se apresentou para essa pessoa (pelo nome do banco de vozes)? */
+  jaSeApresentouPara(nome: string): boolean {
+    return (this.eu.apresentadoPara ?? []).includes(semAcento(nome));
+  }
+
+  apresentouSePara(nome: string): void {
+    const n = semAcento(nome);
+    if (!n || this.jaSeApresentouPara(nome)) return;
+    this.eu.apresentadoPara = [...(this.eu.apresentadoPara ?? []), n].slice(-200);
+    this.save();
   }
 
   /** Guarda algo que ele decidiu sobre si (o mesmo assunto dito de novo substitui o anterior). */

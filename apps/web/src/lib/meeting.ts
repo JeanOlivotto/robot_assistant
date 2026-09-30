@@ -212,8 +212,14 @@ export class MeetingRecorder {
     }
     if (fonte === 'computador') {
       await acquireMic().then(releaseMic); // a permissão do microfone é o que libera os nomes dos aparelhos
-      this.tela = await somDoComputador();
+      // A fonte virtual nasce dentro do somDoComputador: se ele falhar depois disso, o release tira ela.
       this.usouSomDoComputador = true;
+      try {
+        this.tela = await somDoComputador();
+      } catch (err) {
+        this.release();
+        throw err;
+      }
     }
     try {
       this.mime = MIME_CANDIDATES.find((m) => MediaRecorder.isTypeSupported(m));

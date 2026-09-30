@@ -36,4 +36,12 @@ describe('IdentidadeService: nome genérico', () => {
     eu.definirNome('Rex');
     expect(eu.escolheuNome).toBe(true);
   });
+
+  it('lembra para quem já se apresentou, sem ligar para acento ou maiúscula, mesmo depois de reiniciar', () => {
+    const c = cfg();
+    const eu = new IdentidadeService(c);
+    expect(eu.jaSeApresentouPara('Francisca')).toBe(false);
+    eu.apresentouSePara('Fábio');
+    expect(new IdentidadeService(c).jaSeApresentouPara('fabio')).toBe(true);
+  });
 });
