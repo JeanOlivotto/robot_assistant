@@ -23,6 +23,26 @@ describe('conteudo', () => {
   });
 });
 
+describe('acharPorNome: palavra que não é nome', () => {
+  const lista = [
+    { id: 'g1', nome: ':TODO: PREVINITY' },
+    { id: 'g2', nome: 'Todos da Obra' },
+    { id: 'p1', nome: 'Andre Souza' },
+  ];
+
+  it('"TODO", "tudo", "todo mundo" não casam com grupo nenhum', () => {
+    for (const t of ['TODO', 'tudo', 'Todos', 'todo mundo', 'pra todos', 'o grupo', 'cliente']) {
+      expect(acharPorNome(lista, t), t).toEqual({ parecidos: [] });
+    }
+  });
+
+  it('o nome de verdade continua achando, inclusive grupo que começa com essas palavras', () => {
+    expect(acharPorNome(lista, 'Andre').achou?.id).toBe('p1');
+    expect(acharPorNome(lista, 'previnity').achou?.id).toBe('g1');
+    expect(acharPorNome(lista, 'todos da obra').achou?.id).toBe('g2');
+  });
+});
+
 describe('acharPorNome', () => {
   const lista = [
     { id: '1', nome: 'Fábio Souza' },

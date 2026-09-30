@@ -25,7 +25,8 @@ import { MAX_VOICE_SECONDS, SttService } from '../stt/stt.service.js';
 import { TtsService } from '../tts/tts.service.js';
 import { VisionService } from '../vision/vision.service.js';
 import { figurinha } from './figurinha.js';
-import { acharPorNome, aplicarMencoes, arroba, conteudo, corpo, descrever, type Recebida, semAcento } from './mensagem.js';
+import { acharPorNome, aplicarMencoes, arroba, conteudo, corpo, descrever, naoENome, type Recebida, semAcento } from './mensagem.js';
+import { digitosDe, jidDoNumero, type Lembranca, numeroBate, porAssunto } from './procurar.js';
 import type { Face } from '@robo/protocol';
 
 type Socket = ReturnType<typeof makeWASocket>;
@@ -35,6 +36,9 @@ export type EstadoWhatsapp = 'desligado' | 'aguardando_qr' | 'conectando' | 'con
 /** Só as últimas, e só por um tempo: é para "chegou uma mensagem agora, vê pra mim", não um arquivo. */
 const MAX_RECEBIDAS = 60;
 const GUARDA_MS = 12 * 3600_000;
+/** Só o texto (sem mídia) fica mais tempo: é por ele que o dono acha o cliente pelo assunto. */
+const HISTORICO_MS = 7 * 24 * 3600_000;
+const MAX_HISTORICO = 3000;
 /** Contatos da agenda chegam do celular numa sincronização à parte; sem eles, tenta de novo nestes tempos. */
 const RESYNC_MS = [5_000, 30_000, 120_000];
 /** "Acabei de receber uma mensagem": a pessoa manda em pedaços, então vêm juntas as desse intervalo. */
@@ -104,6 +108,12 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
   /** As mensagens recentes (12 h, últimas 60): sem isto, cada deploy/restart apagava o que tinha chegado. */
   private readonly recebidasFile: string;
   private salvarRecebidas: NodeJS.Timeout | null = null;
+  /** O texto das mensagens dos últimos 7 dias (sem mídia) — para achar a conversa pelo assunto. */
+  private readonly historicoFile: string;
+  private salvarHistorico: NodeJS.Timeout | null = null;
+  private historico: Lembranca[] = [];
+  /** Apelido que o dono deu a uma conversa (jid → "cliente da padaria"): cliente fora da agenda, sem nome lembrado. */
+  private apelidos = new Map<string, string>();
   private salvarContatos: NodeJS.Timeout | null = null;
   private c: Combinado = { ativo: false, privadoAte: 0, atender: true, gruposTecnicos: [] };
 
@@ -149,6 +159,7 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
     this.file = rootPath(`${cfg.DATA_DIR}/whatsapp.json`);
     this.contatosFile = rootPath(`${cfg.DATA_DIR}/whatsapp-contatos.json`);
     this.recebidasFile = rootPath(`${cfg.DATA_DIR}/whatsapp-recebidas.json`);
+    this.historicoFile = rootPath(`${cfg.DATA_DIR}/whatsapp-historico.json`);
     try {
       this.c = { ...this.c, ...(JSON.parse(readFileSync(this.file, 'utf8')) as Partial<Combinado>) };
     } catch {
@@ -161,8 +172,10 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
         nomes?: [string, string][];
         destinos?: Destino[];
         agenda?: string[];
+        apelidos?: [string, string][];
       };
       this.nomes = new Map(salvo.nomes ?? []);
+      this.apelidos = new Map(salvo.apelidos ?? []);
       this.daAgenda = new Set(salvo.agenda ?? []);
       this.destinos = new Map((salvo.destinos ?? []).map((d) => [d.id, d]));
     } catch {
@@ -173,6 +186,13 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
       const salvas = JSON.parse(readFileSync(this.recebidasFile, 'utf8'), BufferJSON.reviver) as { m: Recebida; raw: WAMessage }[];
       const corte = Date.now() - GUARDA_MS;
       if (!this.privado()) this.recebidas = salvas.filter((r) => r.m.ts > corte).slice(-MAX_RECEBIDAS);
+    } catch {
+      /* nada guardado */
+    }
+    try {
+      const corte = Date.now() - HISTORICO_MS;
+      const salvo = JSON.parse(readFileSync(this.historicoFile, 'utf8')) as Lembranca[];
+      if (!this.privado()) this.historico = salvo.filter((l) => l.ts > corte).slice(-MAX_HISTORICO);
     } catch {
       /* nada guardado */
     }
@@ -188,6 +208,7 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
     if (this.religar) clearTimeout(this.religar);
     if (this.salvarContatos) this.gravarContatos();
     if (this.salvarRecebidas) this.gravarRecebidas();
+    if (this.salvarHistorico) this.gravarHistorico();
     this.sock?.end(undefined);
   }
 
@@ -206,8 +227,10 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
     if (ligar) {
       this.c.privadoAte = horas && horas > 0 ? Date.now() + Math.min(horas, 24 * 30) * 3600_000 : -1;
       this.recebidas = [];
+      this.historico = [];
       this.ultimaVista = null;
       rmSync(this.recebidasFile, { force: true }); // privacidade apaga do disco também, na hora
+      rmSync(this.historicoFile, { force: true });
       this.log.log(`WhatsApp: privacidade ligada${this.c.privadoAte > 0 ? ` até ${new Date(this.c.privadoAte).toISOString()}` : ''}`);
     } else {
       this.c.privadoAte = 0;
@@ -457,7 +480,16 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
     const corte = Date.now() - GUARDA_MS;
     this.recebidas = this.recebidas.filter((r) => r.m.ts > corte).slice(-MAX_RECEBIDAS);
     if (!this.salvarRecebidas) this.salvarRecebidas = setTimeout(() => this.gravarRecebidas(), 3_000);
-    this.chegou$.next(this.recebidas.at(-1)!.m);
+    const m = this.recebidas.at(-1)!.m;
+    if (m.texto.trim()) {
+      const pn = !grupo && isPnUser(alt) ? alt : undefined;
+      const corteHist = Date.now() - HISTORICO_MS;
+      this.historico = [...this.historico, { chat, pn, nome: nomeChat, grupo, autor, texto: m.texto.slice(0, 500), ts: m.ts }]
+        .filter((l) => l.ts > corteHist)
+        .slice(-MAX_HISTORICO);
+      if (!this.salvarHistorico) this.salvarHistorico = setTimeout(() => this.gravarHistorico(), 10_000);
+    }
+    this.chegou$.next(m);
   }
 
   /** Alguém ligando (ou a ligação acabando): só o aviso — quem grava é o app do PC, se o dono quiser. */
@@ -538,13 +570,30 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
+  private gravarHistorico(): void {
+    if (this.salvarHistorico) clearTimeout(this.salvarHistorico);
+    this.salvarHistorico = null;
+    if (this.privado()) return;
+    try {
+      mkdirSync(dirname(this.historicoFile), { recursive: true });
+      const tmp = `${this.historicoFile}.tmp`;
+      writeFileSync(tmp, JSON.stringify(this.historico));
+      renameSync(tmp, this.historicoFile);
+    } catch (err) {
+      this.log.error(`Falha ao salvar o histórico do WhatsApp: ${(err as Error).message}`);
+    }
+  }
+
   private gravarContatos(): void {
     if (this.salvarContatos) clearTimeout(this.salvarContatos);
     this.salvarContatos = null;
     try {
       mkdirSync(dirname(this.contatosFile), { recursive: true });
       const tmp = `${this.contatosFile}.tmp`;
-      writeFileSync(tmp, JSON.stringify({ nomes: [...this.nomes], destinos: [...this.destinos.values()], agenda: [...this.daAgenda] }));
+      writeFileSync(
+        tmp,
+        JSON.stringify({ nomes: [...this.nomes], destinos: [...this.destinos.values()], agenda: [...this.daAgenda], apelidos: [...this.apelidos] }),
+      );
       renameSync(tmp, this.contatosFile);
     } catch (err) {
       this.log.error(`Falha ao salvar os contatos do WhatsApp: ${(err as Error).message}`);
@@ -566,7 +615,11 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
     if (opts.de) {
       const conversas = [...new Map(this.recebidas.map((r) => [r.m.chat, { id: r.m.chat, nome: r.m.nomeChat }])).values()];
       const autores = this.recebidas.map((r) => ({ id: r.m.chat, nome: r.m.autor }));
-      const { achou, parecidos } = acharPorNome([...conversas, ...autores], opts.de);
+      const { achou: pelaConversa, parecidos } = acharPorNome([...conversas, ...autores], opts.de);
+      // Apelido ou número ("o cliente da padaria", "final 4321"): a conversa pelo que ele deu.
+      const alvo = pelaConversa ? undefined : (this.apelidos.size || digitosDe(opts.de) ? this.resolver(opts.de).destino : undefined);
+      const doAlvo = alvo && this.recebidas.find((r) => r.m.chat === alvo.id || this.historico.some((l) => l.chat === r.m.chat && l.pn === alvo.id));
+      const achou = pelaConversa ?? (doAlvo ? { id: doAlvo.m.chat, nome: doAlvo.m.nomeChat } : undefined);
       if (!achou) {
         return parecidos.length
           ? `mais de uma conversa com esse nome: ${[...new Set(parecidos.map((p) => p.nome))].join(', ')}. Pergunte qual.`
@@ -680,6 +733,11 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
         ? { destino: this.ultimaVista }
         : { erro: 'não sei para quem: diga o nome do contato ou do grupo' };
     }
+    // Apelido que ele mesmo deu ("o cliente da padaria") vem antes de tudo.
+    const apelido = acharPorNome([...this.apelidos].map(([id, a]) => ({ id, nome: a })), nome).achou;
+    if (apelido) return { destino: { id: apelido.id, nome: `${apelido.nome} (${this.nomeDe(apelido.id)})`, grupo: !!isJidGroup(apelido.id) } };
+    const digitos = digitosDe(nome);
+    if (digitos) return this.porNumero(digitos);
     const recentes = this.recebidas.map((r) => ({ id: r.m.chat, nome: r.m.nomeChat, grupo: r.m.grupo }));
     const lista = [...this.destinos.values(), ...recentes];
     const querGrupo = /\bgrupo\b/.test(semAcento(nome));
@@ -690,7 +748,58 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
       return { destino: parecidos.find((p) => isPnUser(p.id)) ?? parecidos[0] };
     }
     if (parecidos.length) return { erro: `tem mais de um: ${parecidos.map((p) => `${p.nome}${p.grupo ? ' (grupo)' : ''}`).join(', ')}. Pergunte qual.` };
+    if (naoENome(semAcento(nome))) return { erro: `"${nome}" não é nome de contato nem de grupo. Pergunte para quem é — não chute` };
     return { erro: `não achei "${nome}" nos contatos nem nos grupos` };
+  }
+
+  /** Nome que ele conhece daquela conversa (agenda, o que a pessoa usa no WhatsApp) ou o número. */
+  private nomeDe(jid: string): string {
+    return this.destinos.get(jid)?.nome ?? this.nomes.get(jid) ?? this.historico.findLast((l) => l.chat === jid || l.pn === jid)?.nome ?? numeroDe(jid);
+  }
+
+  /** "Manda pro final 4321" / o número inteiro: acha entre quem ele conhece; número inteiro novo também vale. */
+  private porNumero(digitos: string): { destino?: Destino; erro?: string } {
+    const jids = new Set([...this.destinos.keys(), ...this.nomes.keys(), ...this.historico.flatMap((l) => (l.pn ? [l.pn] : []))]);
+    const achados = [...jids].filter((j) => numeroBate(j, digitos));
+    // O mesmo número às vezes aparece com ":dispositivo" — conta como um só.
+    const unicos = [...new Map(achados.map((j) => [j.split('@')[0]!.split(':')[0]!, `${j.split('@')[0]!.split(':')[0]!}@s.whatsapp.net`])).values()];
+    if (unicos.length === 1) return { destino: { id: unicos[0]!, nome: `${this.nomeDe(unicos[0]!)} (${numeroDe(unicos[0]!)})`, grupo: false } };
+    if (unicos.length > 1) return { erro: `mais de um número termina em ${digitos}: ${unicos.slice(0, 5).map((j) => `${this.nomeDe(j)} (${numeroDe(j)})`).join(', ')}. Pergunte qual.` };
+    const novo = jidDoNumero(digitos);
+    if (novo) return { destino: { id: novo, nome: numeroDe(novo), grupo: false } };
+    return { erro: `nenhuma conversa com número terminando em ${digitos}. Peça o número inteiro, com DDD.` };
+  }
+
+  /**
+   * "O cliente que falou da nota fiscal": procura no texto dos últimos 7 dias. Achou uma conversa só, ela
+   * vira a "última vista" — o "responde ele" e o apelido vão para ela.
+   */
+  procurar(sobre: string): string {
+    if (this.privado()) return 'a privacidade do WhatsApp está ligada: você não está olhando as mensagens.';
+    const achados = porAssunto(this.historico, sobre);
+    if (!achados.length) return `nenhuma conversa dos últimos 7 dias fala de "${sobre}". Pergunte outro detalhe (o final do número, quando foi).`;
+    const quando = new Intl.DateTimeFormat('pt-BR', { weekday: 'short', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', timeZone: this.cfg.TZ_NAME });
+    if (achados.length === 1) {
+      const { l } = achados[0]!;
+      this.ultimaVista = { id: l.pn ?? l.chat, nome: l.nome, grupo: l.grupo };
+    }
+    const linhas = achados.map(({ l }) => {
+      const numero = l.pn ? ` (${numeroDe(l.pn)})` : '';
+      const apelido = this.apelidos.get(l.pn ?? l.chat);
+      return `${l.nome}${numero}${apelido ? ` — você chama de "${apelido}"` : ''}${l.grupo ? `, no grupo, ${l.autor}` : ''} · ${quando.format(l.ts)}: "${l.texto.slice(0, 160)}"`;
+    });
+    return linhas.join('\n');
+  }
+
+  /** "Esse é o cliente da padaria": guarda o apelido (da conversa citada, ou da última que ele viu). */
+  apelidar(apelido: string, para?: string): string {
+    const limpo = apelido.trim().replace(/\s+/g, ' ').slice(0, 60);
+    if (!limpo) return 'erro: falta o apelido';
+    const { destino, erro } = this.resolver(para);
+    if (!destino) return `erro: ${erro}`;
+    this.apelidos.set(destino.id, limpo);
+    if (!this.salvarContatos) this.salvarContatos = setTimeout(() => this.gravarContatos(), 2_000);
+    return `guardado: "${limpo}" é ${this.nomeDe(destino.id)}${isPnUser(destino.id) ? ` (${numeroDe(destino.id)})` : ''}`;
   }
 
   /**

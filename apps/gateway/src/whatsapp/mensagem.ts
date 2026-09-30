@@ -83,12 +83,21 @@ export const semAcento = (s: string) =>
  * Acha a conversa pelo nome que o dono falou ("o Fábio", "grupo da obra"). Igual ganha de
  * "começa com", que ganha de "contém". Mais de uma no mesmo nível = ambíguo (o robô pergunta).
  */
+/**
+ * "Tudo", "todo mundo", "eles": o modelo às vezes põe isso no destino quando não sabe para quem é. Não é
+ * nome — e pela primeira palavra "TODO" casava com o grupo ":TODO: PREVINITY" e os arquivos iam para lá.
+ */
+const NAO_E_NOME = new Set(
+  'tudo todo todos toda todas geral galera pessoal ninguem alguem eles elas ele ela voce mim eu nos contato contatos grupo grupos pessoa pessoas cliente clientes'.split(' '),
+);
+export const naoENome = (alvo: string) => NAO_E_NOME.has(alvo) || /^(todo mundo|qualquer um|todos eles|todas elas|todo o pessoal)$/.test(alvo);
+
 export function acharPorNome<T extends { id: string; nome: string }>(lista: T[], falado: string): { achou?: T; parecidos: T[] } {
   const alvo = semAcento(falado)
     .replace(/^(o|a|os|as|do|da|pro|pra|para)\s+/, '')
     .replace(/^grupo\s+(do|da|de|dos|das)?\s*/, '')
     .trim();
-  if (!alvo) return { parecidos: [] };
+  if (!alvo || naoENome(alvo)) return { parecidos: [] };
   // A mesma conversa pode vir de mais de um lugar (agenda do celular, grupo, mensagem recente).
   const todos = [...new Map(lista.filter((x) => semAcento(x.nome)).map((x) => [x.id, x])).values()];
   const palavrasAlvo = new Set(alvo.split(' '));

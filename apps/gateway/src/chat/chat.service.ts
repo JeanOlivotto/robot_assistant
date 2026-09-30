@@ -11,6 +11,7 @@ import { APP_CONFIG, type AppConfig } from '../config/app-config.js';
 import { VisionService } from '../vision/vision.service.js';
 import { WhatsappService } from '../whatsapp/whatsapp.service.js';
 import { ChatStore } from './chat.store.js';
+import { SemCotaError } from '../llm/llm.service.js';
 import { simOuNao } from './sim-nao.js';
 
 export interface ChatState {
@@ -318,7 +319,12 @@ export class ChatService implements OnModuleInit, OnModuleDestroy {
     } catch (err) {
       this.log.error(`Cérebro falhou: ${(err as Error).message}`);
       this.setState({ thinking: false });
-      return this.robotSay('Minha cabeça travou agora. Repete daqui a pouco.', 'sad', 'reply', { replyVia: via, para: opts.origem });
+      // Sem cota não é "travou": ele diz o que é e quando volta, para ninguém ficar repetindo à toa.
+      const texto =
+        err instanceof SemCotaError
+          ? `Gastei minha cota de pensar por agora. Volto ${err.volta < 90_000 ? 'em um minuto' : `em uns ${Math.ceil(err.volta / 60_000)} minutos`}.`
+          : 'Minha cabeça travou agora. Repete daqui a pouco.';
+      return this.robotSay(texto, 'sad', 'reply', { replyVia: via, para: opts.origem });
     }
   }
 

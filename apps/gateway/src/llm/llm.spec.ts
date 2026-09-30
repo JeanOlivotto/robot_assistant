@@ -1,11 +1,18 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { AppConfig } from '../config/app-config.js';
-import { LlmService, limparCitacoes, penaltyFor } from './llm.service.js';
+import { esperaPedida, LlmService, limparCitacoes, penaltyFor, SemCotaError } from './llm.service.js';
 
 describe('penaltyFor', () => {
   it('limite por minuto: espera só o que o provedor pediu (+1 s)', () => {
     const err = Object.assign(new Error('429 Rate limit reached … Please try again in 14.8125s. Need more tokens?'), { status: 429 });
     expect(penaltyFor(err)).toBe(15_813);
+  });
+
+  it('cota do dia ("12m15.696s"): fica de lado os 12 minutos, não 16 s', () => {
+    const err = Object.assign(new Error('429 Rate limit reached … tokens per day (TPD) … Please try again in 12m15.696s. Need more tokens?'), { status: 429 });
+    expect(penaltyFor(err)).toBe(736_696);
+    expect(esperaPedida('Please try again in 1h2m3s.')).toBe(3_723_000);
+    expect(esperaPedida('Please try again in 674.999999ms. Need')).toBe(675);
   });
 
   it('429 sem prazo: um minuto', () => {
@@ -177,5 +184,26 @@ describe('LlmService: pesquisar na internet', () => {
 describe('limparCitacoes', () => {
   it('tira as marcas do gpt-oss sem estragar o texto', () => {
     expect(limparCitacoes('É a 26.10.0 【1†L6-L8】 (Current) 【3†L1】.')).toBe('É a 26.10.0 (Current).');
+  });
+});
+
+describe('LlmService: sem cota', () => {
+  it('Groq todo sem cota e a reserva não salvou: SemCotaError com quando o primeiro volta', async () => {
+    const svc = new LlmService({
+      LLM_BASE_URL: 'https://api.groq.com/openai/v1',
+      LLM_API_KEY: 'x',
+      LLM_MODEL: 'grande',
+      LLM_EXTRA_MODELS: 'pequeno',
+      LLM_FALLBACK_BASE_URL: 'https://integrate.api.nvidia.com/v1',
+      LLM_FALLBACK_API_KEY: 'y',
+      LLM_FALLBACK_MODELS: 'lento',
+    } as unknown as AppConfig);
+    const cota = (quando: string) => Object.assign(new Error(`429 Rate limit reached (TPD). Please try again in ${quando}.`), { status: 429 });
+    const targets = (svc as unknown as { targets: { client: unknown }[] }).targets;
+    const creates = [vi.fn().mockRejectedValue(cota('12m0s')), vi.fn().mockRejectedValue(cota('7m30s')), vi.fn().mockRejectedValue(new Error('Request timed out.'))];
+    creates.forEach((create, i) => (targets[i]!.client = { chat: { completions: { create } } }));
+    const err = await svc.complete([{ role: 'user', content: 'oi' }]).catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(SemCotaError);
+    expect(Math.round((err as SemCotaError).volta / 60_000)).toBe(8);
   });
 });

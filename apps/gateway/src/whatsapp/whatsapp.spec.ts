@@ -57,3 +57,55 @@ describe('WhatsappService: mensagens recentes', () => {
     expect((make(dir) as unknown as Interno).recebidas).toEqual([]);
   });
 });
+
+describe('WhatsappService: cliente fora da agenda', () => {
+  const msg = (id: string, texto: string, lid: string, pn: string, pushName: string) => ({
+    key: { remoteJid: lid, remoteJidAlt: pn, id, fromMe: false },
+    pushName,
+    messageTimestamp: Math.floor(Date.now() / 1000),
+    message: { conversation: texto },
+  });
+  const montar = async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'robo-wa-'));
+    const svc = make(dir);
+    (svc as unknown as { estado: string }).estado = 'conectado';
+    const int = svc as unknown as Interno & { gravarHistorico(): void };
+    await int.aoReceber(msg('M1', 'Oi, preciso da nota fiscal do serviço', '111@lid', '5511988884321@s.whatsapp.net', 'Zé'));
+    await int.aoReceber(msg('M2', 'Bom dia! Tudo certo pra amanhã?', '222@lid', '5511977770000@s.whatsapp.net', 'Carla'));
+    return { svc, int, dir };
+  };
+
+  it('acha pelo assunto e a conversa achada vira a do "responde ele"', async () => {
+    const { svc } = await montar();
+    const achado = svc.procurar('o cliente que falou da nota fiscal');
+    expect(achado).toContain('Zé (+5511988884321)');
+    expect(achado).not.toContain('Carla');
+    expect(svc.resolver().destino?.id).toBe('5511988884321@s.whatsapp.net');
+  });
+
+  it('acha pelo final do número, e número inteiro novo também vale', async () => {
+    const { svc } = await montar();
+    expect(svc.resolver('final 4321').destino?.id).toBe('5511988884321@s.whatsapp.net');
+    expect(svc.resolver('11 96666-5555').destino?.id).toBe('5511966665555@s.whatsapp.net');
+  });
+
+  it('apelido: guarda, acha por ele e sobrevive a um restart', async () => {
+    const { svc, dir } = await montar();
+    svc.procurar('nota fiscal');
+    expect(svc.apelidar('cliente da padaria')).toContain('"cliente da padaria" é Zé');
+    (svc as unknown as { gravarContatos(): void }).gravarContatos();
+    const depois = make(dir);
+    (depois as unknown as { estado: string }).estado = 'conectado';
+    expect(depois.resolver('pro cliente da padaria').destino?.id).toBe('5511988884321@s.whatsapp.net');
+  });
+
+  it('o texto guardado sobrevive a um restart, e a privacidade apaga', async () => {
+    const { svc, int, dir } = await montar();
+    int.gravarHistorico();
+    expect(make(dir).procurar('nota fiscal')).toContain('Zé');
+    svc.definirPrivacidade(true);
+    expect(existsSync(join(dir, 'whatsapp-historico.json'))).toBe(false);
+    svc.definirPrivacidade(false);
+    expect(make(dir).procurar('nota fiscal')).toContain('nenhuma conversa');
+  });
+});

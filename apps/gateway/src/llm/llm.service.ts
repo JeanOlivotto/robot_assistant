@@ -165,6 +165,12 @@ export class LlmService {
         lastError = err;
       }
     }
+    // O principal (Groq) todo no limite e a reserva não salvou: diga isso, não "travou".
+    const fim = Date.now();
+    const rapidos = this.targets.filter((t) => t.fast);
+    if (rapidos.length && rapidos.every((t) => this.isPenalized(t.label, fim))) {
+      throw new SemCotaError(Math.min(...rapidos.map((t) => (this.penalizedUntil.get(t.label) ?? fim) - fim)));
+    }
     throw lastError instanceof Error ? lastError : new Error('nenhum modelo respondeu');
   }
 
@@ -238,10 +244,32 @@ export function penaltyFor(err: unknown): number {
   const e = err as { status?: number; message?: string };
   if (e?.status === 400) return 0;
   if (e?.status === 429 || /rate limit/i.test(e?.message ?? '')) {
-    const s = /try again in ([\d.]+)\s*s/i.exec(e?.message ?? '');
-    return s ? Math.ceil(Number(s[1]) * 1000) + 1000 : 60_000;
+    const espera = esperaPedida(e?.message ?? '');
+    return espera !== null ? espera + 1000 : 60_000;
   }
   return PENALTY_MS;
+}
+
+/**
+ * O "try again in …" do provedor, em ms: "14.8s", "674.99ms", e o da cota do dia, "12m15.696s" ou
+ * "1h2m3s" — antes só os segundos eram lidos, e o modelo sem cota por 12 min parecia voltar em 16 s.
+ */
+export function esperaPedida(mensagem: string): number | null {
+  const t = /try again in ((?:\d+h)?(?:\d+m(?!s))?(?:[\d.]+m?s)?)/i.exec(mensagem)?.[1];
+  if (!t) return null;
+  const ms = /^([\d.]+)ms$/.exec(t);
+  if (ms) return Math.ceil(Number(ms[1]));
+  const h = Number(/(\d+)h/.exec(t)?.[1] ?? 0);
+  const m = Number(/(\d+)m(?!s)/.exec(t)?.[1] ?? 0);
+  const s = Number(/([\d.]+)s$/.exec(t)?.[1] ?? 0);
+  return Math.ceil(((h * 60 + m) * 60 + s) * 1000);
+}
+
+/** Nenhum modelo respondeu, e o principal está sem cota: `volta` = em quanto tempo o primeiro libera. */
+export class SemCotaError extends Error {
+  constructor(readonly volta: number) {
+    super(`sem cota no modelo (volta em ${Math.ceil(volta / 60_000)} min)`);
+  }
 }
 
 /** Tira as marcas de citação do gpt-oss ("【1†L6-L8】"): na tela e na voz, são só ruído. */
