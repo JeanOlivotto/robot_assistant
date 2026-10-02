@@ -25,7 +25,7 @@ import { MAX_VOICE_SECONDS, SttService } from '../stt/stt.service.js';
 import { TtsService } from '../tts/tts.service.js';
 import { VisionService } from '../vision/vision.service.js';
 import { figurinha } from './figurinha.js';
-import { acharPorNome, aplicarMencoes, arroba, conteudo, corpo, descrever, naoENome, type Recebida, semAcento } from './mensagem.js';
+import { acharPorNome, aplicarMencoes, arroba, comAPalavra, conteudo, corpo, descrever, naoENome, type Recebida, semAcento } from './mensagem.js';
 import { digitosDe, jidDoNumero, type Lembranca, numeroBate, porAssunto } from './procurar.js';
 import type { Face } from '@robo/protocol';
 
@@ -748,7 +748,12 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
       return { destino: parecidos.find((p) => isPnUser(p.id)) ?? parecidos[0] };
     }
     if (parecidos.length) return { erro: `tem mais de um: ${parecidos.map((p) => `${p.nome}${p.grupo ? ' (grupo)' : ''}`).join(', ')}. Pergunte qual.` };
-    if (naoENome(semAcento(nome))) return { erro: `"${nome}" não é nome de contato nem de grupo. Pergunte para quem é — não chute` };
+    if (naoENome(semAcento(nome))) {
+      const talvez = comAPalavra(lista, nome);
+      return talvez.length
+        ? { erro: `"${nome}" sozinho é vago. Pode ser: ${talvez.map((p) => `${p.nome}${p.grupo ? ' (grupo)' : ''}`).join(', ')}. Pergunte se é esse — não chute` }
+        : { erro: `"${nome}" não é nome de contato nem de grupo. Pergunte para quem é — não chute` };
+    }
     return { erro: `não achei "${nome}" nos contatos nem nos grupos` };
   }
 

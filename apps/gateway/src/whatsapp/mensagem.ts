@@ -80,10 +80,6 @@ export const semAcento = (s: string) =>
     .trim();
 
 /**
- * Acha a conversa pelo nome que o dono falou ("o Fábio", "grupo da obra"). Igual ganha de
- * "começa com", que ganha de "contém". Mais de uma no mesmo nível = ambíguo (o robô pergunta).
- */
-/**
  * "Tudo", "todo mundo", "eles": o modelo às vezes põe isso no destino quando não sabe para quem é. Não é
  * nome — e pela primeira palavra "TODO" casava com o grupo ":TODO: PREVINITY" e os arquivos iam para lá.
  */
@@ -92,12 +88,38 @@ const NAO_E_NOME = new Set(
 );
 export const naoENome = (alvo: string) => NAO_E_NOME.has(alvo) || /^(todo mundo|qualquer um|todos eles|todas elas|todo o pessoal)$/.test(alvo);
 
+/** As palavras do nome como estão escritas (maiúsculas e tudo): ":TODO: PREVINITY" → TODO, PREVINITY. */
+const palavrasDe = (nome: string) => nome.split(/[^\p{L}\p{N}]+/u).filter(Boolean);
+
+/**
+ * Nomes que têm a palavra genérica ("todo") como palavra inteira — para o robô perguntar "é o grupo
+ * :TODO: PREVINITY?" em vez de dizer que não achou nada.
+ */
+export function comAPalavra<T extends { id: string; nome: string }>(lista: T[], palavra: string): T[] {
+  const p = semAcento(palavra);
+  return [...new Map(lista.filter((x) => semAcento(x.nome).split(' ').includes(p)).map((x) => [x.id, x])).values()].slice(0, 5);
+}
+
+/**
+ * Acha a conversa pelo nome que o dono falou ("o Fábio", "grupo da obra"). Igual ganha de
+ * "começa com", que ganha de "contém". Mais de uma no mesmo nível = ambíguo (o robô pergunta).
+ */
 export function acharPorNome<T extends { id: string; nome: string }>(lista: T[], falado: string): { achou?: T; parecidos: T[] } {
   const alvo = semAcento(falado)
     .replace(/^(o|a|os|as|do|da|pro|pra|para)\s+/, '')
     .replace(/^grupo\s+(do|da|de|dos|das)?\s*/, '')
     .trim();
-  if (!alvo || naoENome(alvo)) return { parecidos: [] };
+  if (!alvo) return { parecidos: [] };
+  if (naoENome(alvo)) {
+    // Palavra genérica só vale escrita igualzinho está no nome: "TODO" acha ":TODO: PREVINITY"; "todo", "tudo", "Todos" não.
+    const exato = falado
+      .trim()
+      .replace(/^(o|a|os|as|do|da|pro|pra|para)\s+/i, '')
+      .replace(/^grupo\s+(do|da|de|dos|das)?\s*/i, '')
+      .trim();
+    const ok = [...new Map(lista.filter((x) => palavrasDe(x.nome).includes(exato)).map((x) => [x.id, x])).values()];
+    return ok.length === 1 && exato !== exato.toLowerCase() && exato === exato.toUpperCase() ? { achou: ok[0], parecidos: [] } : { parecidos: [] };
+  }
   // A mesma conversa pode vir de mais de um lugar (agenda do celular, grupo, mensagem recente).
   const todos = [...new Map(lista.filter((x) => semAcento(x.nome)).map((x) => [x.id, x])).values()];
   const palavrasAlvo = new Set(alvo.split(' '));

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { acharPorNome, aplicarMencoes, apresentar, assinar, chamou, conteudo, descrever, mencionou, pedidoSensivel, respostaSuspeita, type Recebida } from './mensagem.js';
+import { acharPorNome, aplicarMencoes, comAPalavra, apresentar, assinar, chamou, conteudo, descrever, mencionou, pedidoSensivel, respostaSuspeita, type Recebida } from './mensagem.js';
 
 describe('conteudo', () => {
   it('lê texto simples e texto com link/resposta', () => {
@@ -31,9 +31,19 @@ describe('acharPorNome: palavra que não é nome', () => {
   ];
 
   it('"TODO", "tudo", "todo mundo" não casam com grupo nenhum', () => {
-    for (const t of ['TODO', 'tudo', 'Todos', 'todo mundo', 'pra todos', 'o grupo', 'cliente']) {
+    for (const t of ['todo', 'tudo', 'Todos', 'todo mundo', 'pra todos', 'o grupo', 'cliente']) {
       expect(acharPorNome(lista, t), t).toEqual({ parecidos: [] });
     }
+  });
+
+  it('"TODO" escrito como está no nome acha o grupo (é assim que o dono chama ele)', () => {
+    expect(acharPorNome(lista, 'TODO').achou?.id).toBe('g1');
+    expect(acharPorNome(lista, 'grupo TODO').achou?.id).toBe('g1');
+  });
+
+  it('palavra genérica sugere quem tem ela no nome, para o robô perguntar', () => {
+    expect(comAPalavra(lista, 'todo').map((x) => x.id)).toEqual(['g1']);
+    expect(comAPalavra(lista, 'tudo')).toEqual([]);
   });
 
   it('o nome de verdade continua achando, inclusive grupo que começa com essas palavras', () => {
