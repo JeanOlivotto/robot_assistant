@@ -44,6 +44,17 @@ export function acharClaude() {
   return candidatos.find((c) => c && existsSync(c)) ?? 'claude';
 }
 
+/**
+ * O ambiente para o Claude Code sem nenhuma chave de API: com ANTHROPIC_API_KEY (ou token, proxy,
+ * Bedrock/Vertex) no ambiente ele cobraria pela API. Assim só sobra o login da assinatura do dono —
+ * deslogado, falha em vez de cobrar.
+ */
+export function semChaveDaApi(env = process.env) {
+  const limpo = { ...env };
+  for (const k of ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN', 'ANTHROPIC_BASE_URL', 'CLAUDE_CODE_USE_BEDROCK', 'CLAUDE_CODE_USE_VERTEX']) delete limpo[k];
+  return limpo;
+}
+
 /** Os motores: devolvem [programa, argumentos] para rodar na pasta do projeto. */
 const MOTORES = {
   claude: (pedido, continuar) => [
@@ -103,7 +114,7 @@ export function programar(p) {
     let fim = false;
     let proc;
     try {
-      proc = spawn(bin, args, { cwd: pasta, windowsHide: true, shell: WINDOWS && bin.endsWith('.cmd'), stdio: ['ignore', 'pipe', 'pipe'] });
+      proc = spawn(bin, args, { cwd: pasta, env: semChaveDaApi(), windowsHide: true, shell: WINDOWS && bin.endsWith('.cmd'), stdio: ['ignore', 'pipe', 'pipe'] });
     } catch (err) {
       return pronto({ ok: false, saida: '', erro: err.message });
     }

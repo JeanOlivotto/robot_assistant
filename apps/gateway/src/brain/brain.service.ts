@@ -16,6 +16,7 @@ import { IdentidadeService } from '../identidade/identidade.service.js';
 import { BancoVozesService } from '../vozes/banco.service.js';
 import { apresentar, assinar } from '../whatsapp/mensagem.js';
 import { WhatsappService } from '../whatsapp/whatsapp.service.js';
+import { GRUPO_DA_FERRAMENTA, GRUPOS, type Grupo, gruposDaConversa } from './ferramentas.js';
 import { describeAgenda, EMOTIONS, splitEmotion, systemPrompt } from './prompts.js';
 import { DIAS, resolveDay, resolveWhen } from './resolve-date.js';
 
@@ -67,7 +68,8 @@ export interface Judgement {
   nudged: number[];
 }
 
-const HISTORY = 16;
+/* Cada fala a mais vai em toda chamada: com 16 a chamada passava do limite por minuto do Groq grátis. */
+const HISTORY = 10;
 /*
  * Teto da resposta falada. Não é o que deixa a fala curta (isso é o prompt): o gpt-oss raciocina
  * antes de escrever e esse raciocínio conta aqui — com 220 a fala saía cortada no meio ("era pra
@@ -488,6 +490,25 @@ const TOOLS: ChatCompletionTool[] = aceitaNulo([
   {
     type: 'function',
     function: {
+      name: 'resumir_arquivo',
+      description:
+        'Lê um arquivo do computador dele (PDF, texto, planilha…) e devolve um resumo — quando ele pedir resumo de um ' +
+        'arquivo, ou para mandar um arquivo com resumo no WhatsApp (aí use o resumo como texto de propor_whatsapp, com o ' +
+        'arquivo anexado). Leva de 30 s a 2 min. Precisa do caminho COMPLETO; não sabe? Ache antes com propor_comando simples.',
+      parameters: {
+        type: 'object',
+        properties: {
+          caminho: { type: 'string', description: 'caminho completo do arquivo' },
+          foco: { type: 'string', description: 'o que ele quer saber do arquivo, se disser ("os valores", "o prazo")' },
+          maquina: { type: 'string', description: 'em qual computador, se houver mais de um (omitir = o que ele está usando)' },
+        },
+        required: ['caminho'],
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
       name: 'ligar_computador',
       description:
         'Liga um computador do dono que está DESLIGADO ou suspenso (Wake-on-LAN, pelo robô da mesa). ' +
@@ -528,6 +549,24 @@ const TOOLS: ChatCompletionTool[] = aceitaNulo([
     },
   },
 ]);
+
+/** Só vai quando falta algum grupo: o modelo pede o que não veio (ex.: o assunto mudou no meio). */
+const MAIS_FERRAMENTAS: ChatCompletionTool = {
+  type: 'function',
+  function: {
+    name: 'mais_ferramentas',
+    description:
+      'Libera ferramentas que não estão aqui agora. Precisa de uma delas? Chame isto antes. whatsapp: ler, mandar, ' +
+      'responder no lugar dele, privacidade. computador: usar o PC dele, rodar comando, programar, ligar o PC. ' +
+      'vozes: guardar, renomear, esquecer voz. ajustes: seu nome e jeito, silenciar mensagens, esquecer assunto.',
+    parameters: {
+      type: 'object',
+      properties: { grupos: { type: 'array', items: { type: 'string', enum: GRUPOS } } },
+      required: ['grupos'],
+    },
+  },
+};
+
 
 /** O "cérebro": LLM + ferramentas. É o mesmo que a voz vai usar na Fase 1. */
 @Injectable()
@@ -601,15 +640,28 @@ export class BrainService {
       ...toLlmHistory(history.slice(-HISTORY), this.cfg.TZ_NAME),
     ];
 
+    // Só as ferramentas do assunto (as de agenda, pendência e internet vão sempre): é o que faz a chamada caber no limite por minuto.
+    const grupos = gruposDaConversa(history.slice(-HISTORY), { voz: !!apresentarPara });
+    const ferramentas = () => {
+      const delas = TOOLS.filter((t) => t.type !== 'function' || !GRUPO_DA_FERRAMENTA[t.function.name] || grupos.has(GRUPO_DA_FERRAMENTA[t.function.name]!));
+      return grupos.size < GRUPOS.length ? [...delas, MAIS_FERRAMENTAS] : delas;
+    };
+    const limites = opts.spoken ? { maxTokens: SPOKEN_MAX_TOKENS, quick: true } : { maxTokens: TEXT_MAX_TOKENS };
+
     let proposal: ProposalDraft | undefined;
     let usouFerramenta = false;
     let insistiu = false;
     for (let step = 0; step < MAX_STEPS + 1; step++) {
-      const msg = await this.llm.complete(
-        messages,
-        TOOLS,
-        opts.spoken ? { maxTokens: SPOKEN_MAX_TOKENS, quick: true } : { maxTokens: TEXT_MAX_TOKENS },
-      );
+      let msg: Awaited<ReturnType<LlmService['complete']>>;
+      try {
+        msg = await this.llm.complete(messages, ferramentas(), limites);
+      } catch (err) {
+        // Chamou uma ferramenta que não foi (o provedor recusa a chamada inteira): de novo, com todas.
+        if (grupos.size === GRUPOS.length || !/tool/i.test((err as Error).message)) throw err;
+        this.log.warn(`Faltou ferramenta (${(err as Error).message.slice(0, 120)}): tentando com todas`);
+        GRUPOS.forEach((g) => grupos.add(g));
+        msg = await this.llm.complete(messages, ferramentas(), limites);
+      }
       const calls = (msg.tool_calls ?? []).filter((c) => c.type === 'function');
       if (!calls.length) {
         const { text, face } = splitEmotion(msg.content ?? '');
@@ -626,6 +678,14 @@ export class BrainService {
       usouFerramenta = true;
       messages.push({ role: 'assistant', content: msg.content ?? '', tool_calls: calls });
       for (const call of calls) {
+        if (call.function.name === 'mais_ferramentas') {
+          const pedidos = pedirGrupos(call.function.arguments);
+          pedidos.forEach((g) => grupos.add(g));
+          this.log.log(`mais_ferramentas → ${pedidos.join(', ') || 'nada'}`);
+          const result = pedidos.length ? `pronto: liberadas as de ${pedidos.join(', ')}. Agora chame a que precisa.` : `erro: grupos válidos: ${GRUPOS.join(', ')}`;
+          messages.push({ role: 'tool', tool_call_id: call.id, content: result });
+          continue;
+        }
         const out = await this.runTool(call.function.name, call.function.arguments, now, history.at(-1)?.voz, history);
         this.log.log(`ferramenta ${call.function.name}(${call.function.arguments}) → ${out.result.split('\n')[0]}`);
         if (out.proposal) proposal = out.proposal;
@@ -870,7 +930,7 @@ export class BrainService {
       if (name === 'renomear_voz') return { result: this.renomearVoz(args, voz) };
       if (name === 'esquecer_voz') return { result: this.esquecerVoz(args, voz) };
       // A máquina e o WhatsApp são do dono: outra pessoa reconhecida pela voz não mexe neles, peça o que pedir.
-      const doComputador = ['usar_computador', 'propor_comando', 'ligar_computador', 'programar'].includes(name);
+      const doComputador = ['usar_computador', 'propor_comando', 'ligar_computador', 'programar', 'resumir_arquivo'].includes(name);
       const doWhatsapp = ['ler_whatsapp', 'propor_whatsapp', 'privacidade_whatsapp', 'apelidar_contato', 'cobrir_whatsapp'].includes(name);
       if (doComputador || doWhatsapp) {
         const oQue = doComputador ? 'mexe no computador dele' : 'mexe no WhatsApp dele';
@@ -906,6 +966,7 @@ export class BrainService {
         return { result: `ok. WhatsApp agora: ${this.whatsapp.descricao()}` };
       }
       if (name === 'usar_computador') return { result: await this.usarComputador(args) };
+      if (name === 'resumir_arquivo') return { result: await this.resumirArquivo(args) };
       if (name === 'programar') return { result: await this.programar(args) };
       if (name === 'ligar_computador') {
         const r = this.braco.ligar(args.maquina ? String(args.maquina) : undefined);
@@ -1198,6 +1259,17 @@ export class BrainService {
     return `pronto. saída:\n${r.saida.slice(0, 1200)}`;
   }
 
+  /** O Claude Code da máquina (assinatura do dono) lê e resume: só o resumo entra aqui, não o arquivo. */
+  private async resumirArquivo(args: Record<string, unknown>): Promise<string> {
+    if (!this.braco.online) return 'erro: a máquina do dono não está conectada agora';
+    const caminho = String(args.caminho ?? '').trim();
+    if (!caminho) return 'erro: falta o caminho do arquivo';
+    if (arquivoSensivel(caminho)) return `recusado: "${caminho}" parece chave, senha ou token — isso não é lido nem resumido`;
+    const r = await this.braco.resumir(caminho, args.foco ? String(args.foco) : undefined, this.maquinaAlvo(args));
+    if (!r.ok || !r.saida.trim()) return `não deu para resumir: ${r.erro ?? 'veio vazio'}`;
+    return `resumo de ${caminho}:\n${r.saida.trim().slice(0, 1200)}`;
+  }
+
   /** Comando escrito na hora: vira proposta e espera o botão do dono. Nada roda aqui. */
   private async proporComando(args: Record<string, unknown>): Promise<{ result: string; proposal?: ProposalDraft }> {
     if (!this.braco.online) return { result: 'erro: a máquina do dono não está conectada agora' };
@@ -1393,4 +1465,15 @@ export function apresentou(fala: string, nome: string): boolean {
   return new RegExp(
     `\\b(sou|me chamo|meu nome e|meu nome eh|aqui e|aqui eh|quem fala e|e o|e a|fala o|fala a|eu sou)\\s+(o |a )?${n}\\b`,
   ).test(semAcento(fala));
+}
+
+/** Os grupos que o modelo pediu em mais_ferramentas (ignora o que não existe). */
+function pedirGrupos(raw: string): Grupo[] {
+  try {
+    const { grupos } = JSON.parse(raw || '{}') as { grupos?: unknown };
+    const lista = Array.isArray(grupos) ? grupos : typeof grupos === 'string' ? [grupos] : [];
+    return lista.filter((g): g is Grupo => GRUPOS.includes(g as Grupo));
+  } catch {
+    return [];
+  }
 }

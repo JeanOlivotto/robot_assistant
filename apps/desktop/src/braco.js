@@ -13,7 +13,7 @@ import { readFileSync } from 'node:fs';
 import { readFile, stat } from 'node:fs/promises';
 import { basename, isAbsolute, join } from 'node:path';
 import { homedir, hostname, networkInterfaces } from 'node:os';
-import { consultar } from './consultor.js';
+import { consultar, resumir } from './consultor.js';
 import { programar } from './programador.js';
 
 const WINDOWS = process.platform === 'win32';
@@ -255,6 +255,15 @@ export class Braco {
       if (!this.ligado) return ws.send(JSON.stringify({ t: 'result', id: msg.id, ok: false, saida: '', erro: 'o uso do computador está desligado nele' }));
       const r = await consultar(msg.consultar);
       console.log(`[consultor] ${r.ok ? 'respondeu' : `falhou: ${r.erro}`}`);
+      const agora = this.ws;
+      if (agora?.readyState === WebSocket.OPEN) agora.send(JSON.stringify({ t: 'result', id: msg.id, ...r, saida: (r.saida ?? '').slice(0, SAIDA_MAX) }));
+      return;
+    }
+    // Resumo de um arquivo para mandar no WhatsApp: o Claude Code LÊ esse arquivo e devolve o resumo.
+    if (msg.resumir) {
+      if (!this.ligado) return ws.send(JSON.stringify({ t: 'result', id: msg.id, ok: false, saida: '', erro: 'o uso do computador está desligado nele' }));
+      const r = await resumir(msg.resumir);
+      console.log(`[consultor] resumo ${r.ok ? 'pronto' : `falhou: ${r.erro}`}`);
       const agora = this.ws;
       if (agora?.readyState === WebSocket.OPEN) agora.send(JSON.stringify({ t: 'result', id: msg.id, ...r, saida: (r.saida ?? '').slice(0, SAIDA_MAX) }));
       return;

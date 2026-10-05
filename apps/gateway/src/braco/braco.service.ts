@@ -173,6 +173,16 @@ export class BracoService {
   }
 
   /**
+   * Resumo de um arquivo do dono (para mandar junto no WhatsApp): o Claude Code da máquina, pela
+   * assinatura dele (nunca pela API), LÊ só esse arquivo e devolve o resumo.
+   */
+  async resumir(caminho: string, foco?: string, maquina?: string): Promise<Resultado> {
+    const m = this.escolher(maquina);
+    if (!m) return this.semMaquina(maquina);
+    return this.enviar(m.nome, { resumir: { caminho, foco } }, randomUUID(), 5 * 60_000);
+  }
+
+  /**
    * Traz um arquivo da máquina do dono — só para mandar no WhatsApp depois do "sim" dele no cartão
    * (é o chat que chama isto, na aprovação). Nunca direto de um pedido do modelo.
    */
@@ -285,6 +295,7 @@ export class BracoService {
       cmd?: string;
       programar?: { projeto: string; pedido: string; motor: string };
       consultar?: { pergunta: string };
+      resumir?: { caminho: string; foco?: string };
       arquivo?: { caminho: string; max: number };
     },
     id: string = randomUUID(),
@@ -299,7 +310,7 @@ export class BracoService {
       }, timeoutMs);
       this.pendentes.set(id, { ws: c.ws, resolve, timer });
       c.ws.send(JSON.stringify({ t: 'run', id, ...corpo }));
-      this.log.log(`Pedido para ${c.nome}: ${corpo.acao ?? (corpo.cmd && semSenha(corpo.cmd)) ?? (corpo.consultar ? 'consulta de código' : corpo.arquivo ? `arquivo ${corpo.arquivo.caminho}` : `programar ${corpo.programar?.projeto}`)}`);
+      this.log.log(`Pedido para ${c.nome}: ${corpo.acao ?? (corpo.cmd && semSenha(corpo.cmd)) ?? (corpo.consultar ? 'consulta de código' : corpo.resumir ? `resumo de ${corpo.resumir.caminho}` : corpo.arquivo ? `arquivo ${corpo.arquivo.caminho}` : `programar ${corpo.programar?.projeto}`)}`);
     });
   }
 }
