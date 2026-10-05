@@ -77,3 +77,10 @@ describe('lerSaida', () => {
     expect(lerSaida('{"resposta":"calma aí","expressao":"Bravo"}')?.expressao).toBe('bravo');
   });
 });
+
+describe('lerSaida: no lugar do dono', () => {
+  it('"importante" vem quando chega algo que ele precisa ver', () => {
+    expect(lerSaida('{"resposta":"Recebi, ele vê.","importante":"comprovante do Pix de R$ 300"}')?.importante).toBe('comprovante do Pix de R$ 300');
+    expect(lerSaida('{"resposta":"kkk","importante":""}')?.importante).toBeUndefined();
+  });
+});

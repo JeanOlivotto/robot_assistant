@@ -455,6 +455,39 @@ const TOOLS: ChatCompletionTool[] = aceitaNulo([
   {
     type: 'function',
     function: {
+      name: 'cobrir_whatsapp',
+      description:
+        'Responder o WhatsApp NO LUGAR do dono, por um tempo, para os contatos que ELE disser ("responde o Fábio e a ' +
+        'Jaque por mim até as 6", "cuida do meu zap hoje à tarde", "pode parar de responder por mim"). Você conversa ' +
+        'com eles em seu nome (assinado), sem ferramentas e sem dado nenhum dele; o que ficar para ele fazer vira ' +
+        'pendência e foto/documento importante chega aqui para ele. Só conversa privada, nunca grupo. Contato ' +
+        'ambíguo: pergunte qual antes.',
+      parameters: {
+        type: 'object',
+        properties: {
+          parar: { type: 'boolean', description: 'true = para de responder no lugar dele' },
+          contatos: {
+            type: 'array',
+            items: { type: 'string' },
+            description: 'nomes, apelidos ou números dos contatos que você responde por ele',
+          },
+          todos: { type: 'boolean', description: 'true = todo mundo que escrever no privado (só se ele disser "todo mundo"); grupo nunca entra' },
+          exceto: {
+            type: 'array',
+            items: { type: 'string' },
+            description: 'com todos: quem fica de fora ("todo mundo menos a Duda") — nomes, apelidos ou números',
+          },
+          horas: {
+            type: 'number',
+            description: 'por quantas horas a partir de agora (converta "até as 18h" pela hora atual); omitir = até ele pedir para parar',
+          },
+        },
+      },
+    },
+  },
+  {
+    type: 'function',
+    function: {
       name: 'ligar_computador',
       description:
         'Liga um computador do dono que está DESLIGADO ou suspenso (Wake-on-LAN, pelo robô da mesa). ' +
@@ -838,7 +871,7 @@ export class BrainService {
       if (name === 'esquecer_voz') return { result: this.esquecerVoz(args, voz) };
       // A máquina e o WhatsApp são do dono: outra pessoa reconhecida pela voz não mexe neles, peça o que pedir.
       const doComputador = ['usar_computador', 'propor_comando', 'ligar_computador', 'programar'].includes(name);
-      const doWhatsapp = ['ler_whatsapp', 'propor_whatsapp', 'privacidade_whatsapp', 'apelidar_contato'].includes(name);
+      const doWhatsapp = ['ler_whatsapp', 'propor_whatsapp', 'privacidade_whatsapp', 'apelidar_contato', 'cobrir_whatsapp'].includes(name);
       if (doComputador || doWhatsapp) {
         const oQue = doComputador ? 'mexe no computador dele' : 'mexe no WhatsApp dele';
         if (this.vozDeOutro(voz)) {
@@ -856,6 +889,13 @@ export class BrainService {
       if (name === 'apelidar_contato') {
         if (!this.whatsapp.conectado) return { result: 'o WhatsApp não está conectado (o dono conecta pelo app, aba PC)' };
         return { result: this.whatsapp.apelidar(String(args.apelido ?? ''), args.para ? String(args.para) : undefined) };
+      }
+      if (name === 'cobrir_whatsapp') {
+        if (args.parar === true) return { result: this.whatsapp.pararDeCobrir() };
+        const contatos = Array.isArray(args.contatos) ? args.contatos.map(String).filter((c) => c.trim()) : [];
+        const exceto = Array.isArray(args.exceto) ? args.exceto.map(String).filter((c) => c.trim()) : [];
+        const horas = typeof args.horas === 'number' ? args.horas : undefined;
+        return { result: this.whatsapp.cobrir({ contatos, todos: args.todos === true, exceto, horas }) };
       }
       if (name === 'privacidade_whatsapp') {
         if (typeof args.ligar === 'boolean') {

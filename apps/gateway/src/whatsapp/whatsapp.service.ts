@@ -54,6 +54,18 @@ interface Combinado {
   atender: boolean;
   /** Grupos (jid) onde ele tira dúvida de código lendo os projetos do dono — em palavras, sem colar código. */
   gruposTecnicos: string[];
+  /** O dono pediu para o robô responder estes contatos no lugar dele, até `ate` (-1 = até ele pedir para parar). */
+  cobrir: Cobertura | null;
+}
+
+/** "Responde o Fábio e a Jaque por mim até as 6": só conversas privadas. */
+interface Cobertura {
+  ate: number;
+  contatos: { id: string; nome: string }[];
+  /** Todo mundo no privado, não só a lista. */
+  todos?: boolean;
+  /** Com `todos`: estes ficam de fora ("todo mundo menos a Duda"). */
+  exceto?: { id: string; nome: string }[];
 }
 
 /** Uma conversa para onde dá para mandar: contato ou grupo. */
@@ -115,7 +127,7 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
   /** Apelido que o dono deu a uma conversa (jid → "cliente da padaria"): cliente fora da agenda, sem nome lembrado. */
   private apelidos = new Map<string, string>();
   private salvarContatos: NodeJS.Timeout | null = null;
-  private c: Combinado = { ativo: false, privadoAte: 0, atender: true, gruposTecnicos: [] };
+  private c: Combinado = { ativo: false, privadoAte: 0, atender: true, gruposTecnicos: [], cobrir: null };
 
   private sock: Socket | null = null;
   private tentativas = 0;
@@ -249,6 +261,58 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
     this.log.log(`WhatsApp: ${ligar ? 'atende' : 'não atende mais'} quem chama o robô`);
   }
 
+  /**
+   * Responder no lugar do dono: `contatos` são nomes, apelidos ou números (só privado). Devolve o que
+   * ficou combinado, ou o erro para o cérebro perguntar ("tem mais de um Fábio").
+   */
+  cobrir(opts: { contatos?: string[]; todos?: boolean; exceto?: string[]; horas?: number }): string {
+    if (!this.conectado) return 'erro: o WhatsApp não está conectado (o dono conecta pelo app, aba PC)';
+    const achar = (nomes: string[] = []): { id: string; nome: string }[] | string => {
+      const achados: { id: string; nome: string }[] = [];
+      for (const nome of nomes) {
+        const { destino, erro } = this.resolver(nome);
+        if (!destino) return `erro em "${nome}": ${erro}`;
+        if (destino.grupo) return `erro: "${destino.nome}" é grupo — grupo já fica de fora: no lugar dele você só responde conversa privada`;
+        achados.push({ id: destino.id, nome: destino.nome });
+      }
+      return achados;
+    };
+    const achados = achar(opts.contatos);
+    if (typeof achados === 'string') return achados;
+    const exceto = opts.todos ? achar(opts.exceto) : [];
+    if (typeof exceto === 'string') return exceto;
+    if (!achados.length && !opts.todos) return 'erro: diga quais contatos (ou "todos", para todo mundo no privado)';
+    const ate = opts.horas && opts.horas > 0 ? Date.now() + Math.min(opts.horas, 24 * 7) * 3600_000 : -1;
+    this.c.cobrir = { ate, contatos: achados, todos: !!opts.todos, exceto };
+    this.save();
+    this.log.log(`WhatsApp: cobrindo o dono (${opts.todos ? 'todos' : achados.map((a) => a.nome).join(', ')})`);
+    return `ok: ${this.descricaoCobertura()}`;
+  }
+
+  pararDeCobrir(): string {
+    this.c.cobrir = null;
+    this.save();
+    this.log.log('WhatsApp: parou de cobrir o dono');
+    return 'ok: você não responde mais no lugar dele (quem te chamar pelo nome continua falando com você)';
+  }
+
+  /** Esta mensagem é de alguém que o robô está respondendo no lugar do dono? */
+  cobrindo(m: Recebida): boolean {
+    const c = this.c.cobrir;
+    if (!c || m.grupo || (c.ate > 0 && Date.now() > c.ate)) return false;
+    const e = (x: { id: string }) => x.id === m.chat || x.id === m.alt;
+    return c.todos ? !(c.exceto ?? []).some(e) : c.contatos.some(e);
+  }
+
+  private descricaoCobertura(): string {
+    const c = this.c.cobrir;
+    if (!c || (c.ate > 0 && Date.now() > c.ate)) return '';
+    const hora = new Intl.DateTimeFormat('pt-BR', { weekday: 'short', hour: '2-digit', minute: '2-digit', timeZone: this.cfg.TZ_NAME });
+    const fora = c.exceto?.length ? ` (menos ${c.exceto.map((x) => x.nome).join(', ')})` : '';
+    const quem = c.todos ? `todo mundo no privado${fora}, grupos não` : c.contatos.map((x) => x.nome).join(', ');
+    return `respondendo no lugar dele: ${quem}, ${c.ate > 0 ? `até ${hora.format(c.ate)}` : 'até ele pedir para parar'}`;
+  }
+
   tecnico(chat: string): boolean {
     return this.c.gruposTecnicos.includes(chat);
   }
@@ -272,9 +336,12 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
   descricao(): string {
     if (!this.conectado) return this.c.ativo ? 'reconectando' : 'não conectado';
     if (!this.privado()) {
-      return this.c.atender
-        ? 'conectado; quem te chama pelo nome no WhatsApp (direto ou num grupo) fala com você direto (você só conversa, sem ferramentas, e recados chegam aqui)'
-        : 'conectado; você NÃO está respondendo quem te chama pelo nome';
+      const cobrindo = this.descricaoCobertura();
+      return (
+        (this.c.atender
+          ? 'conectado; quem te chama pelo nome no WhatsApp (direto ou num grupo) fala com você direto (você só conversa, sem ferramentas, e recados chegam aqui)'
+          : 'conectado; você NÃO está respondendo quem te chama pelo nome') + (cobrindo ? `; ${cobrindo}` : '')
+      );
     }
     if (this.c.privadoAte === -1) return 'conectado, com PRIVACIDADE ligada (até o dono pedir para voltar)';
     const ate = new Intl.DateTimeFormat('pt-BR', { weekday: 'short', hour: '2-digit', minute: '2-digit', timeZone: this.cfg.TZ_NAME });
@@ -471,6 +538,7 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
         nomeChat,
         autor,
         autorId: autorJid || undefined,
+        alt: !grupo && alt ? alt : undefined,
         grupo,
         ts: Number(raw.messageTimestamp ?? 0) * 1000 || Date.now(),
         ...c,
@@ -649,6 +717,12 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
   async textoDe(id: string): Promise<string | null> {
     const r = this.recebidas.find((x) => x.m.id === id);
     return r ? corpo(r.m, await this.entender(r)) : null;
+  }
+
+  /** Só a transcrição do áudio (sem rótulo), para ver se chamaram o robô pelo nome falando. */
+  async transcricao(id: string): Promise<string | undefined> {
+    const r = this.recebidas.find((x) => x.m.id === id);
+    return r?.m.tipo === 'audio' ? this.entender(r) : undefined;
   }
 
   /** Transcreve o áudio ou descreve a foto/figurinha — uma vez só por mensagem. */

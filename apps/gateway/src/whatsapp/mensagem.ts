@@ -11,6 +11,8 @@ export interface Recebida {
   autor: string;
   /** jid de quem escreveu — num grupo, é por ele que dá para marcar a pessoa com @. */
   autorId?: string;
+  /** No privado, o outro jid da mesma pessoa (número ↔ LID) — o contato pode ter sido escolhido por qualquer um. */
+  alt?: string;
   grupo: boolean;
   ts: number;
   tipo: 'texto' | 'audio' | 'foto' | 'video' | 'documento' | 'figurinha' | 'contato' | 'local' | 'outro';

@@ -6,6 +6,7 @@ import type { AppConfig } from '../config/app-config.js';
 import type { SttService } from '../stt/stt.service.js';
 import type { TtsService } from '../tts/tts.service.js';
 import type { VisionService } from '../vision/vision.service.js';
+import type { Recebida } from './mensagem.js';
 import { WhatsappService } from './whatsapp.service.js';
 
 type Interno = {
@@ -107,5 +108,48 @@ describe('WhatsappService: cliente fora da agenda', () => {
     expect(existsSync(join(dir, 'whatsapp-historico.json'))).toBe(false);
     svc.definirPrivacidade(false);
     expect(make(dir).procurar('nota fiscal')).toContain('nenhuma conversa');
+  });
+});
+
+describe('WhatsappService: responder no lugar do dono', () => {
+  const doZe = { id: 'X', chat: '111@lid', alt: '5511988884321@s.whatsapp.net', grupo: false } as Recebida;
+  const daCarla = { id: 'Y', chat: '222@lid', alt: '5511977770000@s.whatsapp.net', grupo: false } as Recebida;
+  const conectado = () => {
+    const dir = mkdtempSync(join(tmpdir(), 'robo-wa-'));
+    const svc = make(dir);
+    (svc as unknown as { estado: string }).estado = 'conectado';
+    return { svc, dir };
+  };
+
+  it('só os contatos escolhidos (pelo número, mesmo a conversa vindo pelo LID), e sobrevive a um restart', () => {
+    const { svc, dir } = conectado();
+    expect(svc.cobrir({ contatos: ['11 98888-4321'], horas: 2 })).toMatch(/^ok: respondendo no lugar dele/);
+    expect(svc.cobrindo(doZe)).toBe(true);
+    expect(svc.cobrindo(daCarla)).toBe(false);
+    expect(svc.cobrindo({ ...doZe, grupo: true })).toBe(false);
+    expect(make(dir).cobrindo(doZe)).toBe(true);
+    svc.pararDeCobrir();
+    expect(svc.cobrindo(doZe)).toBe(false);
+  });
+
+  it('sem contato nenhum (nem "todos") é erro; "todos" pega todo mundo no privado', () => {
+    const { svc } = conectado();
+    expect(svc.cobrir({ contatos: [] })).toMatch(/^erro/);
+    svc.cobrir({ todos: true });
+    expect(svc.cobrindo(daCarla)).toBe(true);
+  });
+
+  it('"todo mundo menos a Duda": ela fica de fora', () => {
+    const { svc } = conectado();
+    expect(svc.cobrir({ todos: true, exceto: ['11 97777-0000'] })).toContain('menos');
+    expect(svc.cobrindo(doZe)).toBe(true);
+    expect(svc.cobrindo(daCarla)).toBe(false);
+  });
+
+  it('acabou o tempo, para sozinho', () => {
+    const { svc } = conectado();
+    svc.cobrir({ contatos: ['11 98888-4321'], horas: 1 });
+    (svc as unknown as { c: { cobrir: { ate: number } } }).c.cobrir.ate = Date.now() - 1;
+    expect(svc.cobrindo(doZe)).toBe(false);
   });
 });

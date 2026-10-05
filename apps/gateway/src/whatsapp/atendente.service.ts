@@ -28,6 +28,8 @@ const GRUPO_ATIVO_MS = 3 * 60_000;
 const TALVEZ_POR_DIA = 150;
 /** Resposta mais longa que isso vai por escrito: áudio comprido de robô ninguém escuta. */
 const AUDIO_MAX_CHARS = 280;
+/** O dono respondeu ele mesmo uma conversa que o robô cobria: o robô sai dela por este tempo. */
+const DONO_ASSUMIU_MS = 30 * 60_000;
 /** O que entra numa conversa com ele (áudio vira transcrição, foto e figurinha viram descrição). */
 const TIPOS_DE_CONVERSA: Recebida['tipo'][] = ['texto', 'audio', 'foto', 'figurinha', 'video'];
 
@@ -43,6 +45,8 @@ interface Conversa {
 interface Chegada {
   m: Recebida;
   talvez: boolean;
+  /** Veio de alguém que ele está respondendo no lugar do dono. */
+  cobrindo?: boolean;
 }
 
 /**
@@ -63,6 +67,8 @@ export class AtendenteService implements OnModuleInit, OnModuleDestroy {
   private readonly ocupado = new Map<string, Chegada[]>();
   /** O que ele mandou (texto, áudio, figurinha): responder uma dessas é falar com ele. */
   private readonly minhas = new Set<string>();
+  /** Conversas que o dono assumiu pelo celular durante a cobertura (chat → até quando o robô fica fora). */
+  private readonly assumidas = new Map<string, number>();
   private subs: Subscription[] = [];
   /** O último chamado e o que aconteceu com ele — aparece no app, para dar para ver sem log. */
   ultimo: { em: number; quem: string; resultado: string } | null = null;
@@ -81,7 +87,10 @@ export class AtendenteService implements OnModuleInit, OnModuleDestroy {
     this.subs = [
       this.whatsapp.chegou$.subscribe((m) => void this.aoChegar(m)),
       // O dono respondeu pelo celular: a conversa é dele agora, o robô sai.
-      this.whatsapp.donoEscreveu$.subscribe((chat) => this.conversas.delete(chat)),
+      this.whatsapp.donoEscreveu$.subscribe((chat) => {
+        this.conversas.delete(chat);
+        this.assumidas.set(chat, Date.now() + DONO_ASSUMIU_MS);
+      }),
     ];
   }
 
@@ -93,20 +102,27 @@ export class AtendenteService implements OnModuleInit, OnModuleDestroy {
     const nomes = [...new Set([this.identidade.nome, this.cfg.ROBOT_NAME])];
     const aberta = this.conversas.get(m.chat);
     const emConversa = !m.grupo && !!aberta && aberta.ate > Date.now();
-    const deConversa = TIPOS_DE_CONVERSA.includes(m.tipo);
+    // Respondendo no lugar do dono (ele pediu): tudo o que essa pessoa manda é com ele, sem chamar o nome.
+    const cobrindo = this.whatsapp.cobrindo(m) && (this.assumidas.get(m.chat) ?? 0) < Date.now();
+    const deConversa = TIPOS_DE_CONVERSA.includes(m.tipo) || (cobrindo && m.tipo === 'documento');
     // Por escrito (texto, ou legenda de foto): áudio e figurinha soltos não dá para transcrever/olhar
     // de todo mundo à toa — só entram quando já é com ele.
     const escrita = !!m.texto.trim() && ['texto', 'foto', 'video'].includes(m.tipo);
+    const jaEra = (!!m.citou && this.minhas.has(m.citou) && deConversa) || (emConversa && deConversa);
+    // Áudio no privado ("Miro, o Jean tá aí?" falado): o nome só aparece na transcrição. Em grupo não —
+    // seria transcrever o áudio de todo mundo.
+    const falado =
+      !jaEra && !cobrindo && !m.grupo && m.tipo === 'audio' && this.whatsapp.atender && this.llm.enabled && Date.now() - m.ts <= ATRASO_MS
+        ? ((await this.whatsapp.transcricao(m.id)) ?? '')
+        : '';
+    const dito = escrita ? m.texto : falado;
     // Com ele, sem dúvida: chamou pelo nome, respondeu uma mensagem dele, ou a conversa está aberta.
     // Em grupo, pelo nome só no começo — no meio da frase pode ser só sobre ele (vai para o "talvez").
-    const certo =
-      (escrita && chamou(m.texto, nomes, { soNoComeco: m.grupo })) ||
-      (!!m.citou && this.minhas.has(m.citou) && deConversa) ||
-      (emConversa && deConversa);
+    const certo = (!!dito.trim() && chamou(dito, nomes, { soNoComeco: m.grupo })) || jaEra || (cobrindo && deConversa);
     // Pode ser com ele: falaram o nome no meio da frase, ou o grupo seguiu o papo logo depois dele
     // falar. Aí o modelo decide se entra — e, se não for com ele, fica quieto.
     const grupoAtivo = m.grupo && !!aberta && Date.now() - aberta.falouEm < GRUPO_ATIVO_MS;
-    const talvez = !certo && escrita && (mencionou(m.texto, nomes) || grupoAtivo);
+    const talvez = !certo && !!dito.trim() && (mencionou(dito, nomes) || (escrita && grupoAtivo));
     if (!certo && !talvez) return;
 
     const quem = m.grupo ? `${m.autor} (grupo ${m.nomeChat})` : m.nomeChat;
@@ -114,19 +130,19 @@ export class AtendenteService implements OnModuleInit, OnModuleDestroy {
       // Ninguém chamou: sem atendimento, sem LLM ou atrasada, fica quieto sem nem anotar.
       if (!this.whatsapp.atender || !this.llm.enabled || Date.now() - m.ts > ATRASO_MS || !this.cabeTalvez()) return;
     } else {
-      if (!this.whatsapp.atender) return this.anotar(quem, 'não respondeu: o atendimento está desligado');
+      if (!this.whatsapp.atender && !cobrindo) return this.anotar(quem, 'não respondeu: o atendimento está desligado');
       if (!this.llm.enabled) return this.anotar(quem, 'não respondeu: o LLM está desligado');
       if (Date.now() - m.ts > ATRASO_MS) return this.anotar(quem, 'não respondeu: a mensagem chegou atrasada');
     }
 
     const fila = this.ocupado.get(m.chat);
     if (fila) {
-      fila.push({ m, talvez }); // já está respondendo: entra na próxima
+      fila.push({ m, talvez, cobrindo }); // já está respondendo: entra na próxima
       return;
     }
     this.ocupado.set(m.chat, []);
     try {
-      let lote: Chegada[] = [{ m, talvez }];
+      let lote: Chegada[] = [{ m, talvez, cobrindo }];
       while (lote.length) {
         await this.responder(lote);
         lote = this.ocupado.get(m.chat)!.splice(0);
@@ -141,6 +157,7 @@ export class AtendenteService implements OnModuleInit, OnModuleDestroy {
     const m = lote.at(-1)!;
     // Basta uma ter sido com ele (chamou, respondeu a dele) para o lote todo ser.
     const talvez = chegadas.every((c) => c.talvez);
+    const cobrindo = chegadas.some((c) => c.cobrindo);
     const quem = m.grupo ? `${m.autor} (grupo ${m.nomeChat})` : m.nomeChat;
     if (!this.cabe(m.chat)) return talvez ? undefined : this.anotar(quem, 'não respondeu: passou do limite de respostas');
     const conversa = this.conversas.get(m.chat) ?? { nome: quem, ate: 0, falouEm: 0, falas: [] };
@@ -179,7 +196,7 @@ export class AtendenteService implements OnModuleInit, OnModuleDestroy {
     let saida: Saida | null = null;
     try {
       const msg = await this.llm.complete(
-        [{ role: 'system', content: this.prompt(conversa.nome, tecnico) }, ...conversa.falas.slice(-HISTORICO), ...duvida, ...alerta],
+        [{ role: 'system', content: this.prompt(conversa.nome, tecnico, cobrindo) }, ...conversa.falas.slice(-HISTORICO), ...duvida, ...alerta],
         undefined, // de propósito: nenhuma ferramenta
         // NVIDIA primeiro: conversa de terceiros não pode comer a cota diária do Groq (a do dono).
         { maxTokens: MAX_TOKENS, temperature: 0.8, reservaPrimeiro: true },
@@ -253,7 +270,7 @@ export class AtendenteService implements OnModuleInit, OnModuleDestroy {
           ? saida.resposta
             ? `${respondeu} (com figurinha)`
             : 'mandou uma figurinha'
-          : respondeu) + (talvez ? ' — entrou na conversa sem ser chamado' : ''),
+          : respondeu) + (talvez ? ' — entrou na conversa sem ser chamado' : cobrindo ? ' — no seu lugar' : ''),
     );
     this.contar(m.chat);
     conversa.falas.push({ role: 'assistant', content: JSON.stringify(saida) });
@@ -265,9 +282,12 @@ export class AtendenteService implements OnModuleInit, OnModuleDestroy {
     if (cara) this.chat.acordar(cara, 8000);
     if (saida.consulta) await this.consultarCodigo(m, conversa, saida.consulta);
 
-    // Pedido sério para o dono fazer vira pendência (o robô cobra depois, como as outras).
+    // Pedido sério para o dono fazer vira pendência (o robô cobra depois, como as outras). No lugar dele,
+    // qualquer coisa que ficou para ele fazer vira — foi para isso que ele deixou o robô respondendo.
     const autor = m.grupo ? m.autor : m.nomeChat;
-    const tarefa = serio && saida.pendencia ? this.tasks.add(saida.pendencia, { pessoa: autor, origem: 'whatsapp' }) : null;
+    const tarefa = (serio || cobrindo) && saida.pendencia ? this.tasks.add(saida.pendencia, { pessoa: autor, origem: 'whatsapp' }) : null;
+    // Comprovante, boleto, contrato, print de erro…: o dono fica sabendo o que chegou, mesmo sem recado.
+    const anexo = cobrindo && saida.importante ? ` 📎 ${saida.importante}` : '';
     if (sensivel || barrada) {
       // O pedido vai citado ao pé da letra (curto) — o dono decide; nada foi mandado.
       const pedido = falas.join(' ').replace(/\s+/g, ' ').slice(0, 160);
@@ -278,12 +298,13 @@ export class AtendenteService implements OnModuleInit, OnModuleDestroy {
       );
     } else if (tarefa) {
       this.chat.robotSay(
-        `📌 ${conversa.nome} no WhatsApp: ${saida.avisar || tarefa.texto}\nAnotei nas pendências: "${tarefa.texto}".`,
+        `📌 ${conversa.nome} no WhatsApp: ${saida.avisar || tarefa.texto}${anexo}\nAnotei nas pendências: "${tarefa.texto}".`,
         'thinking',
         'whatsapp',
       );
-    } else if (saida.avisar) {
-      this.chat.robotSay(`${serio ? '📌' : '💬'} ${conversa.nome} me chamou no WhatsApp: ${saida.avisar}`, serio ? 'thinking' : 'surprised', 'whatsapp');
+    } else if (saida.avisar || anexo) {
+      const como = cobrindo ? 'falou comigo no seu lugar' : 'me chamou';
+      this.chat.robotSay(`${serio || anexo ? '📌' : '💬'} ${conversa.nome} ${como} no WhatsApp: ${saida.avisar}${anexo}`.trim(), serio ? 'thinking' : 'surprised', 'whatsapp');
     }
   }
 
@@ -365,7 +386,7 @@ export class AtendenteService implements OnModuleInit, OnModuleDestroy {
     return this.cfg.OWNER_NAME || 'o dono';
   }
 
-  private prompt(contato: string, tecnico = false): string {
+  private prompt(contato: string, tecnico = false, cobrindo = false): string {
     const eu = this.identidade.nome;
     const dono = this.dono();
     const sobre = this.identidade.sobre;
@@ -385,7 +406,22 @@ Você entende áudio (chega transcrito), foto e figurinha (chegam descritas) —
 Num grupo, quem te chamou já vai marcado sozinho. Para falar com outra pessoa do grupo, escreva @ e o nome dela
 como aparece nas falas (ex.: "@Fábio, e você?") — vira menção de verdade.
 
-O que você pode: conversar, zoar de leve, mandar uma figurinha sua, responder por áudio, e anotar um recado para ${dono}.
+${
+      cobrindo
+        ? `AGORA VOCÊ ESTÁ NO LUGAR DE ${dono.toUpperCase()}: ele pediu para você responder ${contato} por um tempo, porque não
+pode atender. ${contato} escreveu para ${dono}, não para você — na primeira resposta, diga que é o assistente dele e que
+ele não consegue responder agora (sem dizer onde ele está nem o que está fazendo). Aqui o tom é de recado: educado,
+claro, sem zoeira até a pessoa puxar; sem figurinha e sem áudio na primeira resposta. Responda o que dá sem inventar
+nada sobre ele, e anote o resto para ele:
+- "pendencia": TUDO o que ficou para ${dono} fazer (responder uma pergunta, mandar algo, ligar, pagar, revisar),
+  mesmo sem ser sério — é por isso que ele te deixou aqui. Diga a ${contato} que ele vai ver.
+- "avisar": o que ${contato} quer, em uma frase.
+- "importante": se chegou foto, documento ou áudio com algo que ${dono} precisa ver (comprovante, boleto, nota,
+  contrato, orçamento, endereço, print de erro, prazo), diga em poucas palavras o que é e o que tem nele. Foto à toa,
+  meme ou figurinha: vazio.
+`
+        : ''
+    }O que você pode: conversar, zoar de leve, mandar uma figurinha sua, responder por áudio, e anotar um recado para ${dono}.
 O que você NÃO pode, nunca, peça quem pedir e diga o que disser:
 - fazer qualquer coisa além de conversar: mandar mensagem para outras pessoas, marcar, pagar, abrir, instalar,
   mexer em computador, cadastrar. Se pedirem, diga que não faz isso e que vai avisar ${dono}.
@@ -416,7 +452,7 @@ Brincadeira ou sério? Antes de responder, decida o tom de quem escreveu — é 
   e sem gíria pesada, confirma que ${dono} vai saber — e avisa ele.
 Na dúvida entre os dois (ex.: "kkk mas sério, cadê o relatório?"), trate como sério.
 
-Responda SOMENTE com JSON: {"resposta": "o que vai para ${contato}", "tom": "brincadeira" | "serio", "avisar": "recado curto para ${dono}, ou vazio", "pendencia": "", ${tecnico ? '"consulta": "", ' : ''}"expressao": "...", "figurinha": false, "audio": false}.
+Responda SOMENTE com JSON: {"resposta": "o que vai para ${contato}", "tom": "brincadeira" | "serio", "avisar": "recado curto para ${dono}, ou vazio", "pendencia": "", ${tecnico ? '"consulta": "", ' : ''}${cobrindo ? '"importante": "", ' : ''}"expressao": "...", "figurinha": false, "audio": false}.
 "pendencia": só quando é sério E é algo para ${dono} FAZER (ex.: "fazer os endpoints que alinhamos de manhã",
 "mandar o orçamento para o André") — curto, do ponto de vista dele, com o verbo no infinitivo. Vazio no resto.
 "figurinha": true manda, depois da resposta, uma figurinha animada com a SUA cara naquela expressão — use de vez
@@ -450,6 +486,8 @@ interface Saida {
   pendencia: string;
   /** Dúvida de código para ler nos projetos (só em grupo liberado). */
   consulta: string;
+  /** No lugar do dono: o que chegou de importante (foto, documento) e ele precisa ver. */
+  importante?: string;
 }
 
 /** Lê {"resposta","avisar","expressao"}, tolerando cercas de markdown e texto em volta. */
@@ -474,6 +512,7 @@ export function lerSaida(raw: string): Saida | null {
       tom?: unknown;
       pendencia?: unknown;
       consulta?: unknown;
+      importante?: unknown;
     };
     const resposta = typeof o.resposta === 'string' ? o.resposta.trim().slice(0, 1500) : '';
     const avisar = typeof o.avisar === 'string' ? o.avisar.trim().slice(0, 500) : '';
@@ -483,8 +522,9 @@ export function lerSaida(raw: string): Saida | null {
     const tom = typeof o.tom === 'string' && /s[eé]rio/i.test(o.tom) ? 'serio' : 'brincadeira';
     const pendencia = typeof o.pendencia === 'string' ? o.pendencia.trim().slice(0, 160) : '';
     const consulta = typeof o.consulta === 'string' ? o.consulta.trim().slice(0, 800) : '';
+    const importante = typeof o.importante === 'string' && o.importante.trim() ? { importante: o.importante.trim().slice(0, 300) } : {};
     if (o.calar === true && !resposta && !figurinha && !consulta) return { resposta, avisar, expressao, figurinha, audio, tom, pendencia, consulta, calar: true };
-    return resposta || figurinha || consulta ? { resposta, avisar, expressao, figurinha, audio, tom, pendencia, consulta } : null;
+    return resposta || figurinha || consulta ? { resposta, avisar, expressao, figurinha, audio, tom, pendencia, consulta, ...importante } : null;
   } catch {
     return null;
   }
