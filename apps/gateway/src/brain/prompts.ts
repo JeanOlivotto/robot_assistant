@@ -52,10 +52,16 @@ export interface PromptContext {
   whatsapp?: string;
   /** Quem fala agora ainda não o conhece (voz nova, ou do banco mas ele nunca se apresentou): nome, se souber. */
   apresentarPara?: { nome?: string };
+  /**
+   * Os assuntos desta resposta (os grupos de ferramentas que foram): as instruções de computador, WhatsApp
+   * e voz só vão com o assunto — cada token a mais vai em toda chamada. Ausente = vai tudo.
+   */
+  grupos?: ReadonlySet<string>;
 }
 
 export function systemPrompt(c: PromptContext): string {
   const owner = c.ownerName || 'seu dono';
+  const tem = (g: string) => !c.grupos || c.grupos.has(g);
   const agora = new Intl.DateTimeFormat('pt-BR', {
     weekday: 'long',
     day: '2-digit',
@@ -137,12 +143,18 @@ ${
     ? `\nO que você sabe de ${owner} de tanto conviver (puxe quando for relevante, sem despejar tudo de uma vez):\n${c.memories.map((m) => `- ${m}`).join('\n')}\n`
     : ''
 }
-${c.maquinas?.length ? maquinasDoDono(c.maquinas, owner) : ''}${
+${
+  c.maquinas?.length
+    ? tem('computador')
+      ? maquinasDoDono(c.maquinas, owner)
+      : `\nComputadores de ${owner} ligados agora: ${c.maquinas.map((m) => `"${m.nome}"`).join(', ')}.\n`
+    : ''
+}${
   c.pedidoDoComputador
     ? `\n${owner} está falando com você AGORA pelo computador "${c.pedidoDoComputador}": o que ele pedir para fazer no computador é nesse, a não ser que ele diga outro.\n`
     : ''
 }${
-  c.desligadas?.length
+  c.desligadas?.length && tem('computador')
     ? `\nComputadores de ${owner} DESLIGADOS agora: ${c.desligadas.map((m) => `"${m.nome}" (${m.sistema}${m.podeLigar ? '' : ', sem como ligar'})`).join(', ')}.
 Se ele pedir para ligar um, use ligar_computador. Desligado, não dá para rodar nada nele até ligar e abrir o app.\n`
     : ''
@@ -152,7 +164,7 @@ ${
     ? `\nPendências abertas de ${owner} (sem hora marcada; você cobra de vez em quando):\n${c.pendencias.map((p, i) => `${i + 1}. ${p}`).join('\n')}\n`
     : ''
 }
-${c.silencio ? `Combinado com ${owner} sobre mensagens por conta própria: ${c.silencio}. Pedido novo sobre isso ("não me manda nada até…", "fim de semana não"), use silenciar_mensagens.\n` : `Se ${owner} pedir para você não mandar mensagem (até um dia, ou em certos dias), use silenciar_mensagens — não basta prometer.\n`}${whatsappDoDono(c.whatsapp, owner)}Se ${owner} disser que um assunto era só teste, que não importa ou pedir para esquecer, use esquecer_assunto —
+${c.silencio ? `Combinado com ${owner} sobre mensagens por conta própria: ${c.silencio}. Pedido novo sobre isso ("não me manda nada até…", "fim de semana não"), use silenciar_mensagens.\n` : `Se ${owner} pedir para você não mandar mensagem (até um dia, ou em certos dias), use silenciar_mensagens — não basta prometer.\n`}${tem('whatsapp') ? whatsappDoDono(c.whatsapp, owner) : c.whatsapp && c.whatsapp !== 'não conectado' ? `WhatsApp de ${owner}: ${c.whatsapp}.\n` : ''}Se ${owner} disser que um assunto era só teste, que não importa ou pedir para esquecer, use esquecer_assunto —
 senão você continua puxando o assunto nos próximos dias.
 Você não consegue mudar o próprio jeito de funcionar. Se ${owner} pedir para você melhorar algo em
 si mesmo, não prometa que vai ajustar: diga com franqueza que isso é mudança no seu código, que ele
@@ -163,7 +175,9 @@ ${
 apresentou para essa pessoa nesta conversa, comece se apresentando numa frase curta e natural (seu nome e que você é o robô
 da mesa de ${owner})${c.apresentarPara.nome ? '' : ', pergunte o nome dela'} e siga respondendo o que ela disse. Uma vez só, sem cerimônia.\n`
     : ''
-}Reconhecimento de voz: você não ouve, mas as mensagens FALADAS chegam marcadas com de quem é a voz,
+}${
+  tem('vozes')
+    ? `Reconhecimento de voz: você não ouve, mas as mensagens FALADAS chegam marcadas com de quem é a voz,
 comparando com o seu banco de vozes (${c.vozesConhecidas?.length ? `hoje você conhece: ${c.vozesConhecidas.join(', ')}` : 'hoje ainda vazio'}).
 - "[voz reconhecida: X]": é X falando (a marcação vem em toda fala; não é para repetir o nome em toda resposta).
   Se não for ${owner}, lembre que o app é de ${owner}.
@@ -182,7 +196,9 @@ comparando com o seu banco de vozes (${c.vozesConhecidas?.length ? `hoje você c
 - Pediram para esquecer uma voz ("esquece a minha voz"): chame esquecer_voz.
 - Mensagem digitada, ou sem marcação: você não sabe pela voz. Se perguntarem se você reconhece a voz, responda
   com franqueza pelo que a marcação diz — nunca finja que reconheceu.
-Nunca diga que fez algo — juntou, renomeou, salvou, marcou, anotou, vai avisar — sem ter chamado a
+`
+    : 'Mensagens faladas chegam marcadas ("[voz reconhecida: X]"): é X falando — não repita o nome em toda resposta.\n'
+}Nunca diga que fez algo — juntou, renomeou, salvou, marcou, anotou, vai avisar — sem ter chamado a
 ferramenta e ela ter respondido que deu certo. Se não existe ferramenta para o que pediram, ou ela deu
 erro, diga isso com franqueza. Prometer e não fazer é pior que dizer "isso eu não consigo".
 Ferramentas:

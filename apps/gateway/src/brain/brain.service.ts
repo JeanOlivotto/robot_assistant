@@ -550,6 +550,9 @@ const TOOLS: ChatCompletionTool[] = aceitaNulo([
   },
 ]);
 
+/** Mensagens por conta própria (sem ferramentas): as instruções de computador, WhatsApp e voz não servem lá. */
+const SEM_ASSUNTO: ReadonlySet<Grupo> = new Set();
+
 /** Só vai quando falta algum grupo: o modelo pede o que não veio (ex.: o assunto mudou no meio). */
 const MAIS_FERRAMENTAS: ChatCompletionTool = {
   type: 'function',
@@ -626,22 +629,18 @@ export class BrainService {
   private async responder(history: ChatMessage[], opts: { spoken?: boolean }): Promise<BrainReply> {
     const now = new Date();
     const apresentarPara = this.apresentarPara(history.at(-1));
-    const messages: ChatCompletionMessageParam[] = [
-      {
-        role: 'system',
-        content: systemPrompt({
-          ...this.promptContext(now),
-          spoken: opts.spoken,
-          todayAgenda: await this.todayAgenda(now),
-          pedidoDoComputador: this.maquinaDoPedido,
-          apresentarPara,
-        }),
-      },
-      ...toLlmHistory(history.slice(-HISTORY), this.cfg.TZ_NAME),
-    ];
-
-    // Só as ferramentas do assunto (as de agenda, pendência e internet vão sempre): é o que faz a chamada caber no limite por minuto.
+    // Só as ferramentas (e as instruções) do assunto — agenda, pendência e internet vão sempre: é o que faz a chamada caber no limite por minuto.
     const grupos = gruposDaConversa(history.slice(-HISTORY), { voz: !!apresentarPara });
+    const contexto = {
+      ...this.promptContext(now),
+      spoken: opts.spoken,
+      todayAgenda: await this.todayAgenda(now),
+      pedidoDoComputador: this.maquinaDoPedido,
+      apresentarPara,
+    };
+    const sistema = (): ChatCompletionMessageParam => ({ role: 'system', content: systemPrompt({ ...contexto, grupos }) });
+    const messages: ChatCompletionMessageParam[] = [sistema(), ...toLlmHistory(history.slice(-HISTORY), this.cfg.TZ_NAME)];
+
     const ferramentas = () => {
       const delas = TOOLS.filter((t) => t.type !== 'function' || !GRUPO_DA_FERRAMENTA[t.function.name] || grupos.has(GRUPO_DA_FERRAMENTA[t.function.name]!));
       return grupos.size < GRUPOS.length ? [...delas, MAIS_FERRAMENTAS] : delas;
@@ -660,6 +659,7 @@ export class BrainService {
         if (grupos.size === GRUPOS.length || !/tool/i.test((err as Error).message)) throw err;
         this.log.warn(`Faltou ferramenta (${(err as Error).message.slice(0, 120)}): tentando com todas`);
         GRUPOS.forEach((g) => grupos.add(g));
+        messages[0] = sistema();
         msg = await this.llm.complete(messages, ferramentas(), limites);
       }
       const calls = (msg.tool_calls ?? []).filter((c) => c.type === 'function');
@@ -681,6 +681,7 @@ export class BrainService {
         if (call.function.name === 'mais_ferramentas') {
           const pedidos = pedirGrupos(call.function.arguments);
           pedidos.forEach((g) => grupos.add(g));
+          messages[0] = sistema(); // as instruções desses assuntos entram junto
           this.log.log(`mais_ferramentas → ${pedidos.join(', ') || 'nada'}`);
           const result = pedidos.length ? `pronto: liberadas as de ${pedidos.join(', ')}. Agora chame a que precisa.` : `erro: grupos válidos: ${GRUPOS.join(', ')}`;
           messages.push({ role: 'tool', tool_call_id: call.id, content: result });
@@ -703,7 +704,7 @@ export class BrainService {
     try {
       const owner = this.cfg.OWNER_NAME || 'o dono';
       const msg = await this.llm.complete([
-        { role: 'system', content: systemPrompt(this.promptContext(now)) },
+        { role: 'system', content: systemPrompt({ ...this.promptContext(now), grupos: SEM_ASSUNTO }) },
         ...toLlmHistory(history.slice(-6), this.cfg.TZ_NAME),
         { role: 'user', content: `[instrução interna do sistema — não é ${owner} falando] ${instruction}` },
       ]);
@@ -756,7 +757,7 @@ export class BrainService {
     try {
       const msg = await this.llm.complete(
         [
-          { role: 'system', content: systemPrompt({ ...this.promptContext(now), todayAgenda: agenda }) },
+          { role: 'system', content: systemPrompt({ ...this.promptContext(now), todayAgenda: agenda, grupos: SEM_ASSUNTO }) },
           ...toLlmHistory(history.slice(-20), this.cfg.TZ_NAME),
           {
             role: 'user',
@@ -816,7 +817,7 @@ export class BrainService {
     const agenda = await this.calendar.query(now, new Date(midnight + DAY_MS)).catch(() => []);
     try {
       const msg = await this.llm.complete([
-        { role: 'system', content: systemPrompt(this.promptContext(now)) },
+        { role: 'system', content: systemPrompt({ ...this.promptContext(now), grupos: SEM_ASSUNTO }) },
         ...toLlmHistory(history.slice(-4), this.cfg.TZ_NAME),
         {
           role: 'user',
@@ -877,7 +878,7 @@ export class BrainService {
     const owner = this.cfg.OWNER_NAME || 'o dono';
     try {
       const msg = await this.llm.complete([
-        { role: 'system', content: systemPrompt(this.promptContext(new Date())) },
+        { role: 'system', content: systemPrompt({ ...this.promptContext(new Date()), grupos: SEM_ASSUNTO }) },
         ...toLlmHistory(history.slice(-4), this.cfg.TZ_NAME),
         {
           role: 'user',
