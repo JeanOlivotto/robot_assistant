@@ -751,6 +751,15 @@ function protegerNavegacao(win) {
     if (/^https?:/.test(url)) void shell.openExternal(url);
     return { action: 'deny' };
   });
+  // Ao entrar na sessão o app pode abrir antes da rede (ERR_NETWORK_CHANGED): a página não carrega,
+  // o ready-to-show nunca vem e a carinha some sem aviso. Tenta de novo até o servidor responder.
+  win.webContents.on('did-fail-load', (_e, codigo, descricao, url, principal) => {
+    if (!principal || codigo === -3) return; // -3 = ERR_ABORTED (navegação trocada, não é falha)
+    console.error(`[robo] falhou ao carregar ${url}: ${descricao}; tento de novo em 5 s`);
+    setTimeout(() => {
+      if (!win.isDestroyed()) void win.loadURL(url);
+    }, 5000);
+  });
 }
 
 function permissoes() {
