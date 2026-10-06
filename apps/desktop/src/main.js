@@ -489,6 +489,13 @@ ipcMain.on('braco:token', (_e, token) => {
   if (usarComputador) braco.ligar(token);
   else braco.token = token;
 });
+// Saiu do app (o "Sair" do painel): sem senha, o braço desconecta e o microfone fecha.
+ipcMain.on('sair', () => {
+  braco.desligar();
+  braco.token = '';
+  bolha?.webContents.send('ouvinte:ligado', false);
+  atualizarBandeja();
+});
 // Você mexendo aqui (teclado/mouse no último minuto): pedido sem máquina escolhida vem para esta.
 setInterval(() => {
   if (powerMonitor.getSystemIdleTime() < 60) braco.ativo();

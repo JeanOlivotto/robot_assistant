@@ -40,6 +40,8 @@ contextBridge.exposeInMainWorld('roboDesktop', {
   esconder: () => ipcRenderer.send('esconder'),
   /** Depois do login: o braço (executar coisas no computador) entra no servidor com a mesma senha. */
   bracoToken: (token) => ipcRenderer.send('braco:token', String(token)),
+  /** Saiu do app: desliga o braço e o microfone até o próximo login. */
+  sair: () => ipcRenderer.send('sair'),
   /** O nome deste computador: o pedido feito daqui roda aqui. */
   maquina: () => ipcRenderer.sendSync('maquina'),
   vozMudou: (ligada) => ipcRenderer.send('voz', ligada),

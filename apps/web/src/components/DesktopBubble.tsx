@@ -44,11 +44,10 @@ export function DesktopBubble() {
   const [token, setToken] = useState(lerToken);
   const andando = useAndando();
 
-  // O login acontece no painel (a outra janela): quando ele grava a senha, a bolha acorda.
-  // Sem login (app recém-instalado), o painel já abre com a tela de entrar.
+  // O login e o "Sair" acontecem no painel (a outra janela): quando ele grava ou apaga a senha,
+  // a bolha acorda ou se cala. Sem login (app recém-instalado), o painel já abre com a tela de entrar.
   useEffect(() => {
-    if (token) return;
-    desktop?.painel('abrir');
+    if (!token) desktop?.painel('abrir');
     const onStorage = () => setToken(lerToken());
     window.addEventListener('storage', onStorage);
     const id = setInterval(onStorage, 3000);
@@ -150,6 +149,11 @@ function BolhaLogada({ token, andando }: { token: string; andando: 'esquerda' | 
   useEffect(() => {
     void configureSpeech(token);
     desktop?.bracoToken?.(token); // o braço do app entra no servidor com a mesma senha
+    // Saiu do app: cala na hora e desliga o braço e o ouvido (o WebSocket fecha sozinho no useRobo).
+    return () => {
+      stopSpeaking();
+      desktop?.sair?.();
+    };
   }, [token]);
 
   // Menu da bandeja também liga/desliga a voz — e ela precisa saber como a voz começou.

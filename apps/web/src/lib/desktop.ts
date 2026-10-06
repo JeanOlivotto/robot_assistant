@@ -41,6 +41,8 @@ interface RoboDesktopBridge {
   aoComando?(cb: (acao: string) => void): void;
   esconder?(): void;
   bracoToken?(token: string): void;
+  /** Saiu do app: desliga o braço e o microfone até o próximo login. */
+  sair?(): void;
   /** O nome deste computador (o mesmo com que o braço se apresenta ao servidor). */
   maquina?(): string;
   /** Andando para outro monitor (acompanha o monitor em uso), ou parou (null). */
