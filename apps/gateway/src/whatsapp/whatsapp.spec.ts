@@ -157,6 +157,16 @@ describe('WhatsappService: responder no lugar do dono', () => {
     expect(svc.cobrindo(grupo)).toBe(false);
   });
 
+  it('agendado ("do dia 19 ao 23"): só vale dentro do período', () => {
+    const { svc } = conectado();
+    const dia = 24 * 3600_000;
+    expect(svc.cobrir({ todos: true, de: Date.now() + dia, ate: Date.now() + 5 * dia })).toMatch(/^ok: agendado/);
+    expect(svc.cobrindo(doZe)).toBe(false);
+    (svc as unknown as { c: { cobrir: { de: number } } }).c.cobrir.de = Date.now() - 1;
+    expect(svc.cobrindo(doZe)).toBe(true);
+    expect(svc.cobrir({ todos: true, de: Date.now() + 2 * dia, ate: Date.now() + dia })).toMatch(/^erro/);
+  });
+
   it('acabou o tempo, para sozinho', () => {
     const { svc } = conectado();
     svc.cobrir({ contatos: ['11 98888-4321'], horas: 1 });

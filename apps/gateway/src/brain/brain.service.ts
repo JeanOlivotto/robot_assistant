@@ -495,6 +495,16 @@ const TOOLS: ChatCompletionTool[] = aceitaNulo([
             type: 'number',
             description: 'por quantas horas a partir de agora (converta "até as 18h" pela hora atual); omitir = até ele pedir para parar',
           },
+          de_dia: {
+            type: 'string',
+            enum: [...DIAS],
+            description: 'agendar: começa neste dia ("do dia 19 ao 23", "a partir de segunda", "nas férias"); omitir = começa agora',
+          },
+          de_data: { type: 'string', description: 'DD/MM — só quando de_dia = "data"' },
+          de_hora: { type: 'string', description: 'HH:MM em que começa (padrão 00:00)' },
+          ate_dia: { type: 'string', enum: [...DIAS], description: 'último dia, inclusive ("até dia 23" = o dia 23 inteiro). No lugar de "horas"' },
+          ate_data: { type: 'string', description: 'DD/MM — só quando ate_dia = "data"' },
+          ate_hora: { type: 'string', description: 'HH:MM em que termina no último dia (padrão 23:59)' },
         },
       },
     },
@@ -976,8 +986,10 @@ export class BrainService {
               'e chame de novo com o que ele responder. Não diga que já está respondendo.',
           };
         }
+        const periodo = this.periodoDaCobertura(args);
+        if (typeof periodo === 'string') return { result: periodo };
         const recado = String(args.recado).trim();
-        return { result: this.whatsapp.cobrir({ contatos, todos: args.todos === true, exceto, horas, recado, grupos: args.grupos === true }) };
+        return { result: this.whatsapp.cobrir({ contatos, todos: args.todos === true, exceto, horas, ...periodo, recado, grupos: args.grupos === true }) };
       }
       if (name === 'privacidade_whatsapp') {
         if (typeof args.ligar === 'boolean') {
@@ -1020,6 +1032,20 @@ export class BrainService {
     }
     if (!feito.length) return 'erro: diga até quando (ate_dia), as folgas ou retomar';
     return `ok (${feito.join(', ')}). Agora: ${this.silencio.descricao(now) || 'sem restrição'}`;
+  }
+
+  /** "Do dia 19 ao 23": o LLM diz os dias como ele falou, o código resolve no fuso (nunca o modelo). */
+  private periodoDaCobertura(args: Record<string, unknown>): { de?: number; ate?: number } | string {
+    const now = new Date();
+    const resolver = (dia: unknown, data: unknown, hora: unknown, padrao: string) => {
+      if (!dia) return undefined;
+      return resolveWhen(String(dia), data ? String(data) : undefined, hora ? String(hora) : padrao, now, this.cfg.TZ_NAME);
+    };
+    const de = resolver(args.de_dia, args.de_data, args.de_hora, '00:00');
+    if (de && !de.ok) return `erro no começo: ${de.error}`;
+    const ate = resolver(args.ate_dia, args.ate_data, args.ate_hora, '23:59');
+    if (ate && !ate.ok) return `erro no fim: ${ate.error}`;
+    return { ...(de?.ok ? { de: de.start.getTime() } : {}), ...(ate?.ok ? { ate: ate.start.getTime() + 59_000 } : {}) };
   }
 
   private anotarPendencia(args: Record<string, unknown>): string {

@@ -19,6 +19,8 @@ const HISTORICO = 12;
 /* Tetos para ninguém gastar a cota do LLM conversando com o robô (nem ele virar spam). */
 const POR_PESSOA_HORA = 15;
 const POR_DIA = 80;
+/** Respondendo no lugar dele (férias, reunião): o dia inteiro é com ele, então o teto sobe. */
+const POR_DIA_COBRINDO = 200;
 const MAX_TOKENS = 1200;
 /** Cada consulta roda o Claude Code no computador do dono (plano dele): teto por dia. */
 const CONSULTAS_POR_DIA = 30;
@@ -348,8 +350,9 @@ export class AtendenteService implements OnModuleInit, OnModuleDestroy {
     if (this.hoje.dia !== dia) this.hoje = { dia, n: 0, consultas: 0, talvez: 0 };
     const recentes = (this.respostas.get(chat) ?? []).filter((t) => agora - t < 3600_000);
     this.respostas.set(chat, recentes);
-    if (recentes.length < POR_PESSOA_HORA && this.hoje.n < POR_DIA) return true;
-    if (recentes.length === POR_PESSOA_HORA || this.hoje.n === POR_DIA) {
+    const porDia = this.whatsapp.cobrindoAgora ? POR_DIA_COBRINDO : POR_DIA;
+    if (recentes.length < POR_PESSOA_HORA && this.hoje.n < porDia) return true;
+    if (recentes.length === POR_PESSOA_HORA || this.hoje.n === porDia) {
       const nome = this.conversas.get(chat)?.nome ?? 'alguém';
       this.chat.robotSay(`Parei de responder ${nome} no WhatsApp por um tempo: muita mensagem seguida.`, 'worried', 'whatsapp');
       this.contar(chat); // passa do teto: o aviso sai uma vez só

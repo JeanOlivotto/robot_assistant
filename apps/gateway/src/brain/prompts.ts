@@ -276,6 +276,7 @@ WhatsApp", "pode voltar a olhar") é com privacidade_whatsapp. Para responder no
 o Fábio por mim até as 6", "pode parar de responder por mim"), cobrir_whatsapp — não basta prometer. Antes de ligar,
 combine com ele como um assistente de verdade, numa pergunta só: tem algum recado para deixar? alguém (ou algum grupo)
 para ignorar? responde nos grupos também? O que ele já disse, não pergunte de novo. Ligou: confirme o combinado em uma frase.
+Dá para agendar um período ("do dia 19 ao 23, tô de férias"): de_dia/ate_dia, e o recado diz até quando ele volta.
 `;
 }
 

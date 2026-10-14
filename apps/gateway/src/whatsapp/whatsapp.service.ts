@@ -43,6 +43,9 @@ const MAX_HISTORICO = 3000;
 const RESYNC_MS = [5_000, 30_000, 120_000];
 /** "Acabei de receber uma mensagem": a pessoa manda em pedaços, então vêm juntas as desse intervalo. */
 const RAJADA_MS = 10 * 60_000;
+/* Responder no lugar dele: um período (férias) de até um mês, agendado até dois meses à frente. */
+const MAX_COBERTURA_MS = 31 * 24 * 3600_000;
+const MAX_ANTECEDENCIA_MS = 60 * 24 * 3600_000;
 const MAX_RAJADA = 8;
 
 interface Combinado {
@@ -60,6 +63,8 @@ interface Combinado {
 
 /** "Responde o Fábio e a Jaque por mim até as 6": no privado, e nos grupos só o que é com ele (se ele quiser). */
 interface Cobertura {
+  /** Agendado ("do dia 19 ao 23"): só começa neste instante. 0/ausente = já valendo. */
+  de?: number;
   ate: number;
   contatos: { id: string; nome: string }[];
   /** Todo mundo no privado, não só a lista. */
@@ -271,7 +276,17 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
    * Responder no lugar do dono: `contatos` são nomes, apelidos ou números (só privado). Devolve o que
    * ficou combinado, ou o erro para o cérebro perguntar ("tem mais de um Fábio").
    */
-  cobrir(opts: { contatos?: string[]; todos?: boolean; exceto?: string[]; horas?: number; recado?: string; grupos?: boolean }): string {
+  cobrir(opts: {
+    contatos?: string[];
+    todos?: boolean;
+    exceto?: string[];
+    horas?: number;
+    /** Período agendado (ms): no lugar de `horas`. */
+    de?: number;
+    ate?: number;
+    recado?: string;
+    grupos?: boolean;
+  }): string {
     if (!this.conectado) return 'erro: o WhatsApp não está conectado (o dono conecta pelo app, aba PC)';
     const achar = (nomes: string[] = [], grupoVale: boolean): { id: string; nome: string }[] | string => {
       const achados: { id: string; nome: string }[] = [];
@@ -289,9 +304,17 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
     const exceto = opts.todos || opts.grupos ? achar(opts.exceto, true) : [];
     if (typeof exceto === 'string') return exceto;
     if (!achados.length && !opts.todos && !opts.grupos) return 'erro: diga quais contatos (ou "todos", para todo mundo no privado)';
-    const ate = opts.horas && opts.horas > 0 ? Date.now() + Math.min(opts.horas, 24 * 7) * 3600_000 : -1;
+    const agora = Date.now();
+    const de = opts.de && opts.de > agora ? opts.de : 0;
+    if (de > agora + MAX_ANTECEDENCIA_MS) return 'erro: dá para agendar no máximo 60 dias à frente';
+    if (opts.ate && opts.ate <= (de || agora)) return 'erro: o fim do período já passou (ou vem antes do começo)';
+    const ate = opts.ate
+      ? Math.min(opts.ate, (de || agora) + MAX_COBERTURA_MS)
+      : opts.horas && opts.horas > 0
+        ? agora + Math.min(opts.horas * 3600_000, MAX_COBERTURA_MS)
+        : -1;
     const recado = opts.recado?.trim().slice(0, 500) ?? '';
-    this.c.cobrir = { ate, contatos: achados, todos: !!opts.todos, exceto, recado, grupos: !!opts.grupos };
+    this.c.cobrir = { de, ate, contatos: achados, todos: !!opts.todos, exceto, recado, grupos: !!opts.grupos };
     this.save();
     this.log.log(`WhatsApp: cobrindo o dono (${opts.todos ? 'todos' : achados.map((a) => a.nome).join(', ') || 'só grupos'}${opts.grupos ? ', grupos' : ''})`);
     return `ok: ${this.descricaoCobertura()}`;
@@ -312,7 +335,7 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
   /** Esta mensagem é de alguém que o robô está respondendo no lugar do dono? */
   cobrindo(m: Recebida): boolean {
     const c = this.c.cobrir;
-    if (!c || (c.ate > 0 && Date.now() > c.ate)) return false;
+    if (!this.cobrindoAgora || !c) return false;
     const e = (x: { id: string }) => x.id === m.chat || x.id === m.alt;
     if ((c.exceto ?? []).some(e)) return false;
     // No grupo, só o que é com ele: o resto do papo não é para o robô responder no lugar de ninguém.
@@ -320,16 +343,24 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
     return c.todos || c.contatos.some(e);
   }
 
+  /** A cobertura vale neste instante (começou, se agendada, e não acabou)? */
+  get cobrindoAgora(): boolean {
+    const c = this.c.cobrir;
+    const agora = Date.now();
+    return !!c && !((c.de ?? 0) > agora) && !(c.ate > 0 && agora > c.ate);
+  }
+
   private descricaoCobertura(): string {
     const c = this.c.cobrir;
     if (!c || (c.ate > 0 && Date.now() > c.ate)) return '';
-    const hora = new Intl.DateTimeFormat('pt-BR', { weekday: 'short', hour: '2-digit', minute: '2-digit', timeZone: this.cfg.TZ_NAME });
+    const hora = new Intl.DateTimeFormat('pt-BR', { weekday: 'short', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', timeZone: this.cfg.TZ_NAME });
     const fora = c.exceto?.length ? ` (menos ${c.exceto.map((x) => x.nome).join(', ')})` : '';
     const privado = c.todos ? 'todo mundo no privado' : c.contatos.map((x) => x.nome).join(', ');
     const grupos = c.grupos ? 'nos grupos, só quem marcar ele ou responder uma mensagem dele' : 'grupos não';
     const quem = [privado, grupos].filter(Boolean).join('; ') + fora;
     const recado = c.recado ? `; recado dele: "${c.recado}"` : '; sem recado específico';
-    return `respondendo no lugar dele: ${quem}, ${c.ate > 0 ? `até ${hora.format(c.ate)}` : 'até ele pedir para parar'}${recado}`;
+    const quando = `${c.de ? `de ${hora.format(c.de)} ` : ''}${c.ate > 0 ? `até ${hora.format(c.ate)}` : 'até ele pedir para parar'}`;
+    return `${c.de ? 'agendado — vai responder' : 'respondendo'} no lugar dele: ${quem}, ${quando}${recado}`;
   }
 
   tecnico(chat: string): boolean {
