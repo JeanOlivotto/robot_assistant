@@ -480,7 +480,7 @@ const TOOLS: ChatCompletionTool[] = aceitaNulo([
             type: 'array',
             items: { type: 'string' },
             description:
-              'quem ele quer que você ignore ("todo mundo menos a Duda", "menos o grupo da família") — contatos ou grupos; [] se ele disse que ninguém',
+              'quem ele quer que você ignore ("todo mundo menos a Ana", "menos o grupo da família") — contatos ou grupos; [] se ele disse que ninguém',
           },
           recado: {
             type: 'string',
