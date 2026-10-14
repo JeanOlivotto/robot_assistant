@@ -25,7 +25,7 @@ import { MAX_VOICE_SECONDS, SttService } from '../stt/stt.service.js';
 import { TtsService } from '../tts/tts.service.js';
 import { VisionService } from '../vision/vision.service.js';
 import { figurinha } from './figurinha.js';
-import { acharPorNome, aplicarMencoes, arroba, comAPalavra, conteudo, corpo, descrever, naoENome, type Recebida, semAcento } from './mensagem.js';
+import { acharPorNome, aplicarMencoes, arroba, comAPalavra, conteudo, corpo, descrever, falaCom, naoENome, type Recebida, semAcento } from './mensagem.js';
 import { digitosDe, jidDoNumero, type Lembranca, numeroBate, porAssunto } from './procurar.js';
 import type { Face } from '@robo/protocol';
 
@@ -58,14 +58,18 @@ interface Combinado {
   cobrir: Cobertura | null;
 }
 
-/** "Responde o Fábio e a Jaque por mim até as 6": só conversas privadas. */
+/** "Responde o Fábio e a Jaque por mim até as 6": no privado, e nos grupos só o que é com ele (se ele quiser). */
 interface Cobertura {
   ate: number;
   contatos: { id: string; nome: string }[];
   /** Todo mundo no privado, não só a lista. */
   todos?: boolean;
-  /** Com `todos`: estes ficam de fora ("todo mundo menos a Duda"). */
+  /** Estes ficam de fora ("todo mundo menos a Duda", "menos o grupo da família"). */
   exceto?: { id: string; nome: string }[];
+  /** O que ele quer que as pessoas saibam ("tô em reunião, volto às 4"). Vazio = nenhum recado. */
+  recado?: string;
+  /** Nos grupos também: responde quem marcar ele ou responder uma mensagem dele. */
+  grupos?: boolean;
 }
 
 /** Uma conversa para onde dá para mandar: contato ou grupo. */
@@ -147,6 +151,8 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
   /** QR em data URL, enquanto espera o pareamento. */
   qr: string | null = null;
   numero: string | null = null;
+  /** Os jids do dono (número e LID): marcar ou citar um deles num grupo é falar com ele. */
+  private meusJids: string[] = [];
 
   /** `entendido`: transcrição/descrição já feita (mídia só é entendida uma vez, e só quando pedem). */
   private recebidas: { m: Recebida; raw: WAMessage; entendido?: Promise<string | undefined> }[] = [];
@@ -265,28 +271,35 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
    * Responder no lugar do dono: `contatos` são nomes, apelidos ou números (só privado). Devolve o que
    * ficou combinado, ou o erro para o cérebro perguntar ("tem mais de um Fábio").
    */
-  cobrir(opts: { contatos?: string[]; todos?: boolean; exceto?: string[]; horas?: number }): string {
+  cobrir(opts: { contatos?: string[]; todos?: boolean; exceto?: string[]; horas?: number; recado?: string; grupos?: boolean }): string {
     if (!this.conectado) return 'erro: o WhatsApp não está conectado (o dono conecta pelo app, aba PC)';
-    const achar = (nomes: string[] = []): { id: string; nome: string }[] | string => {
+    const achar = (nomes: string[] = [], grupoVale: boolean): { id: string; nome: string }[] | string => {
       const achados: { id: string; nome: string }[] = [];
       for (const nome of nomes) {
         const { destino, erro } = this.resolver(nome);
         if (!destino) return `erro em "${nome}": ${erro}`;
-        if (destino.grupo) return `erro: "${destino.nome}" é grupo — grupo já fica de fora: no lugar dele você só responde conversa privada`;
+        if (destino.grupo && !grupoVale) return `erro: "${destino.nome}" é grupo — grupo entra com "grupos" (só o que for com ele), não na lista de contatos`;
         achados.push({ id: destino.id, nome: destino.nome });
       }
       return achados;
     };
-    const achados = achar(opts.contatos);
+    const achados = achar(opts.contatos, false);
     if (typeof achados === 'string') return achados;
-    const exceto = opts.todos ? achar(opts.exceto) : [];
+    // De fora pode ser contato (com "todos") ou grupo (com "grupos").
+    const exceto = opts.todos || opts.grupos ? achar(opts.exceto, true) : [];
     if (typeof exceto === 'string') return exceto;
-    if (!achados.length && !opts.todos) return 'erro: diga quais contatos (ou "todos", para todo mundo no privado)';
+    if (!achados.length && !opts.todos && !opts.grupos) return 'erro: diga quais contatos (ou "todos", para todo mundo no privado)';
     const ate = opts.horas && opts.horas > 0 ? Date.now() + Math.min(opts.horas, 24 * 7) * 3600_000 : -1;
-    this.c.cobrir = { ate, contatos: achados, todos: !!opts.todos, exceto };
+    const recado = opts.recado?.trim().slice(0, 500) ?? '';
+    this.c.cobrir = { ate, contatos: achados, todos: !!opts.todos, exceto, recado, grupos: !!opts.grupos };
     this.save();
-    this.log.log(`WhatsApp: cobrindo o dono (${opts.todos ? 'todos' : achados.map((a) => a.nome).join(', ')})`);
+    this.log.log(`WhatsApp: cobrindo o dono (${opts.todos ? 'todos' : achados.map((a) => a.nome).join(', ') || 'só grupos'}${opts.grupos ? ', grupos' : ''})`);
     return `ok: ${this.descricaoCobertura()}`;
+  }
+
+  /** O recado que o dono deixou para quem escrever enquanto o robô responde por ele. */
+  get recadoDoDono(): string {
+    return this.c.cobrir?.recado ?? '';
   }
 
   pararDeCobrir(): string {
@@ -299,9 +312,12 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
   /** Esta mensagem é de alguém que o robô está respondendo no lugar do dono? */
   cobrindo(m: Recebida): boolean {
     const c = this.c.cobrir;
-    if (!c || m.grupo || (c.ate > 0 && Date.now() > c.ate)) return false;
+    if (!c || (c.ate > 0 && Date.now() > c.ate)) return false;
     const e = (x: { id: string }) => x.id === m.chat || x.id === m.alt;
-    return c.todos ? !(c.exceto ?? []).some(e) : c.contatos.some(e);
+    if ((c.exceto ?? []).some(e)) return false;
+    // No grupo, só o que é com ele: o resto do papo não é para o robô responder no lugar de ninguém.
+    if (m.grupo) return !!c.grupos && !!m.paraDono;
+    return c.todos || c.contatos.some(e);
   }
 
   private descricaoCobertura(): string {
@@ -309,8 +325,11 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
     if (!c || (c.ate > 0 && Date.now() > c.ate)) return '';
     const hora = new Intl.DateTimeFormat('pt-BR', { weekday: 'short', hour: '2-digit', minute: '2-digit', timeZone: this.cfg.TZ_NAME });
     const fora = c.exceto?.length ? ` (menos ${c.exceto.map((x) => x.nome).join(', ')})` : '';
-    const quem = c.todos ? `todo mundo no privado${fora}, grupos não` : c.contatos.map((x) => x.nome).join(', ');
-    return `respondendo no lugar dele: ${quem}, ${c.ate > 0 ? `até ${hora.format(c.ate)}` : 'até ele pedir para parar'}`;
+    const privado = c.todos ? 'todo mundo no privado' : c.contatos.map((x) => x.nome).join(', ');
+    const grupos = c.grupos ? 'nos grupos, só quem marcar ele ou responder uma mensagem dele' : 'grupos não';
+    const quem = [privado, grupos].filter(Boolean).join('; ') + fora;
+    const recado = c.recado ? `; recado dele: "${c.recado}"` : '; sem recado específico';
+    return `respondendo no lugar dele: ${quem}, ${c.ate > 0 ? `até ${hora.format(c.ate)}` : 'até ele pedir para parar'}${recado}`;
   }
 
   tecnico(chat: string): boolean {
@@ -428,6 +447,7 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
       this.qr = null;
       this.tentativas = 0;
       this.numero = sock.user?.id?.split(':')[0]?.split('@')[0] ?? null;
+      this.meusJids = [sock.user?.id, (sock.user as { lid?: string } | undefined)?.lid].filter((j): j is string => !!j);
       this.log.log(`WhatsApp conectado (${this.numero ?? '?'})`);
       sock
         .groupFetchAllParticipating()
@@ -542,6 +562,7 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
         grupo,
         ts: Number(raw.messageTimestamp ?? 0) * 1000 || Date.now(),
         ...c,
+        ...(grupo && falaCom(raw.message, this.meusJids) ? { paraDono: true } : {}),
       },
       raw,
     });

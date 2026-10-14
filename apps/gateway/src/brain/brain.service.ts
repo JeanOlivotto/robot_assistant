@@ -462,8 +462,10 @@ const TOOLS: ChatCompletionTool[] = aceitaNulo([
         'Responder o WhatsApp NO LUGAR do dono, por um tempo, para os contatos que ELE disser ("responde o Fábio e a ' +
         'Jaque por mim até as 6", "cuida do meu zap hoje à tarde", "pode parar de responder por mim"). Você conversa ' +
         'com eles em seu nome (assinado), sem ferramentas e sem dado nenhum dele; o que ficar para ele fazer vira ' +
-        'pendência e foto/documento importante chega aqui para ele. Só conversa privada, nunca grupo. Contato ' +
-        'ambíguo: pergunte qual antes.',
+        'pendência e foto/documento importante chega aqui para ele. Contato ambíguo: pergunte qual antes. ' +
+        'ANTES de ligar, combine com ele numa pergunta só o que ele ainda não disse: se tem algum recado para deixar, ' +
+        'se tem alguém (ou algum grupo) para ignorar e se responde nos grupos também. Só chame com "recado" e ' +
+        '"grupos" (e "exceto", com todos) que ELE respondeu — sem eles, nada liga.',
       parameters: {
         type: 'object',
         properties: {
@@ -477,7 +479,17 @@ const TOOLS: ChatCompletionTool[] = aceitaNulo([
           exceto: {
             type: 'array',
             items: { type: 'string' },
-            description: 'com todos: quem fica de fora ("todo mundo menos a Duda") — nomes, apelidos ou números',
+            description:
+              'quem ele quer que você ignore ("todo mundo menos a Duda", "menos o grupo da família") — contatos ou grupos; [] se ele disse que ninguém',
+          },
+          recado: {
+            type: 'string',
+            description:
+              'o que ele quer que as pessoas saibam ("tô em reunião, volto às 4", "se for o orçamento, manda por e-mail"); "" se ele disse que não tem',
+          },
+          grupos: {
+            type: 'boolean',
+            description: 'true = nos grupos também, só quando marcarem ele ou responderem uma mensagem dele; false = só privado. Pergunte a ele',
           },
           horas: {
             type: 'number',
@@ -956,7 +968,16 @@ export class BrainService {
         const contatos = Array.isArray(args.contatos) ? args.contatos.map(String).filter((c) => c.trim()) : [];
         const exceto = Array.isArray(args.exceto) ? args.exceto.map(String).filter((c) => c.trim()) : [];
         const horas = typeof args.horas === 'number' ? args.horas : undefined;
-        return { result: this.whatsapp.cobrir({ contatos, todos: args.todos === true, exceto, horas }) };
+        const falta = faltaCombinar(args);
+        if (falta.length) {
+          return {
+            result:
+              `ainda NÃO ligado — falta combinar com ele: ${falta.join('; ')}. Pergunte isso numa mensagem só, curta, ` +
+              'e chame de novo com o que ele responder. Não diga que já está respondendo.',
+          };
+        }
+        const recado = String(args.recado).trim();
+        return { result: this.whatsapp.cobrir({ contatos, todos: args.todos === true, exceto, horas, recado, grupos: args.grupos === true }) };
       }
       if (name === 'privacidade_whatsapp') {
         if (typeof args.ligar === 'boolean') {
@@ -1458,6 +1479,18 @@ const contem = (texto: string, nome: string) => new RegExp(`\\b${escape(semAcent
 
 function escape(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/**
+ * Responder no lugar dele só liga depois de combinado: recado, quem ignorar (com "todos") e grupos.
+ * Sem isto o modelo ligava na hora e só dizia "tá, respondo" — sem perguntar nada.
+ */
+export function faltaCombinar(args: Record<string, unknown>): string[] {
+  const falta: string[] = [];
+  if (typeof args.recado !== 'string') falta.push('se tem algum recado para deixar a quem escrever');
+  if (args.todos === true && !Array.isArray(args.exceto)) falta.push('se tem alguém (contato ou grupo) para ignorar');
+  if (typeof args.grupos !== 'boolean') falta.push('se responde nos grupos também (só quando marcarem ou responderem ele)');
+  return falta;
 }
 
 /** A pessoa se apresentou com esse nome na fala ("sou a Francisca", "meu nome é Fábio", "aqui é o Jean"). */

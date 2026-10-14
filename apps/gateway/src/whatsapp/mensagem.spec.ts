@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { acharPorNome, aplicarMencoes, comAPalavra, apresentar, assinar, chamou, conteudo, descrever, mencionou, pedidoSensivel, respostaSuspeita, type Recebida } from './mensagem.js';
+import { acharPorNome, aplicarMencoes, comAPalavra, apresentar, assinar, chamou, conteudo, descrever, falaCom, mencionou, pedidoSensivel, respostaSuspeita, type Recebida } from './mensagem.js';
 
 describe('conteudo', () => {
   it('lê texto simples e texto com link/resposta', () => {
@@ -239,5 +239,20 @@ describe('apresentar (áudio, sem assinatura escrita)', () => {
     const t = apresentar('Pessoal, foco no New Prevent hoje.', 'Miro', 'Jean');
     expect(t).toBe('Aqui é o Miro, assistente do Jean. Pessoal, foco no New Prevent hoje.');
     expect(apresentar(t, 'Miro', 'Jean')).toBe(t);
+  });
+});
+
+describe('falaCom: no grupo, é com o dono?', () => {
+  const eu = ['5519998730156:12@s.whatsapp.net', '123456:12@lid'];
+  it('marcou ele com @ (pelo número ou pelo LID)', () => {
+    expect(falaCom({ extendedTextMessage: { text: '@Jean viu?', contextInfo: { mentionedJid: ['5519998730156@s.whatsapp.net'] } } }, eu)).toBe(true);
+    expect(falaCom({ extendedTextMessage: { text: '@Jean viu?', contextInfo: { mentionedJid: ['123456@lid'] } } }, eu)).toBe(true);
+  });
+  it('respondeu uma mensagem dele', () => {
+    expect(falaCom({ extendedTextMessage: { text: 'isso', contextInfo: { stanzaId: 'A', participant: '123456@lid' } } }, eu)).toBe(true);
+  });
+  it('papo do grupo, ou marcando outra pessoa: não', () => {
+    expect(falaCom({ conversation: 'bom dia' }, eu)).toBe(false);
+    expect(falaCom({ extendedTextMessage: { text: '@Ana', contextInfo: { mentionedJid: ['5511900000000@s.whatsapp.net'] } } }, eu)).toBe(false);
   });
 });

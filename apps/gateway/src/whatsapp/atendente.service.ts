@@ -196,7 +196,7 @@ export class AtendenteService implements OnModuleInit, OnModuleDestroy {
     let saida: Saida | null = null;
     try {
       const msg = await this.llm.complete(
-        [{ role: 'system', content: this.prompt(conversa.nome, tecnico, cobrindo) }, ...conversa.falas.slice(-HISTORICO), ...duvida, ...alerta],
+        [{ role: 'system', content: this.prompt(conversa.nome, tecnico, cobrindo, m.grupo) }, ...conversa.falas.slice(-HISTORICO), ...duvida, ...alerta],
         undefined, // de propósito: nenhuma ferramenta
         // NVIDIA primeiro: conversa de terceiros não pode comer a cota diária do Groq (a do dono).
         { maxTokens: MAX_TOKENS, temperature: 0.8, reservaPrimeiro: true },
@@ -386,7 +386,8 @@ export class AtendenteService implements OnModuleInit, OnModuleDestroy {
     return this.cfg.OWNER_NAME || 'o dono';
   }
 
-  private prompt(contato: string, tecnico = false, cobrindo = false): string {
+  private prompt(contato: string, tecnico = false, cobrindo = false, grupo = false): string {
+    const recado = cobrindo ? this.whatsapp.recadoDoDono : '';
     const eu = this.identidade.nome;
     const dono = this.dono();
     const sobre = this.identidade.sobre;
@@ -410,9 +411,14 @@ ${
       cobrindo
         ? `AGORA VOCÊ ESTÁ NO LUGAR DE ${dono.toUpperCase()}: ele pediu para você responder ${contato} por um tempo, porque não
 pode atender. ${contato} escreveu para ${dono}, não para você — na primeira resposta, diga que é o assistente dele e que
-ele não consegue responder agora (sem dizer onde ele está nem o que está fazendo). Aqui o tom é de recado: educado,
-claro, sem zoeira até a pessoa puxar; sem figurinha e sem áudio na primeira resposta. Responda o que dá sem inventar
-nada sobre ele, e anote o resto para ele:
+ele não consegue responder agora (sem dizer onde ele está nem o que está fazendo${recado ? ', além do que o recado dele diz' : ''}).${
+            recado
+              ? `\n${dono} deixou este recado para quem escrever (passe com as suas palavras, na primeira resposta ou quando
+couber; é o único dado dele que você pode dar): "${recado}"`
+              : ''
+          }${grupo ? `\nIsto é um grupo: só te chamam aqui porque marcaram ${dono} ou responderam uma mensagem dele. Responda só a isso.` : ''}
+Aqui o tom é de recado: educado, claro, sem zoeira até a pessoa puxar; sem figurinha e sem áudio na primeira resposta.
+Responda o que dá sem inventar nada sobre ele, e anote o resto para ele:
 - "pendencia": TUDO o que ficou para ${dono} fazer (responder uma pergunta, mandar algo, ligar, pagar, revisar),
   mesmo sem ser sério — é por isso que ele te deixou aqui. Diga a ${contato} que ele vai ver.
 - "avisar": o que ${contato} quer, em uma frase.

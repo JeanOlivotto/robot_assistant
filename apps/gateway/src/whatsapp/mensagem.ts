@@ -22,6 +22,8 @@ export interface Recebida {
   segundos?: number;
   /** A mensagem que esta responde (o "responder" do WhatsApp), quando cita uma. */
   citou?: string;
+  /** Num grupo: é com o dono — marcou ele com @ ou respondeu uma mensagem dele. */
+  paraDono?: boolean;
 }
 
 type Tipo = Recebida['tipo'];
@@ -48,14 +50,24 @@ export function conteudo(m: proto.IMessage | null | undefined): { tipo: Tipo; te
   const msg = desembrulhar(m);
   if (!msg) return null;
   const c = tipoETexto(msg);
-  const citou = citada(msg);
+  const citou = contexto(msg)?.stanzaId || undefined;
   return c && citou ? { ...c, citou } : c;
 }
 
-/** O id da mensagem que esta cita ("responder"), venha ela como texto, foto, áudio… */
-function citada(msg: proto.IMessage): string | undefined {
+/** O contexto (quem cita, quem marca), venha a mensagem como texto, foto, áudio… */
+function contexto(msg: proto.IMessage): proto.IContextInfo | null | undefined {
   const com = msg.extendedTextMessage ?? msg.imageMessage ?? msg.videoMessage ?? msg.audioMessage ?? msg.stickerMessage ?? msg.documentMessage;
-  return com?.contextInfo?.stanzaId || undefined;
+  return com?.contextInfo;
+}
+
+/** A mensagem marca com @ ou responde uma mensagem de algum destes jids (os do dono)? */
+export function falaCom(m: proto.IMessage | null | undefined, jids: string[]): boolean {
+  const msg = desembrulhar(m);
+  const ctx = msg && contexto(msg);
+  if (!ctx || !jids.length) return false;
+  const usuario = (j: string) => j.split('@')[0]!.split(':')[0];
+  const meus = new Set(jids.map(usuario));
+  return [...(ctx.mentionedJid ?? []), ctx.participant ?? ''].some((j) => !!j && meus.has(usuario(j)));
 }
 
 function tipoETexto(msg: proto.IMessage): { tipo: Tipo; texto: string; segundos?: number } | null {

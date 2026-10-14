@@ -146,6 +146,17 @@ describe('WhatsappService: responder no lugar do dono', () => {
     expect(svc.cobrindo(daCarla)).toBe(false);
   });
 
+  it('grupos: só o que marca ou responde o dono, e só se ele quiser; o recado fica guardado', () => {
+    const { svc } = conectado();
+    const grupo = { id: 'G', chat: '999@g.us', grupo: true } as Recebida;
+    svc.cobrir({ todos: true, recado: 'tô em reunião, volto às 4' });
+    expect(svc.cobrindo({ ...grupo, paraDono: true })).toBe(false);
+    expect(svc.recadoDoDono).toBe('tô em reunião, volto às 4');
+    expect(svc.cobrir({ todos: true, grupos: true })).toContain('nos grupos');
+    expect(svc.cobrindo({ ...grupo, paraDono: true })).toBe(true);
+    expect(svc.cobrindo(grupo)).toBe(false);
+  });
+
   it('acabou o tempo, para sozinho', () => {
     const { svc } = conectado();
     svc.cobrir({ contatos: ['11 98888-4321'], horas: 1 });
