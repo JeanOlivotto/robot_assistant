@@ -2,6 +2,8 @@
 # Abre o robô flutuante. Chamado pelo bspwmrc ao entrar na sessão (o dex não está instalado,
 # então ~/.config/autostart não funciona aqui). Se já estiver aberto, o Electron só mostra a janela.
 DIR="$(cd "$(dirname "$0")" && pwd)"
+# Desligado pela polybar (miro-polybar.sh): só volta com a senha, por lá.
+[ -e "${XDG_CONFIG_HOME:-$HOME/.config}/robo-desktop/desligado" ] && exit 0
 # O log (o que o ouvido do "Miro, …" pegou, erros) continua de uma abertura para a outra — reabrir
 # o app apagava justo as tentativas que eu queria olhar. Passou de 2 MB, guarda o antigo e começa outro.
 LOG="${XDG_CONFIG_HOME:-$HOME/.config}/robo-desktop/robo.log"
