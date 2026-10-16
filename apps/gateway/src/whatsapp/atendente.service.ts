@@ -294,9 +294,9 @@ export class AtendenteService implements OnModuleInit, OnModuleDestroy {
     // Pedido sério para o dono fazer vira pendência (o robô cobra depois, como as outras). No lugar dele,
     // qualquer coisa que ficou para ele fazer vira — foi para isso que ele deixou o robô respondendo.
     const autor = m.grupo ? m.autor : m.nomeChat;
-    const tarefa = (serio || cobrindo) && saida.pendencia ? this.tasks.add(saida.pendencia, { pessoa: autor, origem: 'whatsapp' }) : null;
-    // Comprovante, boleto, contrato, print de erro…: o dono fica sabendo o que chegou, mesmo sem recado.
-    const anexo = cobrindo && saida.importante ? ` 📎 ${saida.importante}` : '';
+    // Comprovante, boleto, contrato, print de erro…: no lugar dele, sem pendência, vira uma ("ver o que chegou").
+    const pendencia = saida.pendencia || (cobrindo && saida.importante ? `Ver o que ${autor} mandou: ${saida.importante}` : '');
+    const tarefa = (serio || cobrindo) && pendencia ? this.tasks.add(pendencia, { pessoa: autor, origem: 'whatsapp' }) : null;
     if (sensivel || barrada) {
       // O pedido vai citado ao pé da letra (curto) — o dono decide; nada foi mandado.
       const pedido = falas.join(' ').replace(/\s+/g, ' ').slice(0, 160);
@@ -305,15 +305,17 @@ export class AtendenteService implements OnModuleInit, OnModuleDestroy {
         'worried',
         'whatsapp',
       );
+    } else if (cobrindo) {
+      // No lugar dele (férias): nada de aviso a cada mensagem — o que ficou para ele está nas pendências.
+      return;
     } else if (tarefa) {
       this.chat.robotSay(
-        `📌 ${conversa.nome} no WhatsApp: ${saida.avisar || tarefa.texto}${anexo}\nAnotei nas pendências: "${tarefa.texto}".`,
+        `📌 ${conversa.nome} no WhatsApp: ${saida.avisar || tarefa.texto}\nAnotei nas pendências: "${tarefa.texto}".`,
         'thinking',
         'whatsapp',
       );
-    } else if (saida.avisar || anexo) {
-      const como = cobrindo ? 'falou comigo no seu lugar' : 'me chamou';
-      this.chat.robotSay(`${serio || anexo ? '📌' : '💬'} ${conversa.nome} ${como} no WhatsApp: ${saida.avisar}${anexo}`.trim(), serio ? 'thinking' : 'surprised', 'whatsapp');
+    } else if (saida.avisar) {
+      this.chat.robotSay(`${serio ? '📌' : '💬'} ${conversa.nome} me chamou no WhatsApp: ${saida.avisar}`.trim(), serio ? 'thinking' : 'surprised', 'whatsapp');
     }
   }
 
@@ -376,7 +378,6 @@ export class AtendenteService implements OnModuleInit, OnModuleDestroy {
     }
     this.encaminhados.set(m.chat, Date.now());
     this.anotar(quem, 'insistiu — passei o contato adiante');
-    this.chat.robotSay(`📨 ${quem} insistiu no WhatsApp: passei o contato para ${this.cfg.WHATSAPP_ENCAMINHAR} — "${pedido}".`, 'thinking', 'whatsapp');
   }
 
   /** Dentro dos tetos? Estourou agora: avisa o dono uma vez e para de responder. */
