@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { lerSaida } from './atendente.service.js';
+import { lerSaida, pedidoDeContato } from './atendente.service.js';
 
 describe('lerSaida', () => {
   it('lê o JSON mesmo com cerca de markdown e texto em volta', () => {
@@ -82,5 +82,19 @@ describe('lerSaida: no lugar do dono', () => {
   it('"importante" vem quando chega algo que ele precisa ver', () => {
     expect(lerSaida('{"resposta":"Recebi, ele vê.","importante":"comprovante do Pix de R$ 300"}')?.importante).toBe('comprovante do Pix de R$ 300');
     expect(lerSaida('{"resposta":"kkk","importante":""}')?.importante).toBeUndefined();
+  });
+});
+
+describe('quem insiste no lugar do dono', () => {
+  it('"encaminhar" vem com o que a pessoa precisa', () => {
+    expect(lerSaida('{"resposta":"Vou pedir pra alguém da equipe te chamar.","encaminhar":"orçamento do site até sexta"}')?.encaminhar).toBe('orçamento do site até sexta');
+    expect(lerSaida('{"resposta":"oi","encaminhar":" "}')?.encaminhar).toBeUndefined();
+  });
+
+  it('o pedido de contato leva nome, número e o que quer', () => {
+    expect(pedidoDeContato('Carla', '+5511988887777', 'orçamento do site', 'Jean')).toBe(
+      'Carla está tentando falar com Jean e insistiu. Pode entrar em contato?\nContato: Carla — +5511988887777\nO que precisa: orçamento do site',
+    );
+    expect(pedidoDeContato('Carla', '', 'x', 'Jean', 'Obra')).toContain('Contato: Carla (número não disponível) (no grupo Obra)');
   });
 });

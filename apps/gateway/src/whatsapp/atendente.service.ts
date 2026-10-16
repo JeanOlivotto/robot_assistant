@@ -9,6 +9,7 @@ import { BracoService } from '../braco/braco.service.js';
 import { LlmService } from '../llm/llm.service.js';
 import { TaskService } from '../tasks/task.service.js';
 import { assinar, chamou, mencionou, pedidoSensivel, respostaSuspeita, type Recebida } from './mensagem.js';
+import { jidDoNumero } from './procurar.js';
 import { WhatsappService } from './whatsapp.service.js';
 
 /** Depois que ele responde, a pessoa continua falando sem repetir o nome por este tempo. */
@@ -32,6 +33,8 @@ const TALVEZ_POR_DIA = 150;
 const AUDIO_MAX_CHARS = 280;
 /** O dono respondeu ele mesmo uma conversa que o robô cobria: o robô sai dela por este tempo. */
 const DONO_ASSUMIU_MS = 30 * 60_000;
+/** Quem insiste no lugar do dono vira um pedido de contato — uma vez por pessoa neste tempo. */
+const ENCAMINHOU_MS = 6 * 3600_000;
 /** O que entra numa conversa com ele (áudio vira transcrição, foto e figurinha viram descrição). */
 const TIPOS_DE_CONVERSA: Recebida['tipo'][] = ['texto', 'audio', 'foto', 'figurinha', 'video'];
 
@@ -71,6 +74,8 @@ export class AtendenteService implements OnModuleInit, OnModuleDestroy {
   private readonly minhas = new Set<string>();
   /** Conversas que o dono assumiu pelo celular durante a cobertura (chat → até quando o robô fica fora). */
   private readonly assumidas = new Map<string, number>();
+  /** Quem já foi passado adiante (chat → quando), para o número de contato não receber o mesmo pedido de novo. */
+  private readonly encaminhados = new Map<string, number>();
   private subs: Subscription[] = [];
   /** O último chamado e o que aconteceu com ele — aparece no app, para dar para ver sem log. */
   ultimo: { em: number; quem: string; resultado: string } | null = null;
@@ -198,7 +203,7 @@ export class AtendenteService implements OnModuleInit, OnModuleDestroy {
     let saida: Saida | null = null;
     try {
       const msg = await this.llm.complete(
-        [{ role: 'system', content: this.prompt(conversa.nome, tecnico, cobrindo, m.grupo) }, ...conversa.falas.slice(-HISTORICO), ...duvida, ...alerta],
+        [{ role: 'system', content: this.prompt(conversa.nome, tecnico, cobrindo, m.grupo, this.podeEncaminhar(m.chat)) }, ...conversa.falas.slice(-HISTORICO), ...duvida, ...alerta],
         undefined, // de propósito: nenhuma ferramenta
         // NVIDIA primeiro: conversa de terceiros não pode comer a cota diária do Groq (a do dono).
         { maxTokens: MAX_TOKENS, temperature: 0.8, reservaPrimeiro: true },
@@ -227,6 +232,7 @@ export class AtendenteService implements OnModuleInit, OnModuleDestroy {
       saida.tom = 'serio';
       saida.pendencia = ''; // pedido de terceiro por coisa do dono não vira tarefa dele: é decisão dele
       saida.consulta = ''; // e não vai ler nada para quem pediu o código em si
+      saida.encaminhar = ''; // nem vira pedido de contato
     }
     if (!tecnico) saida.consulta = '';
 
@@ -283,6 +289,7 @@ export class AtendenteService implements OnModuleInit, OnModuleDestroy {
     // A conversa mexe com ele: a cara na mesa reage ao que a pessoa escreveu.
     if (cara) this.chat.acordar(cara, 8000);
     if (saida.consulta) await this.consultarCodigo(m, conversa, saida.consulta);
+    if (cobrindo && saida.encaminhar && this.podeEncaminhar(m.chat)) await this.encaminhar(m, conversa.nome, saida.encaminhar);
 
     // Pedido sério para o dono fazer vira pendência (o robô cobra depois, como as outras). No lugar dele,
     // qualquer coisa que ficou para ele fazer vira — foi para isso que ele deixou o robô respondendo.
@@ -343,6 +350,35 @@ export class AtendenteService implements OnModuleInit, OnModuleDestroy {
     this.anotar(quem, 'explicou o código (lendo os projetos)');
   }
 
+  /** Tem para onde passar quem insiste, e esta conversa ainda não foi passada? */
+  private podeEncaminhar(chat: string): boolean {
+    const destino = this.destinoDeContato();
+    return !!destino && destino !== chat && (this.encaminhados.get(chat) ?? 0) < Date.now() - ENCAMINHOU_MS;
+  }
+
+  private destinoDeContato(): string | null {
+    return jidDoNumero(this.cfg.WHATSAPP_ENCAMINHAR.replace(/\D/g, ''));
+  }
+
+  /**
+   * No lugar do dono, a pessoa insistiu (ou não entendeu que ele não está): o contato dela e o que ela
+   * quer vão para o número de contato, pedindo para alguém falar com ela.
+   */
+  private async encaminhar(m: Recebida, quem: string, pedido: string): Promise<void> {
+    const destino = this.destinoDeContato()!;
+    const jid = [m.grupo ? m.autorId : m.chat, m.alt].find((j) => j?.endsWith('@s.whatsapp.net'));
+    const texto = pedidoDeContato(m.grupo ? m.autor : m.nomeChat, jid ? `+${jid.split('@')[0]!.split(':')[0]}` : '', pedido, this.dono(), m.grupo ? m.nomeChat : '');
+    try {
+      await this.whatsapp.enviar(destino, assinar(texto, this.identidade.nome, this.dono()));
+    } catch (err) {
+      this.log.warn(`Atendente: não deu para passar ${quem} adiante: ${(err as Error).message}`);
+      return this.anotar(quem, `não passou o pedido adiante (${(err as Error).message.slice(0, 80)})`);
+    }
+    this.encaminhados.set(m.chat, Date.now());
+    this.anotar(quem, 'insistiu — passei o contato adiante');
+    this.chat.robotSay(`📨 ${quem} insistiu no WhatsApp: passei o contato para ${this.cfg.WHATSAPP_ENCAMINHAR} — "${pedido}".`, 'thinking', 'whatsapp');
+  }
+
   /** Dentro dos tetos? Estourou agora: avisa o dono uma vez e para de responder. */
   private cabe(chat: string): boolean {
     const agora = Date.now();
@@ -389,7 +425,7 @@ export class AtendenteService implements OnModuleInit, OnModuleDestroy {
     return this.cfg.OWNER_NAME || 'o dono';
   }
 
-  private prompt(contato: string, tecnico = false, cobrindo = false, grupo = false): string {
+  private prompt(contato: string, tecnico = false, cobrindo = false, grupo = false, encaminha = false): string {
     const recado = cobrindo ? this.whatsapp.recadoDoDono : '';
     const eu = this.identidade.nome;
     const dono = this.dono();
@@ -427,7 +463,15 @@ Responda o que dá sem inventar nada sobre ele, e anote o resto para ele:
 - "avisar": o que ${contato} quer, em uma frase.
 - "importante": se chegou foto, documento ou áudio com algo que ${dono} precisa ver (comprovante, boleto, nota,
   contrato, orçamento, endereço, print de erro, prazo), diga em poucas palavras o que é e o que tem nele. Foto à toa,
-  meme ou figurinha: vazio.
+  meme ou figurinha: vazio.${
+            encaminha
+              ? `
+- "encaminhar": se ${contato} INSISTE (pede de novo a mesma coisa, cobra resposta, diz que é urgente, não aceita
+  esperar) ou não entende que ${dono} não pode responder, escreva em uma frase o que ${contato} precisa. Aí alguém
+  da equipe recebe o contato e chama ${contato}: diga isso na "resposta" ("vou pedir pra alguém da equipe te
+  chamar"), sem dar nome nem número de ninguém. Na primeira mensagem, ou papo à toa: vazio.`
+              : ''
+          }
 `
         : ''
     }O que você pode: conversar, zoar de leve, mandar uma figurinha sua, responder por áudio, e anotar um recado para ${dono}.
@@ -461,7 +505,7 @@ Brincadeira ou sério? Antes de responder, decida o tom de quem escreveu — é 
   e sem gíria pesada, confirma que ${dono} vai saber — e avisa ele.
 Na dúvida entre os dois (ex.: "kkk mas sério, cadê o relatório?"), trate como sério.
 
-Responda SOMENTE com JSON: {"resposta": "o que vai para ${contato}", "tom": "brincadeira" | "serio", "avisar": "recado curto para ${dono}, ou vazio", "pendencia": "", ${tecnico ? '"consulta": "", ' : ''}${cobrindo ? '"importante": "", ' : ''}"expressao": "...", "figurinha": false, "audio": false}.
+Responda SOMENTE com JSON: {"resposta": "o que vai para ${contato}", "tom": "brincadeira" | "serio", "avisar": "recado curto para ${dono}, ou vazio", "pendencia": "", ${tecnico ? '"consulta": "", ' : ''}${cobrindo ? '"importante": "", ' : ''}${cobrindo && encaminha ? '"encaminhar": "", ' : ''}"expressao": "...", "figurinha": false, "audio": false}.
 "pendencia": só quando é sério E é algo para ${dono} FAZER (ex.: "fazer os endpoints que alinhamos de manhã",
 "mandar o orçamento para o André") — curto, do ponto de vista dele, com o verbo no infinitivo. Vazio no resto.
 "figurinha": true manda, depois da resposta, uma figurinha animada com a SUA cara naquela expressão — use de vez
@@ -497,6 +541,17 @@ interface Saida {
   consulta: string;
   /** No lugar do dono: o que chegou de importante (foto, documento) e ele precisa ver. */
   importante?: string;
+  /** No lugar do dono: a pessoa insistiu — o que ela precisa, para alguém da equipe chamar. */
+  encaminhar?: string;
+}
+
+/** O pedido de contato que vai para o número da equipe: quem é, como chamar e o que quer. */
+export function pedidoDeContato(nome: string, numero: string, pedido: string, dono: string, grupo = ''): string {
+  return [
+    `${nome} está tentando falar com ${dono} e insistiu. Pode entrar em contato?`,
+    `Contato: ${nome}${numero ? ` — ${numero}` : ' (número não disponível)'}${grupo ? ` (no grupo ${grupo})` : ''}`,
+    `O que precisa: ${pedido}`,
+  ].join('\n');
 }
 
 /** Lê {"resposta","avisar","expressao"}, tolerando cercas de markdown e texto em volta. */
@@ -522,6 +577,7 @@ export function lerSaida(raw: string): Saida | null {
       pendencia?: unknown;
       consulta?: unknown;
       importante?: unknown;
+      encaminhar?: unknown;
     };
     const resposta = typeof o.resposta === 'string' ? o.resposta.trim().slice(0, 1500) : '';
     const avisar = typeof o.avisar === 'string' ? o.avisar.trim().slice(0, 500) : '';
@@ -532,8 +588,9 @@ export function lerSaida(raw: string): Saida | null {
     const pendencia = typeof o.pendencia === 'string' ? o.pendencia.trim().slice(0, 160) : '';
     const consulta = typeof o.consulta === 'string' ? o.consulta.trim().slice(0, 800) : '';
     const importante = typeof o.importante === 'string' && o.importante.trim() ? { importante: o.importante.trim().slice(0, 300) } : {};
+    const encaminhar = typeof o.encaminhar === 'string' && o.encaminhar.trim() ? { encaminhar: o.encaminhar.trim().slice(0, 300) } : {};
     if (o.calar === true && !resposta && !figurinha && !consulta) return { resposta, avisar, expressao, figurinha, audio, tom, pendencia, consulta, calar: true };
-    return resposta || figurinha || consulta ? { resposta, avisar, expressao, figurinha, audio, tom, pendencia, consulta, ...importante } : null;
+    return resposta || figurinha || consulta ? { resposta, avisar, expressao, figurinha, audio, tom, pendencia, consulta, ...importante, ...encaminhar } : null;
   } catch {
     return null;
   }

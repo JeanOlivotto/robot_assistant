@@ -75,6 +75,8 @@ const Schema = z.object({
 
   ROBOT_NAME: z.string().default('Miro'),
   OWNER_NAME: z.string().default(''),
+  /** No lugar do dono, quem insiste vira um pedido de contato mandado para este número (vazio = não manda). */
+  WHATSAPP_ENCAMINHAR: z.string().default('19998903499'),
 
   PROACTIVE: bool,
   MORNING_AT: hhmm.default('08:00'),
