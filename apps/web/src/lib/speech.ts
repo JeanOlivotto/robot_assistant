@@ -6,6 +6,8 @@
  * a seguinte já está sendo gerada. É o que tira aquele silêncio comprido antes de ele responder.
  */
 
+import { DESKTOP } from './desktop';
+
 let token = '';
 let serverVoice: 'edge' | 'elevenlabs' | null = null;
 let deviceVoice: SpeechSynthesisVoice | null = null;
@@ -34,6 +36,56 @@ function silentWav(): string {
   let bin = '';
   new Uint8Array(buf.buffer).forEach((x) => (bin += String.fromCharCode(x)));
   return `data:audio/wav;base64,${btoa(bin)}`;
+}
+
+/*
+ * Volume da fala. No computador vai até 200%: o <audio> para em 100%, então lá o som passa por um
+ * ganho do Web Audio. No celular fica no <audio> mesmo (o iPhone ignora volume de página e só destrava
+ * o áudio no toque — mexer no caminho do som lá é pedir para ele ficar mudo).
+ * Guardado no localStorage: o painel (onde fica o controle) e a bolha (que fala) leem o mesmo valor.
+ */
+const VOLUME_KEY = 'robo.volume';
+export const VOLUME_MAX = DESKTOP ? 2 : 1;
+
+export function volume(): number {
+  try {
+    const v = Number(localStorage.getItem(VOLUME_KEY));
+    return Number.isFinite(v) && v > 0 ? Math.min(VOLUME_MAX, v) : 1;
+  } catch {
+    return 1;
+  }
+}
+
+export function setVolume(v: number): void {
+  try {
+    localStorage.setItem(VOLUME_KEY, String(Math.max(0.1, Math.min(VOLUME_MAX, v))));
+  } catch {
+    /* só nesta sessão — sem onde guardar, fica no padrão */
+  }
+}
+
+let ganho: GainNode | null = null;
+/** Aplica o volume no player antes de tocar. */
+function ajustarVolume(): void {
+  if (!player) return;
+  const v = volume();
+  if (!DESKTOP) {
+    player.volume = v;
+    return;
+  }
+  if (!ganho) {
+    try {
+      const ctx = new AudioContext();
+      ganho = ctx.createGain();
+      ctx.createMediaElementSource(player).connect(ganho).connect(ctx.destination);
+    } catch {
+      player.volume = Math.min(1, v); // sem Web Audio: pelo menos até 100%
+      return;
+    }
+  }
+  if (ganho.context.state === 'suspended') void (ganho.context as AudioContext).resume();
+  player.volume = 1;
+  ganho.gain.value = v;
 }
 
 export const speechSupported = typeof window !== 'undefined' && ('speechSynthesis' in window || !!player);
@@ -120,6 +172,7 @@ function playUrl(url: string, onStart?: () => void): Promise<void> {
     player.onended = end;
     player.onerror = end;
     player.src = url;
+    ajustarVolume();
     void player
       .play()
       .then(() => onStart?.())
@@ -133,6 +186,7 @@ function deviceSay(text: string, onStart?: () => void): Promise<void> {
     deviceVoice ??= pickDeviceVoice();
     const u = new SpeechSynthesisUtterance(text);
     u.lang = 'pt-BR';
+    u.volume = Math.min(1, volume());
     if (deviceVoice) u.voice = deviceVoice;
     const end = () => {
       cutPlayback = null;

@@ -23,7 +23,7 @@ FROM node:24-alpine
 # ffmpeg: converte as mensagens de voz (AAC do iPhone, Opus do Chrome) para PCM.
 # edge-tts: voz das respostas (vozes neurais do Edge, grátis e sem chave).
 RUN apk add --no-cache tzdata ffmpeg python3 py3-pip \
- && pip install --no-cache-dir --break-system-packages edge-tts==7.2.8
+ && pip install --no-cache-dir --break-system-packages edge-tts==7.3.1
 WORKDIR /repo
 ENV NODE_ENV=production
 COPY --from=build /repo /repo

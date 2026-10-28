@@ -12,7 +12,49 @@ import {
   NOME_SISTEMA,
   type Sistema,
 } from '../lib/braco';
+import { speak, setVolume, stopSpeaking, unlockAudio, VOLUME_MAX, volume } from '../lib/speech';
 import { Whatsapp } from './Whatsapp';
+
+/** O volume da voz do Miro (no computador, até 200%: às vezes 100% do sistema ainda é baixo). */
+function VolumeDoMiro() {
+  const [v, setV] = useState(volume);
+  const mudar = (novo: number) => {
+    setV(novo);
+    setVolume(novo);
+  };
+  const testar = () => {
+    unlockAudio();
+    stopSpeaking();
+    void speak('Tô falando nesse volume aqui. Tá bom assim?');
+  };
+  return (
+    <section className="volume">
+      <h4 className="tasks__titulo pc__titulo">Voz do Miro</h4>
+      <div className="volume__linha">
+        <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
+          <path d="M4 9v6h4l5 4V5L8 9H4Z" fill="currentColor" />
+        </svg>
+        <input
+          type="range"
+          min={0.1}
+          max={VOLUME_MAX}
+          step={0.05}
+          value={v}
+          onChange={(e) => mudar(Number(e.target.value))}
+          onPointerUp={testar}
+          onKeyUp={(e) => (e.key.startsWith('Arrow') ? testar() : undefined)}
+          aria-label="Volume da voz do Miro"
+          style={{ '--pct': `${((v - 0.1) / (VOLUME_MAX - 0.1)) * 100}%` } as React.CSSProperties}
+        />
+        <span className={`volume__valor ${v > 1 ? 'volume__valor--alto' : ''}`}>{Math.round(v * 100)}%</span>
+        <button type="button" className="mini-btn" onClick={testar}>
+          Testar
+        </button>
+      </div>
+      {v > 1 && <p className="hint">Acima de 100% o som é amplificado — se começar a chiar, baixa um pouco.</p>}
+    </section>
+  );
+}
 
 const EXEMPLO: Record<Sistema, string> = {
   linux: 'code ~/Projects/Jean/{projeto}',
@@ -70,6 +112,7 @@ export function Computador({ token }: { token: string }) {
 
   return (
     <div className="tasks pc">
+      <VolumeDoMiro />
       <h4 className="tasks__titulo pc__titulo">Computadores</h4>
       {!maquinas.length && !desligadas.length ? (
         <p className="hint">Nenhum ainda. Abra o app do computador (com "Deixar o Miro usar este computador" ligado na bandeja).</p>
