@@ -28,8 +28,11 @@ function VolumeDoMiro() {
     void speak('Tô falando nesse volume aqui. Tá bom assim?');
   };
   return (
-    <section className="volume">
-      <h4 className="tasks__titulo pc__titulo">Voz do Miro</h4>
+    <section className="card ajuste">
+      <header className="ajuste__topo">
+        <h3>Voz do Miro</h3>
+        <p>Volume das falas dele{VOLUME_MAX > 1 ? ' — no computador dá para passar de 100%' : ''}.</p>
+      </header>
       <div className="volume__linha">
         <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
           <path d="M4 9v6h4l5 4V5L8 9H4Z" fill="currentColor" />
@@ -47,7 +50,7 @@ function VolumeDoMiro() {
           style={{ '--pct': `${((v - 0.1) / (VOLUME_MAX - 0.1)) * 100}%` } as React.CSSProperties}
         />
         <span className={`volume__valor ${v > 1 ? 'volume__valor--alto' : ''}`}>{Math.round(v * 100)}%</span>
-        <button type="button" className="mini-btn" onClick={testar}>
+        <button type="button" className="btn btn--ghost btn--mini" onClick={testar}>
           Testar
         </button>
       </div>
@@ -63,8 +66,8 @@ const EXEMPLO: Record<Sistema, string> = {
 };
 
 /**
- * Aba PC: quais computadores estão ligados ao Miro agora, e as ações que ele roda SEM pedir
- * aprovação quando você pede (o resto passa pelo botão "Pode rodar" no chat).
+ * Aba Ajustes: a voz do Miro, quais computadores estão ligados a ele agora, as ações que ele roda SEM
+ * pedir aprovação (o resto passa pelo botão "Pode rodar" no chat) e o WhatsApp.
  */
 export function Computador({ token }: { token: string }) {
   const [maquinas, setMaquinas] = useState<Maquina[]>([]);
@@ -111,91 +114,99 @@ export function Computador({ token }: { token: string }) {
   };
 
   return (
-    <div className="tasks pc">
-      <VolumeDoMiro />
-      <h4 className="tasks__titulo pc__titulo">Computadores</h4>
-      {!maquinas.length && !desligadas.length ? (
-        <p className="hint">Nenhum ainda. Abra o app do computador (com "Deixar o Miro usar este computador" ligado na bandeja).</p>
-      ) : (
-        <ul className="tasks__lista">
-          {maquinas.map((m, i) => (
-            <li key={m.nome} className="tasks__item">
-              <span className="pc__ponto" aria-hidden="true" />
-              <div className="tasks__texto">
-                <span>{m.nome}</span>
-                <span className="tasks__meta">
-                  {NOME_SISTEMA[m.sistema]}
-                  {i === 0 && maquinas.length > 1 && ' · em uso agora'}
-                </span>
-              </div>
-            </li>
-          ))}
-          {desligadas.map((m) => (
-            <li key={m.nome} className="tasks__item">
-              <span className="pc__ponto pc__ponto--off" aria-hidden="true" />
-              <div className="tasks__texto">
-                <span>{m.nome}</span>
-                <span className="tasks__meta">
-                  {NOME_SISTEMA[m.sistema]} · desligado{!m.podeLigar && ' (abra o app nele uma vez para dar para ligar daqui)'}
-                  {m.podeLigar && m.mesmaRede === false && ' · o robô está em outra rede: o sinal de ligar não chega'}
-                </span>
-              </div>
-              {m.podeLigar && (
-                <button type="button" className="mini-btn" onClick={() => ligar(m.nome)}>
-                  Ligar
-                </button>
-              )}
-              <button type="button" className="tasks__drop" aria-label="Tirar da lista" title="Tirar da lista" onClick={() => esquecer(m.nome)}>
-                ✕
-              </button>
-            </li>
-          ))}
-        </ul>
-      )}
-      {aviso && <p className="hint pc__hint">{aviso}</p>}
+    <div className="ajustes">
+      <div className="ajustes__grade">
+        <VolumeDoMiro />
 
-      <h4 className="tasks__titulo pc__titulo">Ações sem aprovação</h4>
-      <p className="hint pc__hint">
-        Rodam na hora quando você pede ("Miro, abre o projeto robot_assistant"). O que não estiver aqui ele prepara e espera o seu
-        "Pode rodar" no chat.
-      </p>
-      {erro && <p className="hint">{erro}</p>}
-
-      <ul className="tasks__lista">
-        {acoes.map((a) =>
-          editando !== 'nova' && editando?.id === a.id ? (
-            <li key={a.id} className="tasks__item">
-              <FormAcao token={token} acao={a} maquinas={maquinas} onPronto={() => (setEditando(null), void recarregar())} onCancelar={() => setEditando(null)} />
-            </li>
+        <section className="card ajuste">
+          <header className="ajuste__topo">
+            <h3>Computadores</h3>
+            <p>Onde o Miro pode abrir coisas e olhar o seu código.</p>
+          </header>
+          {!maquinas.length && !desligadas.length ? (
+            <p className="hint">Nenhum ainda. Abra o app do computador com "Deixar o Miro usar este computador" ligado na bandeja.</p>
           ) : (
-            <li key={a.id} className="tasks__item">
-              <div className="tasks__texto">
-                <span>{a.descricao}</span>
-                <code className="pc__comando">{a.comando}</code>
-                <span className="tasks__meta">
-                  {NOME_SISTEMA[a.sistema]}
-                  {a.maquina ? ` · só em ${a.maquina}` : ''}
-                </span>
-              </div>
-              <button type="button" className="tasks__drop" aria-label="Editar" title="Editar" onClick={() => setEditando(a)}>
-                ✎
-              </button>
-              <button type="button" className="tasks__drop" aria-label="Apagar" title="Apagar" onClick={() => apagar(a)}>
-                ✕
-              </button>
-            </li>
-          ),
-        )}
-      </ul>
-      {!acoes.length && editando !== 'nova' && <p className="hint">Nenhuma ainda.</p>}
+            <ul className="maquinas">
+              {maquinas.map((m, i) => (
+                <li key={m.nome}>
+                  <span className="pill pill--ok">ligado</span>
+                  <div className="maquinas__nome">
+                    <strong>{m.nome}</strong>
+                    <span>
+                      {NOME_SISTEMA[m.sistema]}
+                      {i === 0 && maquinas.length > 1 && ' · em uso agora'}
+                    </span>
+                  </div>
+                </li>
+              ))}
+              {desligadas.map((m) => (
+                <li key={m.nome}>
+                  <span className="pill">desligado</span>
+                  <div className="maquinas__nome">
+                    <strong>{m.nome}</strong>
+                    <span>
+                      {NOME_SISTEMA[m.sistema]}
+                      {!m.podeLigar && ' · abra o app nele uma vez para ligar daqui'}
+                      {m.podeLigar && m.mesmaRede === false && ' · em outra rede: o sinal de ligar não chega'}
+                    </span>
+                  </div>
+                  {m.podeLigar && (
+                    <button type="button" className="btn btn--ghost btn--mini" onClick={() => ligar(m.nome)}>
+                      Ligar
+                    </button>
+                  )}
+                  <button type="button" className="tasks__drop" aria-label={`Tirar ${m.nome} da lista`} title="Tirar da lista" onClick={() => esquecer(m.nome)}>
+                    ✕
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+          {aviso && <p className="hint">{aviso}</p>}
+        </section>
 
-      {editando === 'nova' ? (
-        <FormAcao token={token} maquinas={maquinas} onPronto={() => (setEditando(null), void recarregar())} onCancelar={() => setEditando(null)} />
-      ) : (
-        <button type="button" className="mini-btn pc__nova" onClick={() => setEditando('nova')}>
-          + Nova ação
-        </button>
-      )}
+        <section className="card ajuste">
+          <header className="ajuste__topo">
+            <h3>Ações rápidas</h3>
+            <p>Rodam na hora quando você pede ("Miro, abre o projeto…"). O resto espera o seu "Pode rodar" no chat.</p>
+          </header>
+          {erro && <p className="hint">{erro}</p>}
+          <ul className="acoes">
+            {acoes.map((a) =>
+              editando !== 'nova' && editando?.id === a.id ? (
+                <li key={a.id}>
+                  <FormAcao token={token} acao={a} maquinas={maquinas} onPronto={() => (setEditando(null), void recarregar())} onCancelar={() => setEditando(null)} />
+                </li>
+              ) : (
+                <li key={a.id}>
+                  <div className="acoes__texto">
+                    <strong>{a.descricao}</strong>
+                    <code className="pc__comando">{a.comando}</code>
+                    <span>
+                      {NOME_SISTEMA[a.sistema]}
+                      {a.maquina ? ` · só em ${a.maquina}` : ''}
+                    </span>
+                  </div>
+                  <button type="button" className="tasks__drop" aria-label="Editar" title="Editar" onClick={() => setEditando(a)}>
+                    ✎
+                  </button>
+                  <button type="button" className="tasks__drop" aria-label="Apagar" title="Apagar" onClick={() => apagar(a)}>
+                    ✕
+                  </button>
+                </li>
+              ),
+            )}
+          </ul>
+          {!acoes.length && editando !== 'nova' && <p className="hint">Nenhuma ainda.</p>}
+          {editando === 'nova' ? (
+            <FormAcao token={token} maquinas={maquinas} onPronto={() => (setEditando(null), void recarregar())} onCancelar={() => setEditando(null)} />
+          ) : (
+            <button type="button" className="btn btn--ghost btn--mini ajuste__mais" onClick={() => setEditando('nova')}>
+              + Nova ação
+            </button>
+          )}
+        </section>
+      </div>
 
       <Whatsapp token={token} />
     </div>

@@ -57,7 +57,12 @@ const ABAS: { id: Tab; nome: string; icone: string }[] = [
   { id: 'pendencias', nome: 'Pendências', icone: 'M9 6h11M9 12h11M9 18h11M4 6l1 1 2-2M4 12l1 1 2-2M4 18l1 1 2-2' },
   { id: 'memoria', nome: 'Memória', icone: 'M12 12m-2.5 0a2.5 2.5 0 1 0 5 0a2.5 2.5 0 1 0-5 0M5 6m-2 0a2 2 0 1 0 4 0a2 2 0 1 0-4 0M19 7m-2 0a2 2 0 1 0 4 0a2 2 0 1 0-4 0M6 19m-2 0a2 2 0 1 0 4 0a2 2 0 1 0-4 0M6.5 7.3l3.6 3M17.3 8.2l-3.2 2.4M7.4 17.6l3-3.6' },
   { id: 'reuniao', nome: 'Reunião', icone: 'M12 4a3 3 0 0 1 3 3v5a3 3 0 0 1-6 0V7a3 3 0 0 1 3-3Zm-6 8a6 6 0 0 0 12 0M12 18v3' },
-  { id: 'pc', nome: 'Computador', icone: 'M3 5h18v11H3V5Zm6 15h6m-3-4v4' },
+  {
+    id: 'pc',
+    nome: 'Ajustes',
+    icone:
+      'M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6ZM19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1Z',
+  },
 ];
 
 /** O painel do computador (e o navegador largo) ganha três colunas; o celular continua com abas. */
@@ -418,8 +423,8 @@ function Main({ token, onLogout }: { token: string; onLogout(): void }) {
         <button role="tab" aria-selected={tab === 'reuniao'} className={tab === 'reuniao' ? 'on' : ''} onClick={() => setTab('reuniao')}>
           Reunião
         </button>
-        <button role="tab" aria-selected={tab === 'pc'} className={tab === 'pc' ? 'on' : ''} onClick={() => setTab('pc')} title="Computador">
-          PC
+        <button role="tab" aria-selected={tab === 'pc'} className={tab === 'pc' ? 'on' : ''} onClick={() => setTab('pc')} title="Voz, computadores e WhatsApp">
+          Ajustes
         </button>
       </nav>
 

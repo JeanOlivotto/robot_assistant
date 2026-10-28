@@ -2535,3 +2535,234 @@ html.desktop-bolha #root {
 .volume__valor--alto {
   color: var(--warn);
 }
+
+/* ── aba Ajustes ────────────────────────────────────────────────────── */
+
+.ajustes {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 4px 16px calc(env(safe-area-inset-bottom) + 24px);
+}
+.app--largo .ajustes {
+  padding: 4px 22px 22px;
+}
+.ajustes__grade {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 14px;
+}
+@media (min-width: 1240px) {
+  .ajustes__grade {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .ajustes__grade > :first-child {
+    grid-column: 1 / -1;
+  }
+}
+.ajuste {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.ajuste__topo h3 {
+  margin: 0 0 3px;
+  font-size: 16px;
+}
+.ajuste__topo p {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--dim);
+}
+.ajuste .hint {
+  margin: 0;
+}
+.ajuste__mais {
+  align-self: flex-start;
+}
+.btn--mini {
+  padding: 6px 14px;
+  font-size: 13px;
+}
+.btn--perigo {
+  color: var(--danger);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--danger) 45%, transparent);
+}
+.btn--perigo:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
+}
+
+.pill {
+  flex-shrink: 0;
+  padding: 3px 10px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--dim);
+  background: var(--surface-3);
+  border-radius: 999px;
+}
+.pill--ok {
+  color: #4ade80;
+  background: rgba(74, 222, 128, 0.12);
+  box-shadow: inset 0 0 0 1px rgba(74, 222, 128, 0.35);
+}
+.pill--espera {
+  color: var(--warn);
+  background: color-mix(in srgb, var(--warn) 12%, transparent);
+}
+
+.maquinas,
+.acoes {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.maquinas li,
+.acoes li {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+}
+.maquinas__nome,
+.acoes__texto {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.maquinas__nome span,
+.acoes__texto span {
+  font-size: 12px;
+  color: var(--dim);
+}
+.acoes__texto .pc__comando {
+  margin: 4px 0 2px;
+}
+
+.opcoes {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  overflow: hidden;
+}
+.opcao {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 12px 14px;
+  background: var(--surface);
+}
+.opcao + .opcao {
+  border-top: 1px solid var(--line);
+}
+.opcao__texto {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.opcao__texto strong {
+  font-size: 14px;
+}
+.opcao__texto span {
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--dim);
+}
+.switch {
+  flex-shrink: 0;
+  position: relative;
+  width: 44px;
+  height: 26px;
+  padding: 0;
+  background: var(--surface-3);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  cursor: pointer;
+  transition: background 0.18s, border-color 0.18s;
+}
+.switch i {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--dim);
+  transition: transform 0.18s, background 0.18s;
+}
+.switch[aria-checked='true'] {
+  background: color-mix(in srgb, var(--accent) 30%, var(--surface));
+  border-color: var(--accent);
+}
+.switch[aria-checked='true'] i {
+  transform: translateX(18px);
+  background: var(--accent);
+  box-shadow: 0 0 10px var(--glow);
+}
+.switch:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+.whats__topo {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+.whats__resumo {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.5;
+}
+.whats__grupos {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px 14px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+}
+.whats__grupos .whats__busca {
+  margin: 0;
+  background: var(--surface-2);
+}
+.whats__liberados {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.chip--x span {
+  margin-left: 4px;
+  opacity: 0.7;
+}
+.whats__rodape {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 12px;
+  color: var(--dim);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .switch,
+  .switch i {
+    transition: none;
+  }
+}
