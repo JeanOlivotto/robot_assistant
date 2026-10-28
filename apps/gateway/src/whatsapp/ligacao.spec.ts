@@ -9,7 +9,7 @@ import { ChatService } from '../chat/chat.service.js';
 import { ChatStore } from '../chat/chat.store.js';
 import type { AppConfig } from '../config/app-config.js';
 import { LigacaoService } from './ligacao.service.js';
-import type { Ligacao, WhatsappService } from './whatsapp.service.js';
+import { ligacaoAtrasada, type Ligacao, type WhatsappService } from './whatsapp.service.js';
 
 function montar() {
   const cfg = { DATA_DIR: mkdtempSync(join(tmpdir(), 'ligacao-')), TZ_NAME: 'America/Sao_Paulo', OWNER_NAME: 'Jean', ROBOT_NAME: 'Miro' } as unknown as AppConfig;
@@ -75,5 +75,17 @@ describe('ligação no WhatsApp', () => {
     expect(cartao('L4')?.proposal?.status).toBe('confirmed');
     expect(pedidos).toEqual([expect.objectContaining({ acao: 'gravar', ligacao: 'L4' })]);
     expect(chat.history(50).at(-1)).toMatchObject({ from: 'robot', mudo: true });
+  });
+});
+
+describe('ligacaoAtrasada: histórico que chega na reconexão', () => {
+  const agora = Date.now();
+  it('ignora a que veio offline ou passou de 2 min', () => {
+    expect(ligacaoAtrasada({ offline: true, date: new Date(agora) }, agora)).toBe(true);
+    expect(ligacaoAtrasada({ offline: false, date: new Date(agora - 3 * 60 * 60_000) }, agora)).toBe(true);
+  });
+  it('avisa a que está acontecendo agora', () => {
+    expect(ligacaoAtrasada({ offline: false, date: new Date(agora - 5_000) }, agora)).toBe(false);
+    expect(ligacaoAtrasada({ offline: false, date: new Date(NaN) }, agora)).toBe(false);
   });
 });

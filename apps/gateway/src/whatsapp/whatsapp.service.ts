@@ -615,6 +615,9 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
   /** Alguém ligando (ou a ligação acabando): só o aviso — quem grava é o app do PC, se o dono quiser. */
   private async aoLigar(c: WACallEvent): Promise<void> {
     if (this.privado()) return;
+    // Reconectou: o WhatsApp entrega de novo as ligações de quando o aparelho estava fora — viravam
+    // 15 avisos de "está te ligando" de chamadas que já tinham acabado faz tempo.
+    if (ligacaoAtrasada(c)) return;
     const fase = c.status === 'offer' ? 'chegando' : ['timeout', 'reject', 'terminate'].includes(c.status) ? 'acabou' : null;
     if (!fase) return;
     const grupo = !!c.isGroup && !!c.groupJid;
@@ -1004,6 +1007,13 @@ const TIPOS: Record<string, string> = {
 };
 
 /** O tipo pelo nome — o WhatsApp mostra o ícone e abre com o app certo. */
+/** Ligação que já passou e só chegou agora (reconexão): `offline` do WhatsApp, ou mais velha que 2 min. */
+export function ligacaoAtrasada(c: Pick<WACallEvent, 'offline' | 'date'>, agora = Date.now()): boolean {
+  if (c.offline) return true;
+  const quando = c.date instanceof Date ? c.date.getTime() : NaN;
+  return Number.isFinite(quando) && agora - quando > 2 * 60_000;
+}
+
 export function tipoDoArquivo(nome: string): string {
   return TIPOS[nome.split('.').pop()?.toLowerCase() ?? ''] ?? 'application/octet-stream';
 }
