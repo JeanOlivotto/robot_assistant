@@ -2,6 +2,7 @@
 node_modules/
 dist/
 *.tsbuildinfo
+/doc
 
 # Segredos e dados locais
 .env
