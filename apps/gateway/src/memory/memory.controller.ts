@@ -26,6 +26,17 @@ export class MemoryController {
     };
   }
 
+  /** O grafo da memória (entidades e ligações), para o app desenhar. */
+  @Get('grafo')
+  grafo() {
+    const { entidades, relacoes } = this.memory.grafo();
+    return {
+      dono: this.memory.nomeDoDono(),
+      entidades: entidades.map((e) => ({ id: e.id, nome: e.texto, tipo: e.tipo, apelidos: e.apelidos, mentions: e.mentions, lastSeenAt: e.lastSeenAt })),
+      relacoes: relacoes.map((r) => ({ de: r.de, rel: r.rel, para: r.para, valor: r.valor })),
+    };
+  }
+
   /** Apaga as lembranças de um assunto (o mesmo que a ferramenta esquecer_assunto faz na conversa). */
   @Post('forget')
   @HttpCode(200)

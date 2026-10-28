@@ -9,6 +9,8 @@ import { arquivoSensivel, comandoSimples } from '../braco/seguranca.js';
 import { CalendarService } from '../calendar/calendar.service.js';
 import { APP_CONFIG, type AppConfig } from '../config/app-config.js';
 import { LlmService } from '../llm/llm.service.js';
+import { DiarioService } from '../diario/diario.service.js';
+import { HumorService } from '../humor/humor.service.js';
 import { MemoryService } from '../memory/memory.service.js';
 import { SilencioService } from '../proactive/silencio.service.js';
 import { TaskService } from '../tasks/task.service.js';
@@ -48,6 +50,8 @@ export interface JudgeContext {
   idleHours: number;
   /** A última coisa que o robô disse por conta própria hoje (vazio = nenhuma). */
   lastSpontaneous: string;
+  /** Quando ele disse isso (0 = nunca) — sem isso, um "amanhã às 8" da véspera era repetido na própria manhã. */
+  lastSpontaneousAt?: number;
   /** Quantas vezes ele já puxou conversa hoje. */
   spokenToday: number;
   /** Já trocaram alguma palavra hoje? */
@@ -176,11 +180,15 @@ const TOOLS: ChatCompletionTool[] = aceitaNulo([
     type: 'function',
     function: {
       name: 'concluir_pendencia',
-      description: 'Marca como resolvida uma das pendências abertas (o número da lista no seu contexto), quando ele disser que fez.',
+      description:
+        'Marca como resolvidas pendências abertas (os números da lista no seu contexto), quando ele disser que fez. ' +
+        'Disse que fez tudo ("já fiz todas", "tá tudo resolvido"): use "todas": true — não conclua só a primeira.',
       parameters: {
         type: 'object',
-        properties: { numero: { type: 'integer', description: 'o número da pendência na lista' } },
-        required: ['numero'],
+        properties: {
+          numeros: { type: 'array', items: { type: 'integer' }, description: 'os números das pendências na lista' },
+          todas: { type: 'boolean', description: 'true quando ele disse que resolveu todas' },
+        },
       },
     },
   },
@@ -611,6 +619,8 @@ export class BrainService {
     private readonly identidade: IdentidadeService,
     private readonly silencio: SilencioService,
     private readonly whatsapp: WhatsappService,
+    private readonly humor: HumorService,
+    private readonly diario: DiarioService,
   ) {
     this.dayFmt = new Intl.DateTimeFormat('pt-BR', {
       weekday: 'long',
@@ -653,8 +663,14 @@ export class BrainService {
     const apresentarPara = this.apresentarPara(history.at(-1));
     // Só as ferramentas (e as instruções) do assunto — agenda, pendência e internet vão sempre: é o que faz a chamada caber no limite por minuto.
     const grupos = gruposDaConversa(history.slice(-HISTORY), { voz: !!apresentarPara });
+    // A memória entra com a vizinhança do que o dono acabou de falar (quem é a pessoa citada, o que se liga a ela).
+    const foco = history
+      .slice(-3)
+      .filter((m) => m.from === 'user')
+      .map((m) => m.text)
+      .join(' ');
     const contexto = {
-      ...this.promptContext(now),
+      ...this.promptContext(now, foco),
       spoken: opts.spoken,
       todayAgenda: await this.todayAgenda(now),
       pedidoDoComputador: this.maquinaDoPedido,
@@ -672,6 +688,11 @@ export class BrainService {
     let proposal: ProposalDraft | undefined;
     let usouFerramenta = false;
     let insistiu = false;
+    let repetiu = false;
+    const ditas = history
+      .filter((m) => m.from === 'robot' && (m.kind === 'reply' || m.kind === 'proactive' || !m.kind))
+      .slice(-4)
+      .map((m) => m.text);
     for (let step = 0; step < MAX_STEPS + 1; step++) {
       let msg: Awaited<ReturnType<LlmService['complete']>>;
       try {
@@ -693,9 +714,28 @@ export class BrainService {
           messages.push({ role: 'user', content: '[instrução interna do sistema] Agora responda para ele, em uma ou duas frases.' });
           continue;
         }
+        // Saiu quase igual a algo que ele acabou de dizer ("Tudo tranquilo, agenda vazia hoje. E você?" duas
+        // vezes seguidas): uma chance de dizer outra coisa.
+        const igual = text ? repeteFala(text, ditas) : null;
+        if (igual && !repetiu && step < MAX_STEPS) {
+          repetiu = true;
+          this.log.log(`Repetiu "${igual.slice(0, 80)}": pedindo outra resposta`);
+          messages.push(
+            { role: 'assistant', content: msg.content ?? '' },
+            {
+              role: 'user',
+              content:
+                `[instrução interna do sistema] Você acabou de repetir quase igual o que já tinha dito ("${igual}"). ` +
+                'Responda de novo ao que ele disse, com outras palavras e trazendo algo novo para a conversa.',
+            },
+          );
+          continue;
+        }
         // Respondeu a quem ainda não o conhecia (e o prompt mandou se apresentar): da próxima vez, não repete.
         if (text && apresentarPara?.nome) this.identidade.apresentouSePara(apresentarPara.nome);
-        return { text: text || '...', face, proposal };
+        // A emoção da resposta dura umas horas (o humor dele), com o que ele ouviu para ficar assim.
+        if (text) this.humor.sentiu(face, history.findLast((m) => m.from === 'user')?.text);
+        return { text: semFechoDeSac(text) || '...', face, proposal };
       }
       usouFerramenta = true;
       messages.push({ role: 'assistant', content: msg.content ?? '', tool_calls: calls });
@@ -752,13 +792,18 @@ export class BrainService {
     const hora = Number(new Intl.DateTimeFormat('en-US', { hour: 'numeric', hourCycle: 'h23', timeZone: this.cfg.TZ_NAME }).format(now));
     const periodo = hora < 12 ? 'manhã' : hora < 18 ? 'tarde' : 'noite';
     const assunto = this.memory.stale(this.cfg.MEMORY_RECALL_DAYS);
+    const curiosas = this.memory.curiosidades(2, 2, assunto?.id);
 
     const situacao = [
       `- agora é ${periodo} (${this.timeFmt.format(now)})`,
       `- ${ctx.talkedToday ? 'vocês já se falaram hoje' : 'vocês ainda não se falaram hoje'}`,
       `- faz ${ctx.idleHours < 1 ? 'menos de uma hora' : `umas ${Math.round(ctx.idleHours)} horas`} que ninguém diz nada na conversa`,
       `- hoje você já puxou conversa ${vezes}`,
-      ctx.lastSpontaneous ? `- a última coisa que você disse por conta própria foi: "${ctx.lastSpontaneous}"` : '',
+      ctx.lastSpontaneous
+        ? `- a última coisa que você disse por conta própria foi${
+            ctx.lastSpontaneousAt ? ` (${rotuloDoDia(ctx.lastSpontaneousAt, now, this.cfg.TZ_NAME)}, ${this.timeFmt.format(ctx.lastSpontaneousAt)})` : ''
+          }: "${ctx.lastSpontaneous}"`
+        : '',
       ctx.unanswered ? `- ${owner} ainda não respondeu a sua última fala (não repita a mesma coisa; se falar, que seja outro assunto)` : '',
       `- agenda de hoje:\n${agenda || '(agenda não configurada)'}`,
       ctx.pending.length
@@ -771,7 +816,12 @@ export class BrainService {
             )
             .join('\n')}`
         : '- nenhuma pendência aberta para cobrar agora',
-      assunto ? `- um assunto de vocês que não aparece há dias: "${assunto.texto}"` : '',
+      assunto ? `- um assunto de vocês que não aparece há dias: "${assunto.texto}" (o que você sabe: ${this.memory.ficha(assunto)})` : '',
+      curiosas.length
+        ? `- coisas da vida de ${owner} que você conhece e que fazem uns dias que não aparecem:\n${curiosas
+            .map((e, i) => `  ${i + 1}. ${this.memory.ficha(e)}`)
+            .join('\n')}`
+        : '',
     ]
       .filter(Boolean)
       .join('\n');
@@ -789,8 +839,10 @@ export class BrainService {
               `Você é um robô com vida própria, que mora na mesa de ${owner} — não um assistente que só fala quando ` +
               'chamado. Quer mandar uma mensagem para ele agora?\n' +
               'Bons motivos para falar: dar bom dia se ainda não se falaram; cobrar uma pendência; perguntar como foi ' +
-              'um compromisso que já passou; comentar o que vem pela frente no dia; ou puxar de volta um assunto de ' +
-              'vocês.\n' +
+              'um compromisso que já passou; comentar o que vem pela frente no dia; puxar de volta um assunto de ' +
+              'vocês; ou ter curiosidade de amigo pela vida dele — perguntar de uma das coisas da vida dele acima com ' +
+              'um detalhe ESPECÍFICO do que você sabe ("e o curso da Duda, já saiu bolo?"), nunca um "como ficou aquilo?" ' +
+              'vago. Curiosidade vale mais que cobrar de novo uma pendência que você já cobrou nos últimos dias.\n' +
               'Fique quieto se acabou de falar algo parecido, se ele está no meio de um compromisso agora, ou se ' +
               'não tem nada de verdadeiro e novo para dizer (nunca invente fato, compromisso ou pendência). Mensagem ' +
               'demais cansa: umas duas ou três no dia inteiro é o normal, e na dúvida fique quieto. Frase genérica ' +
@@ -799,9 +851,9 @@ export class BrainService {
               'para outro dia ("deixa pra segunda") não se cobra antes disso.\n' +
               'Antes de perguntar de um compromisso ou pendência, confira a conversa de hoje acima: se ele já ' +
               'contou como foi, NÃO pergunte de novo — no máximo comente o que ele disse.\n' +
-              'Responda SOMENTE com JSON: {"falar": true|false, "texto": "...", "motivo": "...", "pendencias": [n], "assunto": true|false}, ' +
-              'onde "pendencias" traz o número das que você citou no texto (vazio se não citou nenhuma) e "assunto" ' +
-              'diz se você puxou o assunto antigo. O texto é você falando, curto, com a sua expressão entre ' +
+              'Responda SOMENTE com JSON: {"falar": true|false, "texto": "...", "motivo": "...", "pendencias": [n], "assunto": true|false, "curiosidade": n}, ' +
+              'onde "pendencias" traz o número das que você citou no texto (vazio se não citou nenhuma), "assunto" ' +
+              'diz se você puxou o assunto antigo e "curiosidade" é o número da coisa da vida dele que você perguntou (0 se nenhuma). O texto é você falando, curto, com a sua expressão entre ' +
               'colchetes no começo. Com "falar": false, deixe "texto" vazio.',
           },
         ],
@@ -820,6 +872,8 @@ export class BrainService {
       const { text, face } = splitEmotion(out.texto);
       if (!text) return null;
       if (out.assunto === true && assunto) this.memory.touch(assunto.id);
+      const curiosa = typeof out.curiosidade === 'number' ? curiosas[out.curiosidade - 1] : undefined;
+      if (curiosa) this.memory.touch(curiosa.id);
       const nudged = Array.isArray(out.pendencias)
         ? out.pendencias.filter((n): n is number => typeof n === 'number' && Number.isInteger(n) && n >= 1 && n <= ctx.pending.length)
         : [];
@@ -871,16 +925,18 @@ export class BrainService {
     return describeAgenda(list, this.cfg.TZ_NAME);
   }
 
-  private promptContext(now: Date) {
+  private promptContext(now: Date, foco?: string) {
     return {
       robotName: this.identidade.nome,
       escolheuNome: this.identidade.escolheuNome,
       sobreMim: this.identidade.sobre,
+      humor: this.humor.descricao(now.getTime()),
+      diario: this.diario.recentes(now),
       ownerName: this.cfg.OWNER_NAME,
       tz: this.cfg.TZ_NAME,
       now,
       canWrite: this.calendar.writable,
-      memories: this.memory.summaries(),
+      memories: this.memory.summaries(12, foco),
       maquinas: this.braco.maquinas(),
       desligadas: this.braco.desligadas(),
       pendencias: this.tasks
@@ -905,8 +961,9 @@ export class BrainService {
         {
           role: 'user',
           content:
-            `[instrução interna do sistema — não é ${owner} falando] Faz um tempo que vocês não falam sobre "${m.texto}". ` +
-            'Puxe o assunto de volta numa frase curta, do jeito de quem reparou na ausência, e pergunte em que pé está. ' +
+            `[instrução interna do sistema — não é ${owner} falando] Faz um tempo que vocês não falam sobre "${m.texto}" ` +
+            `(o que você sabe: ${this.memory.ficha(m)}). ` +
+            'Puxe o assunto de volta numa frase curta, do jeito de quem reparou na ausência, e pergunte algo específico do que você sabe. ' +
             'Sem drama e sem inventar detalhes que você não sabe.',
         },
       ]);
@@ -1094,10 +1151,11 @@ export class BrainService {
 
   /** O número é a posição na lista que foi para o prompt (tasks.open(), na mesma ordem). */
   private concluirPendencia(args: Record<string, unknown>): string {
-    const t = this.tasks.open()[Number(args.numero) - 1];
-    if (!t) return 'erro: não existe pendência com esse número';
-    this.tasks.done(t.id);
-    return `resolvida: ${t.texto}`;
+    const alvo = pendenciasConcluidas(args, this.tasks.open());
+    if (!alvo) return 'erro: não existe pendência com esse número';
+    alvo.forEach((t) => this.tasks.done(t.id));
+    const sobram = this.tasks.open().length;
+    return `resolvida(s): ${alvo.map((t) => t.texto).join('; ')}${sobram ? ` — ainda abertas: ${sobram}` : ' — não sobrou nenhuma'}`;
   }
 
   /**
@@ -1437,7 +1495,46 @@ export class BrainService {
 }
 
 /** Histórico do app → mensagens do LLM (propostas viram uma nota com o status). */
-export function toLlmHistory(history: ChatMessage[], tz: string): ChatCompletionMessageParam[] {
+const chaveDoDia = (ts: number, tz: string) => new Intl.DateTimeFormat('en-CA', { timeZone: tz, year: 'numeric', month: '2-digit', day: '2-digit' }).format(ts);
+
+/** "hoje", "ontem (seg 27/10)" ou "qua 22/10". */
+export function rotuloDoDia(ts: number, now: Date, tz: string): string {
+  const dia = chaveDoDia(ts, tz);
+  if (dia === chaveDoDia(now.getTime(), tz)) return 'hoje';
+  const nome = new Intl.DateTimeFormat('pt-BR', { weekday: 'short', day: '2-digit', month: '2-digit', timeZone: tz }).format(ts).replace(/\.,?/g, '');
+  return dia === chaveDoDia(now.getTime() - 24 * 3600_000, tz) ? `ontem (${nome})` : nome;
+}
+
+/**
+ * Histórico que atravessa dias ganha um marcador antes de cada dia: "amanhã às 8" dito ontem à noite
+ * já é hoje — sem isso, de manhã ele repetia o lembrete da véspera com "amanhã". Tudo de hoje: nenhum marcador.
+ */
+export function toLlmHistory(history: ChatMessage[], tz: string, now = new Date()): ChatCompletionMessageParam[] {
+  const msgs = toLlmMensagens(history, tz);
+  const hoje = chaveDoDia(now.getTime(), tz);
+  // ts 0 = sem data (mensagem antiga, teste): não abre dia novo.
+  if (history.every((m) => !m.ts || chaveDoDia(m.ts, tz) === hoje)) return msgs;
+  const out: ChatCompletionMessageParam[] = [];
+  let diaAnterior = '';
+  history.forEach((m, i) => {
+    const dia = m.ts ? chaveDoDia(m.ts, tz) : diaAnterior;
+    if (dia && dia !== diaAnterior) {
+      diaAnterior = dia;
+      const rotulo = rotuloDoDia(m.ts, now, tz);
+      out.push({
+        role: 'system',
+        content:
+          rotulo === 'hoje'
+            ? '[daqui para baixo é a conversa de hoje]'
+            : `[o que vem abaixo é de ${rotulo} — "hoje" e "amanhã" ditos ali são relativos àquele dia, não a hoje]`,
+      });
+    }
+    out.push(msgs[i]!);
+  });
+  return out;
+}
+
+function toLlmMensagens(history: ChatMessage[], tz: string): ChatCompletionMessageParam[] {
   const fmt = new Intl.DateTimeFormat('pt-BR', {
     weekday: 'short',
     day: '2-digit',
@@ -1477,7 +1574,7 @@ ${foto}` : foto };
 
 
 /** Lê o JSON do juízo, tolerando cercas de markdown e texto em volta. */
-type RawJudgement = { falar?: boolean; texto?: string; motivo?: string; pendencias?: unknown[]; assunto?: boolean };
+type RawJudgement = { falar?: boolean; texto?: string; motivo?: string; pendencias?: unknown[]; assunto?: boolean; curiosidade?: unknown };
 
 function parseJudgement(raw: string): RawJudgement | null {
   const clean = raw
@@ -1520,6 +1617,42 @@ export function faltaCombinar(args: Record<string, unknown>): string[] {
 }
 
 /** A pessoa se apresentou com esse nome na fala ("sou a Francisca", "meu nome é Fábio", "aqui é o Jean"). */
+const palavrasDe = (s: string) => new Set(semAcento(s).replace(/[^a-z0-9 ]/g, ' ').split(/\s+/).filter(Boolean));
+
+/** A fala anterior que esta repete (mesmas palavras, quase todas), ou null. Frase de 1–2 palavras ("beleza") não conta. */
+export function repeteFala(texto: string, anteriores: string[]): string | null {
+  const a = palavrasDe(texto);
+  if (a.size < 3) return null;
+  return (
+    anteriores.find((ant) => {
+      const b = palavrasDe(ant);
+      const comuns = [...a].filter((w) => b.has(w)).length;
+      return comuns / new Set([...a, ...b]).size >= 0.75;
+    }) ?? null
+  );
+}
+
+/** Fecho de atendente no fim da resposta ("Se precisar de algo mais, avisa."). */
+const FECHO_SAC = /\s*(?:(?:e\s+)?se precisar(?: de)?(?: algo| alguma coisa)?(?: mais)?,?\s*(?:é só |e só )?(?:avisa|avise|chama|me chama|falar|me fala|grita)|(?:me chama|avisa|qualquer coisa,? (?:é só )?(?:chama|avisa|grita)) se precisar|estou aqui (?:para|pra) (?:o que precisar|ajudar))[.!]?\s*$/i;
+
+/** Tira o fecho de SAC quando sobra outra frase; se a resposta é só ele, deixa. */
+export function semFechoDeSac(texto: string): string {
+  const sem = texto.replace(FECHO_SAC, '').trim();
+  return sem.length >= 3 ? sem : texto;
+}
+
+/**
+ * Quais pendências o concluir_pendencia leva: todas, uma lista de números ou o "numero" antigo. Null se
+ * algum número não existe — melhor recusar do que concluir a errada. Os alvos saem antes de concluir
+ * qualquer uma, porque a numeração muda quando uma sai da lista.
+ */
+export function pendenciasConcluidas<T>(args: Record<string, unknown>, abertas: T[]): T[] | null {
+  if (args.todas === true) return abertas.length ? [...abertas] : null;
+  const nums = Array.isArray(args.numeros) ? args.numeros.map(Number) : args.numero !== undefined ? [Number(args.numero)] : [];
+  const alvo = [...new Set(nums)].map((n) => abertas[n - 1]);
+  return alvo.length && alvo.every((t) => t !== undefined) ? (alvo as T[]) : null;
+}
+
 export function apresentou(fala: string, nome: string): boolean {
   const n = escape(semAcento(nome));
   return new RegExp(

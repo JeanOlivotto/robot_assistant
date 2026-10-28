@@ -24,3 +24,12 @@ describe('apresentação', () => {
     expect(systemPrompt({ ...base, apresentarPara: {} })).toContain('pergunte o nome dela');
   });
 });
+
+describe('humor', () => {
+  const base = { robotName: 'Miro', ownerName: 'Jean', tz: 'America/Sao_Paulo', now: new Date(), canWrite: true };
+
+  it('entra no prompt só quando ele está sentindo algo', () => {
+    expect(systemPrompt(base)).not.toContain('Como você está agora');
+    expect(systemPrompt({ ...base, humor: 'irritado (agora há pouco)' })).toContain('Como você está agora: irritado (agora há pouco).');
+  });
+});

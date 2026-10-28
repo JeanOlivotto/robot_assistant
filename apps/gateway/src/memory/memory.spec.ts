@@ -1,4 +1,4 @@
-import { mkdtempSync } from 'node:fs';
+import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
@@ -7,7 +7,7 @@ import type { AppConfig } from '../config/app-config.js';
 import type { LlmService } from '../llm/llm.service.js';
 import { MemoryService } from './memory.service.js';
 
-const cfg = () => ({ DATA_DIR: mkdtempSync(join(tmpdir(), 'robo-mem-')) }) as unknown as AppConfig;
+const cfg = () => ({ DATA_DIR: mkdtempSync(join(tmpdir(), 'robo-mem-')), OWNER_NAME: 'Jean' }) as unknown as AppConfig;
 const llm = (content: string, enabled = true) => ({ enabled, complete: vi.fn().mockResolvedValue({ content }) }) as unknown as LlmService;
 const userMsg = (text: string): ChatMessage => ({ id: '1', from: 'user', text, ts: Date.now() });
 
@@ -77,5 +77,106 @@ describe('MemoryService', () => {
     const c = cfg();
     await new MemoryService(c, llm('{"assuntos":["novo emprego"]}')).learn([userMsg('consegui um novo emprego')]);
     expect(new MemoryService(c, llm('')).summaries()).toContain('novo emprego');
+  });
+
+  it('learn cria entidades e ligações e reaproveita a entidade pelo apelido', async () => {
+    const m = new MemoryService(
+      cfg(),
+      llm(
+        JSON.stringify({
+          entidades: [{ nome: 'Duda', tipo: 'pessoa', apelidos: ['esposa'] }],
+          relacoes: [{ de: 'Duda', rel: 'esposa_de', para: 'Jean' }],
+        }),
+      ),
+    );
+    await m.learn([userMsg('a Duda, minha esposa, mandou um beijo')]);
+    expect(m.all()).toHaveLength(1);
+    expect(m.summaries()).toEqual(['Duda — esposa de Jean']);
+
+    // Citada pelo apelido, cai na mesma entidade em vez de criar outra.
+    m.note('Esposa', 'pessoa');
+    expect(m.all()).toHaveLength(1);
+    expect(m.all()[0]!.mentions).toBe(2);
+  });
+
+  it('ligação de valor único substitui o valor antigo', async () => {
+    const c = cfg();
+    const resp = (valor: string) => JSON.stringify({ entidades: [{ nome: 'jogo do macaco', tipo: 'projeto' }], relacoes: [{ de: 'jogo do macaco', rel: 'status', valor }] });
+    await new MemoryService(c, llm(resp('em andamento'))).learn([userMsg('tô fazendo o jogo do macaco')]);
+    const m = new MemoryService(c, llm(resp('pausado')));
+    await m.learn([userMsg('parei o jogo do macaco')]);
+    expect(m.summaries()).toEqual(['jogo do macaco — status: pausado']);
+    expect(m.grafo().relacoes).toHaveLength(1);
+  });
+
+  it('summaries com foco traz a entidade citada e as vizinhas antes das recentes', async () => {
+    const m = new MemoryService(
+      cfg(),
+      llm(
+        JSON.stringify({
+          entidades: [
+            { nome: 'Duda', tipo: 'pessoa' },
+            { nome: 'curso de confeitaria', tipo: 'hobby' },
+          ],
+          relacoes: [{ de: 'Duda', rel: 'faz', para: 'curso de confeitaria' }],
+        }),
+      ),
+    );
+    await m.learn([userMsg('a Duda começou um curso de confeitaria')]);
+    for (let i = 0; i < 5; i++) m.note(`assunto recente ${i}`);
+    const out = m.summaries(2, 'hoje falei com a duda');
+    expect(out).toEqual(['Duda — faz curso de confeitaria', 'curso de confeitaria']);
+  });
+
+  it('esquecer leva junto as ligações da entidade', async () => {
+    const m = new MemoryService(
+      cfg(),
+      llm(JSON.stringify({ entidades: [{ nome: 'Duda', tipo: 'pessoa' }, { nome: 'Floripa', tipo: 'lugar' }], relacoes: [{ de: 'Duda', rel: 'mora_em', para: 'Floripa' }] })),
+    );
+    await m.learn([userMsg('a Duda mora em Floripa')]);
+    expect(m.esquecer('Floripa')).toEqual(['Floripa']);
+    expect(m.grafo().relacoes).toEqual([]);
+    expect(m.summaries()).toEqual(['Duda']);
+  });
+
+  it('pessoa sem ligação nenhuma não volta como assunto antigo', () => {
+    const m = new MemoryService(cfg(), llm(''));
+    m.note('Carlos', 'pessoa');
+    m.all()[0]!.lastSeenAt = Date.now() - 10 * 24 * 3600_000;
+    expect(m.stale(4)).toBeNull();
+  });
+
+  it('migra o lembrancas.json antigo para o grafo', () => {
+    const c = cfg();
+    const antigo = [{ id: 'a1', texto: 'novo emprego', createdAt: 1, lastSeenAt: 2, mentions: 3 }];
+    writeFileSync(join(c.DATA_DIR, 'lembrancas.json'), JSON.stringify(antigo));
+    const m = new MemoryService(c, llm(''));
+    expect(m.all()).toEqual([{ ...antigo[0], tipo: 'outro', apelidos: [] }]);
+    const salvo = JSON.parse(readFileSync(join(c.DATA_DIR, 'memoria-grafo.json'), 'utf8')) as { entidades: unknown[] };
+    expect(salvo.entidades).toHaveLength(1);
+  });
+
+  it('ficha traz as ligações nos dois sentidos', async () => {
+    const m = new MemoryService(
+      cfg(),
+      llm(JSON.stringify({ entidades: [{ nome: 'Duda', tipo: 'pessoa' }, { nome: 'confeitaria', tipo: 'hobby' }, { nome: 'Floripa', tipo: 'lugar' }], relacoes: [{ de: 'Duda', rel: 'esposa_de', para: 'Jean' }, { de: 'Duda', rel: 'faz', para: 'confeitaria' }, { de: 'Floripa', rel: 'cidade_de', para: 'Duda' }] })),
+    );
+    await m.learn([userMsg('a Duda de Floripa faz confeitaria')]);
+    const duda = m.all().find((e) => e.texto === 'Duda')!;
+    expect(m.ficha(duda)).toBe('Duda — esposa de Jean; faz confeitaria; Floripa — cidade de Duda');
+  });
+
+  it('curiosidades só traz o que tem ligação e não apareceu nos últimos dias', async () => {
+    const m = new MemoryService(
+      cfg(),
+      llm(JSON.stringify({ entidades: [{ nome: 'Duda', tipo: 'pessoa' }, { nome: 'confeitaria', tipo: 'hobby' }, { nome: 'Eduardo', tipo: 'pessoa' }], relacoes: [{ de: 'Duda', rel: 'faz', para: 'confeitaria' }] })),
+    );
+    await m.learn([userMsg('a Duda faz confeitaria; o Eduardo deu oi')]);
+    expect(m.curiosidades(2, 2)).toEqual([]); // tudo visto agora há pouco
+    for (const e of m.all()) e.lastSeenAt = Date.now() - 5 * 24 * 3600_000;
+    const nomes = m.curiosidades(5, 2).map((e) => e.texto);
+    expect(nomes.sort()).toEqual(['Duda', 'confeitaria']); // Eduardo é nome solto, sem ligação
+    const duda = m.all().find((e) => e.texto === 'Duda')!;
+    expect(m.curiosidades(5, 2, duda.id).map((e) => e.texto)).toEqual(['confeitaria']);
   });
 });

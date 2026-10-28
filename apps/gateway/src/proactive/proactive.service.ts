@@ -5,6 +5,7 @@ import type { Subscription } from 'rxjs';
 import { AlertService } from '../alerts/alert.service.js';
 import { BrainService, type ComposeKind } from '../brain/brain.service.js';
 import { ChatService } from '../chat/chat.service.js';
+import { DiarioService } from '../diario/diario.service.js';
 import { APP_CONFIG, type AppConfig } from '../config/app-config.js';
 import { rootPath } from '../config/paths.js';
 import { RobotStateService } from '../robot/robot-state.service.js';
@@ -52,6 +53,8 @@ export class ProactiveService implements OnModuleInit, OnModuleDestroy {
   private busy = false;
   private nextThoughtAt = Date.now() + 5 * 60_000;
   private lastLearnAt = 0;
+  /** O dia cujo diário ele já tentou escrever (uma tentativa por dia, mesmo se o LLM falhar). */
+  private diarioTentado = '';
   private mem: ProactiveMemory = { day: '', spokenCount: 0, lastSpokenAt: 0, lastSpokenText: '', lastJudgeAt: 0 };
 
   constructor(
@@ -62,6 +65,7 @@ export class ProactiveService implements OnModuleInit, OnModuleDestroy {
     private readonly robot: RobotStateService,
     private readonly tasks: TaskService,
     private readonly silencio: SilencioService,
+    private readonly diario: DiarioService,
   ) {
     this.file = rootPath(`${cfg.DATA_DIR}/proactive.json`);
     this.clock = new Intl.DateTimeFormat('en-CA', {
@@ -118,6 +122,13 @@ export class ProactiveService implements OnModuleInit, OnModuleDestroy {
     if (Date.now() - this.lastLearnAt > LEARN_GAP_MS && this.chat.lastUserAt() > this.lastLearnAt) {
       this.lastLearnAt = Date.now();
       void this.brain.learn(this.chat.history(12));
+    } else {
+      // Virou o dia: anota no diário como foi o de ontem (uma chamada por dia; não junto com o learn, pelo limite por minuto).
+      const ontem = this.diario.dia(Date.now() - 24 * HOUR);
+      if (this.diarioTentado !== ontem && !this.diario.tem(ontem)) {
+        this.diarioTentado = ontem;
+        void this.diario.escrever(ontem, this.chat.history(400));
+      }
     }
 
     if (await this.maybeThink(this.now().minutes)) return;
@@ -158,6 +169,7 @@ export class ProactiveService implements OnModuleInit, OnModuleDestroy {
       const call = await this.brain.judge(today.length ? today : this.chat.history(6), {
         idleHours: (now - this.chat.lastActivityAt()) / HOUR,
         lastSpontaneous: this.mem.lastSpokenText,
+        lastSpontaneousAt: this.mem.lastSpokenAt,
         spokenToday: this.mem.spokenCount,
         talkedToday: lastUser > 0 && this.sameDay(lastUser, now),
         unanswered: this.chat.state.waitingSince !== 0,
