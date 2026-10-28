@@ -236,8 +236,9 @@ function criarBolha() {
 function lugarDoPainel() {
   const c = cantoAtual();
   const area = screen.getDisplayNearestPoint(c).workArea;
-  const w = 420;
-  const h = Math.min(760, area.height - 40);
+  // Largo o bastante para o painel de controle (3 colunas a partir de 1080 px); em tela pequena, o que couber.
+  const w = Math.max(420, Math.min(1280, area.width - CARINHA.w - 40));
+  const h = Math.min(860, area.height - 40);
   return { x: Math.max(area.x + 10, c.x - w - CARINHA.w), y: Math.max(area.y + 10, c.y - h), width: w, height: h };
 }
 

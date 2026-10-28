@@ -64,6 +64,11 @@ export class HumorService {
     return `${HUMORES[h.face]}${passando} (${quando}${h.porque ? `, desde que ouviu: "${h.porque}"` : ''})`;
   }
 
+  /** A carinha do humor de agora (null se já passou) — o app mostra junto da descrição. */
+  face(agora = Date.now()): Face | null {
+    return this.descricao(agora) ? this.atual!.face : null;
+  }
+
   private save(): void {
     try {
       mkdirSync(dirname(this.file), { recursive: true });

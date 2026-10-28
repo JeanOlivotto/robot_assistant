@@ -1,5 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { Agenda } from './components/Agenda';
+import { Lateral } from './components/Lateral';
+import { Memoria } from './components/Memoria';
+import { lerEstado, type EstadoDoMiro } from './lib/memoria';
 import { Chat } from './components/Chat';
 import { Login } from './components/Login';
 import { MeetingView } from './components/Meeting';
@@ -45,12 +48,35 @@ function saveToken(token: string | null): void {
   }
 }
 
-type Tab = 'chat' | 'agenda' | 'pendencias' | 'reuniao' | 'pc';
+type Tab = 'chat' | 'agenda' | 'pendencias' | 'reuniao' | 'pc' | 'memoria';
+
+/** As abas do painel largo (no computador), com o ícone da barra lateral. */
+const ABAS: { id: Tab; nome: string; icone: string }[] = [
+  { id: 'chat', nome: 'Conversa', icone: 'M4 5h16v11H9l-5 4V5Z' },
+  { id: 'agenda', nome: 'Agenda', icone: 'M4 6h16v14H4V6Zm0 4h16M8 3v4m8-4v4' },
+  { id: 'pendencias', nome: 'Pendências', icone: 'M9 6h11M9 12h11M9 18h11M4 6l1 1 2-2M4 12l1 1 2-2M4 18l1 1 2-2' },
+  { id: 'memoria', nome: 'Memória', icone: 'M12 12m-2.5 0a2.5 2.5 0 1 0 5 0a2.5 2.5 0 1 0-5 0M5 6m-2 0a2 2 0 1 0 4 0a2 2 0 1 0-4 0M19 7m-2 0a2 2 0 1 0 4 0a2 2 0 1 0-4 0M6 19m-2 0a2 2 0 1 0 4 0a2 2 0 1 0-4 0M6.5 7.3l3.6 3M17.3 8.2l-3.2 2.4M7.4 17.6l3-3.6' },
+  { id: 'reuniao', nome: 'Reunião', icone: 'M12 4a3 3 0 0 1 3 3v5a3 3 0 0 1-6 0V7a3 3 0 0 1 3-3Zm-6 8a6 6 0 0 0 12 0M12 18v3' },
+  { id: 'pc', nome: 'Computador', icone: 'M3 5h18v11H3V5Zm6 15h6m-3-4v4' },
+];
+
+/** O painel do computador (e o navegador largo) ganha três colunas; o celular continua com abas. */
+const LARGO = '(min-width: 1080px)';
+function useLargo(): boolean {
+  const [largo, setLargo] = useState(() => typeof matchMedia !== 'undefined' && matchMedia(LARGO).matches);
+  useEffect(() => {
+    const mq = matchMedia(LARGO);
+    const mudou = () => setLargo(mq.matches);
+    mq.addEventListener('change', mudou);
+    return () => mq.removeEventListener('change', mudou);
+  }, []);
+  return largo;
+}
 
 /** Atalho da Siri pode abrir o app já numa aba: ?tab=reuniao (ou #reuniao). */
 function initialTab(): Tab {
   const raw = (new URL(location.href).searchParams.get('tab') || location.hash.replace('#', '')).toLowerCase();
-  return raw === 'reuniao' || raw === 'agenda' || raw === 'pendencias' || raw === 'pc' ? raw : 'chat';
+  return raw === 'reuniao' || raw === 'agenda' || raw === 'pendencias' || raw === 'pc' || raw === 'memoria' ? raw : 'chat';
 }
 
 /** Re-renderiza de tempos em tempos para o "há X min" andar. */
@@ -71,6 +97,16 @@ function Main({ token, onLogout }: { token: string; onLogout(): void }) {
     }
   });
   const [tab, setTab] = useState<Tab>(initialTab);
+  const largo = useLargo();
+  // No painel largo, o humor dele fica à mostra embaixo do nome.
+  const [humor, setHumor] = useState<EstadoDoMiro['humor']>(null);
+  useEffect(() => {
+    if (!largo) return;
+    const ler = () => void lerEstado(token).then((e) => setHumor(e.humor)).catch(() => undefined);
+    ler();
+    const id = setInterval(ler, 60_000);
+    return () => clearInterval(id);
+  }, [largo, token]);
   const now = useNow(30_000);
   const r = robo.robot;
   const [speakOn, setSpeakOn] = useState(() => {
@@ -183,84 +219,184 @@ function Main({ token, onLogout }: { token: string; onLogout(): void }) {
     void fetch('/api/robot/acordar', { method: 'POST', headers: { Authorization: `Bearer ${token}` } }).catch(() => undefined);
   };
 
-  return (
-    <div className="app">
-      <header className="top">
+  const avatar = (size: number) => (
+    <button
+      type="button"
+      className={`robo-avatar ${cutucado ? 'robo-avatar--cutucado' : ''}`}
+      onClick={acordarRobo}
+      aria-label="Acordar o Miro"
+      title="Acordar o Miro"
+    >
+      <RobotFace face={face} size={size} className={r?.online ? '' : 'face--offline'} />
+    </button>
+  );
+  const statusClasse = `status ${robo.conn !== 'open' ? 'status--warn' : r?.waiting_since ? 'status--wait' : ''}`;
+
+  const botoes = (
+    <>
+      {!DESKTOP && (
         <button
           type="button"
-          className={`robo-avatar ${cutucado ? 'robo-avatar--cutucado' : ''}`}
-          onClick={acordarRobo}
-          aria-label="Acordar o Miro"
-          title="Acordar o Miro"
-        >
-          <RobotFace face={face} size={52} className={r?.online ? '' : 'face--offline'} />
-        </button>
-        <div className="who">
-          <strong>Miro</strong>
-          <span className={`status ${robo.conn !== 'open' ? 'status--warn' : r?.waiting_since ? 'status--wait' : ''}`}>{status}</span>
-        </div>
-        {!DESKTOP && (
-          <button
-            type="button"
-            className={`icon-btn ${push === 'granted' ? 'icon-btn--on' : ''}`}
-            onClick={onBell}
-            aria-label={push === 'granted' ? 'Notificações ativas — mandar teste' : 'Ativar notificações'}
-            title={push === 'granted' ? 'Notificações ativas (toque para testar)' : 'Ativar notificações'}
-          >
-            <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
-              <path
-                d="M6 16V11a6 6 0 1 1 12 0v5l1.5 2h-15L6 16ZM10 20.5a2 2 0 0 0 4 0"
-                fill={push === 'granted' ? 'currentColor' : 'none'}
-                stroke="currentColor"
-                strokeWidth="1.8"
-                strokeLinejoin="round"
-              />
-            </svg>
-          </button>
-        )}
-        <button
-          type="button"
-          className="icon-btn"
-          onClick={() => {
-            // Este toque destrava o áudio E o microfone no iPhone: os dois só ligam dentro de um gesto.
-            unlockAudio();
-            void audioContext();
-            setConvo(true);
-          }}
-          aria-label="Conversar por voz"
-          title="Conversar por voz"
+          className={`icon-btn ${push === 'granted' ? 'icon-btn--on' : ''}`}
+          onClick={onBell}
+          aria-label={push === 'granted' ? 'Notificações ativas — mandar teste' : 'Ativar notificações'}
+          title={push === 'granted' ? 'Notificações ativas (toque para testar)' : 'Ativar notificações'}
         >
           <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
             <path
-              d="M6.6 10.8a12 12 0 0 0 5.6 5.6l1.9-1.9c.3-.3.7-.4 1-.2 1.1.4 2.3.6 3.4.6.6 0 1 .4 1 1V19c0 .6-.4 1-1 1A16 16 0 0 1 3 4c0-.6.4-1 1-1h3.1c.6 0 1 .4 1 1 0 1.2.2 2.4.6 3.4.1.4 0 .8-.3 1l-1.8 1.9Z"
-              fill="currentColor"
+              d="M6 16V11a6 6 0 1 1 12 0v5l1.5 2h-15L6 16ZM10 20.5a2 2 0 0 0 4 0"
+              fill={push === 'granted' ? 'currentColor' : 'none'}
+              stroke="currentColor"
+              strokeWidth="1.8"
+              strokeLinejoin="round"
             />
           </svg>
         </button>
-        {speechSupported && !DESKTOP && (
-          <button
-            type="button"
-            className={`icon-btn ${speakOn ? 'icon-btn--on' : ''}`}
-            onClick={toggleSpeak}
-            aria-pressed={speakOn}
-            aria-label={speakOn ? 'Parar de ler as respostas' : 'Ler as respostas em voz alta'}
-            title={speakOn ? 'Lendo as respostas em voz alta' : 'Ler as respostas em voz alta'}
-          >
-            <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
-              <path d="M4 9v6h4l5 4V5L8 9H4Z" fill="currentColor" />
-              {speakOn ? (
-                <path d="M16.5 8.5a5 5 0 0 1 0 7M19 6a8.5 8.5 0 0 1 0 12" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
-              ) : (
-                <path d="M16 9l5 6M21 9l-5 6" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
-              )}
-            </svg>
-          </button>
-        )}
-        <button type="button" className="icon-btn" onClick={onLogout} aria-label="Sair" title="Sair">
+      )}
+      <button
+        type="button"
+        className="icon-btn"
+        onClick={() => {
+          // Este toque destrava o áudio E o microfone no iPhone: os dois só ligam dentro de um gesto.
+          unlockAudio();
+          void audioContext();
+          setConvo(true);
+        }}
+        aria-label="Conversar por voz"
+        title="Conversar por voz"
+      >
+        <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
+          <path
+            d="M6.6 10.8a12 12 0 0 0 5.6 5.6l1.9-1.9c.3-.3.7-.4 1-.2 1.1.4 2.3.6 3.4.6.6 0 1 .4 1 1V19c0 .6-.4 1-1 1A16 16 0 0 1 3 4c0-.6.4-1 1-1h3.1c.6 0 1 .4 1 1 0 1.2.2 2.4.6 3.4.1.4 0 .8-.3 1l-1.8 1.9Z"
+            fill="currentColor"
+          />
+        </svg>
+      </button>
+      {speechSupported && !DESKTOP && (
+        <button
+          type="button"
+          className={`icon-btn ${speakOn ? 'icon-btn--on' : ''}`}
+          onClick={toggleSpeak}
+          aria-pressed={speakOn}
+          aria-label={speakOn ? 'Parar de ler as respostas' : 'Ler as respostas em voz alta'}
+          title={speakOn ? 'Lendo as respostas em voz alta' : 'Ler as respostas em voz alta'}
+        >
           <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
-            <path d="M10 4H5v16h5M15 8l4 4-4 4M19 12H9" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+            <path d="M4 9v6h4l5 4V5L8 9H4Z" fill="currentColor" />
+            {speakOn ? (
+              <path d="M16.5 8.5a5 5 0 0 1 0 7M19 6a8.5 8.5 0 0 1 0 12" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+            ) : (
+              <path d="M16 9l5 6M21 9l-5 6" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+            )}
           </svg>
         </button>
+      )}
+      <button type="button" className="icon-btn" onClick={onLogout} aria-label="Sair" title="Sair">
+        <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
+          <path d="M10 4H5v16h5M15 8l4 4-4 4M19 12H9" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+        </svg>
+      </button>
+    </>
+  );
+
+  const avisos = (
+    <>
+      {notice && (
+        <div className="notice" role="status" onClick={() => setNotice('')}>
+          {notice}
+        </div>
+      )}
+      {speakOn && voiceProvider === 'elevenlabs' && <p className="credit">Voz: ElevenLabs</p>}
+    </>
+  );
+
+  const conteudo = (
+    <>
+      {tab === 'chat' && (
+        <Chat
+          token={token}
+          messages={robo.messages}
+          thinking={!!r?.thinking}
+          online={robo.conn === 'open'}
+          onSay={robo.say}
+          onSendVoice={robo.sendVoice}
+          onConfirm={robo.confirm}
+        />
+      )}
+      {tab === 'agenda' && <Agenda items={robo.agenda} />}
+      {tab === 'pendencias' && <Tasks token={token} />}
+      {tab === 'pc' && <Computador token={token} />}
+      {tab === 'memoria' && <Memoria token={token} />}
+      {/* Sempre montada (só escondida): trocar de aba no meio da gravação matava a reunião. */}
+      <div hidden={tab !== 'reuniao'}>
+        <MeetingView token={token} autoStart={autoMeeting} onAutoStarted={() => setAutoMeeting(false)} />
+      </div>
+
+      {convo && (
+        <VoiceConversation
+          token={token}
+          onClose={() => setConvo(false)}
+          onStartMeeting={() => {
+            setConvo(false);
+            setAutoMeeting(true);
+            setTab('reuniao');
+          }}
+        />
+      )}
+    </>
+  );
+
+  if (largo) {
+    const aba = ABAS.find((a) => a.id === tab)!;
+    return (
+      <div className="app app--largo">
+        <aside className="lado">
+          <div className="lado__miro">
+            {avatar(84)}
+            <strong>Miro</strong>
+            <span className={statusClasse}>{status}</span>
+            {humor && (
+              <span className="lado__humor" title={humor.descricao}>
+                {humor.descricao.replace(/ \(.*$/, '')}
+              </span>
+            )}
+          </div>
+          <nav className="lado__nav" role="tablist" aria-orientation="vertical">
+            {ABAS.map((a) => (
+              <button key={a.id} role="tab" aria-selected={tab === a.id} className={tab === a.id ? 'on' : ''} onClick={() => setTab(a.id)}>
+                <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
+                  <path d={a.icone} fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+                </svg>
+                {a.nome}
+                {a.id === 'agenda' && proximos > 0 && <span className="tab-badge">{proximos}</span>}
+              </button>
+            ))}
+          </nav>
+          <div className="lado__botoes">{botoes}</div>
+        </aside>
+
+        <main className={`centro centro--${tab}`}>
+          <header className="centro__topo">
+            <h2>{aba.nome}</h2>
+          </header>
+          {avisos}
+          {conteudo}
+        </main>
+
+        <Lateral token={token} agenda={robo.agenda} now={now} onAbrir={setTab} />
+      </div>
+    );
+  }
+
+  return (
+    <div className="app">
+      <header className="top">
+        {avatar(52)}
+        <div className="who">
+          <strong>Miro</strong>
+          <span className={statusClasse}>{status}</span>
+        </div>
+        {botoes}
       </header>
 
       <nav className="tabs" role="tablist">
@@ -287,43 +423,8 @@ function Main({ token, onLogout }: { token: string; onLogout(): void }) {
         </button>
       </nav>
 
-      {notice && (
-        <div className="notice" role="status" onClick={() => setNotice('')}>
-          {notice}
-        </div>
-      )}
-      {speakOn && voiceProvider === 'elevenlabs' && <p className="credit">Voz: ElevenLabs</p>}
-
-      {tab === 'chat' && (
-        <Chat
-          token={token}
-          messages={robo.messages}
-          thinking={!!r?.thinking}
-          online={robo.conn === 'open'}
-          onSay={robo.say}
-          onSendVoice={robo.sendVoice}
-          onConfirm={robo.confirm}
-        />
-      )}
-      {tab === 'agenda' && <Agenda items={robo.agenda} />}
-      {tab === 'pendencias' && <Tasks token={token} />}
-      {tab === 'pc' && <Computador token={token} />}
-      {/* Sempre montada (só escondida): trocar de aba no meio da gravação matava a reunião. */}
-      <div hidden={tab !== 'reuniao'}>
-        <MeetingView token={token} autoStart={autoMeeting} onAutoStarted={() => setAutoMeeting(false)} />
-      </div>
-
-      {convo && (
-        <VoiceConversation
-          token={token}
-          onClose={() => setConvo(false)}
-          onStartMeeting={() => {
-            setConvo(false);
-            setAutoMeeting(true);
-            setTab('reuniao');
-          }}
-        />
-      )}
+      {avisos}
+      {conteudo}
     </div>
   );
 }

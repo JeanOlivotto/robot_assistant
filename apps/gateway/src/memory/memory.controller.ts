@@ -2,6 +2,8 @@ import { Body, Controller, Get, HttpCode, Post, UseGuards } from '@nestjs/common
 import { z } from 'zod';
 import { AppTokenGuard } from '../auth/app-token.guard.js';
 import { ChatService } from '../chat/chat.service.js';
+import { DiarioService } from '../diario/diario.service.js';
+import { HumorService } from '../humor/humor.service.js';
 import { MemoryService } from './memory.service.js';
 
 const ResetBody = z.object({
@@ -15,6 +17,8 @@ export class MemoryController {
   constructor(
     private readonly memory: MemoryService,
     private readonly chat: ChatService,
+    private readonly humor: HumorService,
+    private readonly diario: DiarioService,
   ) {}
 
   /** O que o robô lembra hoje. */
@@ -23,6 +27,8 @@ export class MemoryController {
     return {
       memories: this.memory.all().map((m) => ({ texto: m.texto, mentions: m.mentions, lastSeenAt: m.lastSeenAt })),
       messages: this.chat.history(500).length,
+      humor: this.humor.descricao() ? { face: this.humor.face(), descricao: this.humor.descricao() } : null,
+      diario: this.diario.recentes(),
     };
   }
 

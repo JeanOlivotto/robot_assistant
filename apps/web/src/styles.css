@@ -1,11 +1,15 @@
 :root {
-  --bg: #0b0e14;
-  --surface: #131821;
-  --surface-2: #1b2230;
-  --line: #242c3b;
-  --text: #e8ecf3;
-  --dim: #8a93a6;
+  /* Escuro vivo: fundo bem fundo, cartões que se destacam e texto secundário legível (o antigo sumia). */
+  --bg: #070a10;
+  --surface: #0f141e;
+  --surface-2: #182132;
+  --surface-3: #212c41;
+  --line: #243048;
+  --text: #f2f6fc;
+  --dim: #a3aec4;
   --accent: #5ae6f0;
+  --accent-2: #7c8cff;
+  --glow: rgba(90, 230, 240, 0.22);
   --accent-ink: #032a2e;
   --warn: #ffc400;
   --ok: #3cdc78;
@@ -28,7 +32,11 @@ body,
 }
 
 body {
-  background: var(--bg);
+  background:
+    radial-gradient(1200px 600px at 85% -10%, rgba(124, 140, 255, 0.09), transparent 60%),
+    radial-gradient(900px 500px at -10% 110%, rgba(90, 230, 240, 0.07), transparent 60%),
+    var(--bg);
+  background-attachment: fixed;
   color: var(--text);
   overscroll-behavior: none;
 }
@@ -125,8 +133,9 @@ button {
   cursor: pointer;
 }
 .tabs button.on {
-  background: var(--surface-2);
+  background: var(--surface-3);
   color: var(--text);
+  box-shadow: inset 0 -2px 0 var(--accent);
 }
 
 /* ── chat ───────────────────────────────────────────────────────────── */
@@ -172,6 +181,7 @@ button {
 }
 .msg--robot .bubble {
   background: var(--surface-2);
+  box-shadow: inset 0 0 0 1px var(--line);
   border-bottom-left-radius: 6px;
 }
 .msg--user .bubble {
@@ -1944,4 +1954,536 @@ html.desktop-bolha #root {
 @keyframes ouvindo-pulsa {
   0%, 100% { opacity: 0.9; transform: scale(1); }
   50% { opacity: 0.35; transform: scale(1.04); }
+}
+
+
+/* ── cores por tipo de lembrança ────────────────────────────────────── */
+
+.tipo--pessoa { --tipo: #ff8fb8; }
+.tipo--projeto { --tipo: #5ae6f0; }
+.tipo--lugar { --tipo: #ffc46b; }
+.tipo--saude { --tipo: #6ee7a8; }
+.tipo--meta { --tipo: #b69bff; }
+.tipo--hobby { --tipo: #ff9f6b; }
+.tipo--trabalho { --tipo: #7cb6ff; }
+.tipo--outro { --tipo: #a3aec4; }
+
+.chip--tipo {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 11px;
+  font-size: 13px;
+  color: var(--text);
+  transition: border-color 0.15s, background 0.15s;
+}
+.chip--tipo i {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--tipo);
+  box-shadow: 0 0 8px var(--tipo);
+}
+.chip--tipo span {
+  color: var(--dim);
+  font-variant-numeric: tabular-nums;
+}
+.chip--tipo:hover {
+  border-color: var(--tipo);
+}
+.chip--tipo.chip--on {
+  color: var(--text);
+  background: color-mix(in srgb, var(--tipo) 18%, var(--surface));
+  border-color: var(--tipo);
+}
+
+/* ── cartões ────────────────────────────────────────────────────────── */
+
+.card {
+  background: linear-gradient(180deg, var(--surface-2) 0%, var(--surface) 100%);
+  border: 1px solid var(--line);
+  border-radius: 20px;
+  padding: 16px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
+}
+.card h3 {
+  margin: 0;
+  font-size: 15px;
+  letter-spacing: 0.01em;
+}
+.card__topo {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+.card__topo .link-btn {
+  font-size: 13px;
+}
+.card p {
+  margin: 0;
+}
+.eyebrow {
+  display: block;
+  margin-bottom: 4px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--tipo, var(--accent));
+}
+.contador {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  height: 20px;
+  margin-left: 6px;
+  padding: 0 6px;
+  font-size: 12px;
+  color: var(--accent-ink);
+  background: var(--accent);
+  border-radius: 999px;
+}
+
+/* ── painel largo (computador) ──────────────────────────────────────── */
+
+.app--largo {
+  max-width: none;
+  display: grid;
+  grid-template-columns: 228px minmax(0, 1fr) 330px;
+  gap: 14px;
+  padding: 14px;
+}
+
+.lado {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  min-height: 0;
+  padding: 20px 12px 12px;
+  background: linear-gradient(180deg, var(--surface-2), var(--surface));
+  border: 1px solid var(--line);
+  border-radius: 22px;
+}
+.lado__miro {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  text-align: center;
+}
+.lado__miro .robo-avatar {
+  padding: 8px;
+  border-radius: 26px;
+  background: radial-gradient(circle at 50% 40%, var(--glow), transparent 70%);
+}
+.lado__miro strong {
+  font-size: 20px;
+}
+.lado__miro .status {
+  white-space: normal;
+}
+.lado__humor {
+  margin-top: 4px;
+  padding: 4px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 35%, transparent);
+  border-radius: 999px;
+}
+.lado__nav {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.lado__nav button {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 11px 14px;
+  font-size: 15px;
+  font-weight: 600;
+  text-align: left;
+  color: var(--dim);
+  background: none;
+  border: 0;
+  border-radius: 14px;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+.lado__nav button:hover {
+  color: var(--text);
+  background: var(--surface-3);
+}
+.lado__nav button.on {
+  color: var(--text);
+  background: linear-gradient(90deg, color-mix(in srgb, var(--accent) 20%, transparent), transparent);
+}
+.lado__nav button.on::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 10px;
+  bottom: 10px;
+  width: 3px;
+  border-radius: 3px;
+  background: var(--accent);
+  box-shadow: 0 0 12px var(--accent);
+}
+.lado__nav button.on svg {
+  color: var(--accent);
+}
+.lado__nav .tab-badge {
+  margin-left: auto;
+}
+.lado__botoes {
+  display: flex;
+  justify-content: center;
+  gap: 4px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+}
+.icon-btn {
+  border-radius: 12px;
+  transition: color 0.15s, background 0.15s;
+}
+.icon-btn:hover {
+  color: var(--text);
+  background: var(--surface-3);
+}
+
+.centro {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  overflow-y: auto;
+  background: color-mix(in srgb, var(--surface) 70%, transparent);
+  border: 1px solid var(--line);
+  border-radius: 22px;
+}
+.centro--chat {
+  overflow: hidden;
+}
+.centro__topo {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  padding: 16px 22px 12px;
+  background: linear-gradient(180deg, var(--surface) 70%, transparent);
+}
+.centro__topo h2 {
+  margin: 0;
+  font-size: 20px;
+}
+.app--largo .thread {
+  padding: 8px 22px 20px;
+}
+.app--largo .bubble {
+  max-width: 72%;
+  font-size: 15.5px;
+}
+.app--largo .composer {
+  margin: 0 14px 14px;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: var(--surface-2);
+}
+.app--largo .composer textarea {
+  background: transparent;
+}
+.app--largo .agenda,
+.app--largo .tasks,
+.app--largo .meeting {
+  padding-left: 22px;
+  padding-right: 22px;
+}
+
+.lateral {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-height: 0;
+  overflow-y: auto;
+}
+.proximo {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin-bottom: 12px;
+  padding: 12px 14px;
+  border-radius: 14px;
+  background: linear-gradient(135deg, color-mix(in srgb, var(--accent) 22%, transparent), color-mix(in srgb, var(--accent-2) 14%, transparent));
+  border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent);
+}
+.proximo__falta {
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+.proximo strong {
+  font-size: 16px;
+}
+.linha-tempo {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.linha-tempo li {
+  display: flex;
+  gap: 12px;
+  padding: 7px 0;
+  font-size: 14px;
+  border-top: 1px solid var(--line);
+}
+.linha-tempo li:first-child {
+  border-top: 0;
+}
+.linha-tempo span {
+  flex-shrink: 0;
+  width: 54px;
+  color: var(--dim);
+  font-variant-numeric: tabular-nums;
+}
+.linha-tempo--agora span {
+  color: var(--ok);
+  font-weight: 700;
+}
+.card .dim {
+  font-size: 14px;
+}
+.pend {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.pend li {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 8px 0;
+  font-size: 14px;
+  line-height: 1.4;
+  border-top: 1px solid var(--line);
+}
+.pend li:first-child {
+  border-top: 0;
+}
+.pend em {
+  font-style: normal;
+  color: var(--dim);
+}
+.pend .tasks__check {
+  width: 18px;
+  height: 18px;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.pend .tasks__check:hover {
+  box-shadow: 0 0 10px var(--glow);
+}
+.lateral__diario {
+  margin-bottom: 12px !important;
+  padding-left: 10px;
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--dim);
+  border-left: 2px solid var(--accent-2);
+}
+.lembra {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+/* ── aba Memória ────────────────────────────────────────────────────── */
+
+.memoria {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  padding: 4px 16px 24px;
+}
+.app--largo .memoria {
+  padding: 4px 22px 22px;
+}
+.memoria__topo {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 16px;
+}
+@media (min-width: 1300px) {
+  .memoria__topo {
+    grid-template-columns: minmax(0, 0.8fr) minmax(0, 1.2fr);
+  }
+}
+.memoria__humor {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+.memoria__humor p,
+.memoria__diario p {
+  line-height: 1.5;
+}
+.memoria__diario {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.memoria__diario strong {
+  color: var(--accent-2);
+  text-transform: capitalize;
+}
+.memoria__barra {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+.memoria__barra input {
+  flex: 0 1 240px;
+  min-width: 160px;
+  padding: 8px 12px;
+  font: inherit;
+  font-size: 14px;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  outline: none;
+}
+.memoria__barra input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--glow);
+}
+.memoria__tipos {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.memoria__vazio {
+  padding: 40px 20px;
+  text-align: center;
+  color: var(--dim);
+}
+.memoria__palco {
+  position: relative;
+}
+.memoria__palco svg {
+  display: block;
+  width: 100%;
+  height: auto;
+  max-height: 62vh;
+}
+.aresta line {
+  stroke: var(--line);
+  stroke-width: 1.5;
+  transition: stroke 0.15s, opacity 0.15s;
+}
+.aresta--acesa line {
+  stroke: var(--accent);
+  stroke-width: 2;
+}
+.aresta--apagada {
+  opacity: 0.15;
+}
+.aresta text {
+  fill: var(--accent);
+  font-size: 12px;
+  font-weight: 600;
+  text-anchor: middle;
+  paint-order: stroke;
+  stroke: var(--bg);
+  stroke-width: 4px;
+}
+.no {
+  cursor: pointer;
+  outline: none;
+  transition: opacity 0.15s;
+}
+.no text {
+  fill: var(--text);
+  font-size: 13px;
+  text-anchor: middle;
+  paint-order: stroke;
+  stroke: var(--bg);
+  stroke-width: 4px;
+}
+.no__bola {
+  fill: color-mix(in srgb, var(--tipo) 30%, var(--surface));
+  stroke: var(--tipo);
+  stroke-width: 2;
+}
+.no__halo {
+  fill: var(--tipo);
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+.no:hover .no__halo,
+.no:focus-visible .no__halo,
+.no--escolhido .no__halo {
+  opacity: 0.22;
+}
+.no--escolhido .no__bola {
+  fill: var(--tipo);
+}
+.no--apagado {
+  opacity: 0.22;
+}
+.no--dono {
+  cursor: default;
+}
+.no--dono circle {
+  filter: drop-shadow(0 0 14px var(--glow));
+}
+.no text.no__dono {
+  fill: var(--accent-ink);
+  font-weight: 800;
+  stroke: none;
+}
+.memoria__ficha {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 260px;
+  padding: 14px 16px;
+  background: color-mix(in srgb, var(--surface-2) 94%, transparent);
+  backdrop-filter: blur(8px);
+  border: 1px solid var(--tipo, var(--line));
+  border-radius: 16px;
+  box-shadow: 0 14px 40px rgba(0, 0, 0, 0.5);
+}
+.memoria__ficha h3 {
+  margin: 0 0 4px;
+  font-size: 18px;
+}
+.memoria__ficha ul {
+  margin: 10px 0;
+  padding-left: 18px;
+  font-size: 14px;
+  line-height: 1.6;
+}
+.memoria__ficha .dim {
+  font-size: 13px;
+  margin-bottom: 8px;
+}
+.memoria__ficha .mini-btn {
+  padding: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .lado__nav button,
+  .aresta line,
+  .no,
+  .no__halo {
+    transition: none;
+  }
 }
