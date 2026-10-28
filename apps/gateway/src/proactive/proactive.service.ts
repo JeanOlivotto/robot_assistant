@@ -8,6 +8,7 @@ import { ChatService } from '../chat/chat.service.js';
 import { DiarioService } from '../diario/diario.service.js';
 import { APP_CONFIG, type AppConfig } from '../config/app-config.js';
 import { rootPath } from '../config/paths.js';
+import { MemoryService } from '../memory/memory.service.js';
 import { RobotStateService } from '../robot/robot-state.service.js';
 import { TaskService } from '../tasks/task.service.js';
 import { SilencioService } from './silencio.service.js';
@@ -55,6 +56,8 @@ export class ProactiveService implements OnModuleInit, OnModuleDestroy {
   private lastLearnAt = 0;
   /** O dia cujo diário ele já tentou escrever (uma tentativa por dia, mesmo se o LLM falhar). */
   private diarioTentado = '';
+  /** O dia em que tentou a arrumação única da memória (uma tentativa por madrugada). */
+  private arrumacaoTentada = '';
   private mem: ProactiveMemory = { day: '', spokenCount: 0, lastSpokenAt: 0, lastSpokenText: '', lastJudgeAt: 0 };
 
   constructor(
@@ -66,6 +69,7 @@ export class ProactiveService implements OnModuleInit, OnModuleDestroy {
     private readonly tasks: TaskService,
     private readonly silencio: SilencioService,
     private readonly diario: DiarioService,
+    private readonly memory: MemoryService,
   ) {
     this.file = rootPath(`${cfg.DATA_DIR}/proactive.json`);
     this.clock = new Intl.DateTimeFormat('en-CA', {
@@ -128,6 +132,13 @@ export class ProactiveService implements OnModuleInit, OnModuleDestroy {
       if (this.diarioTentado !== ontem && !this.diario.tem(ontem)) {
         this.diarioTentado = ontem;
         void this.diario.escrever(ontem, this.chat.history(400));
+      } else if (!this.memory.arrumado()) {
+        // Arrumação única da memória antiga: de madrugada, ninguém conversando e a cota do dia sobrando.
+        const { date, minutes } = this.now();
+        if (this.arrumacaoTentada !== date && minutes >= 3 * 60 && minutes < 6 * 60) {
+          this.arrumacaoTentada = date;
+          void this.memory.arrumar(this.chat.history(400));
+        }
       }
     }
 

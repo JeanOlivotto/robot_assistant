@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { Inject, Injectable, Logger } from '@nestjs/common';
@@ -38,6 +38,8 @@ export interface Relacao {
 interface Grafo {
   entidades: Entidade[];
   relacoes: Relacao[];
+  /** Quando passou pela arrumação única (as lembranças antigas viraram entidades soltas, sem tipo). */
+  arrumadoEm?: number;
 }
 
 const DONO = 'dono';
@@ -69,6 +71,14 @@ const RelacaoLlm = z.object({
   valor: z.string().trim().min(1).max(80).optional().catch(undefined),
 });
 
+const Ref = z.string().trim().min(1).max(12); // "e3" ou "dono"
+const ArrumacaoLlm = z.object({
+  corrigir: z.array(z.object({ id: Ref, nome: Nome.optional().catch(undefined), tipo: z.enum(TIPOS).optional().catch(undefined), apelidos: z.array(Nome).catch([]).default([]) })).catch([]).default([]),
+  juntar: z.array(z.object({ id: Ref, em: Ref })).catch([]).default([]),
+  apagar: z.array(Ref).catch([]).default([]),
+  relacoes: z.array(z.object({ de: Ref, rel: z.string().trim().min(2).max(40), para: Ref.optional().catch(undefined), valor: z.string().trim().min(1).max(80).optional().catch(undefined) })).catch([]).default([]),
+});
+
 /** Só os itens que passam no schema — um item torto do LLM não derruba o resto. */
 const itens = <T>(v: unknown, schema: z.ZodType<T>, max: number): T[] =>
   Array.isArray(v)
@@ -90,6 +100,7 @@ export class MemoryService {
   private readonly file: string;
   private items: Entidade[] = [];
   private relacoes: Relacao[] = [];
+  private arrumadoEm = 0;
 
   constructor(
     @Inject(APP_CONFIG) private readonly cfg: AppConfig,
@@ -274,12 +285,151 @@ export class MemoryService {
     }
   }
 
+  /** Já passou pela arrumação única (ou não tem nada para arrumar). */
+  arrumado(): boolean {
+    return this.arrumadoEm > 0 || this.items.length === 0;
+  }
+
+  /**
+   * Arrumação única da memória: as lembranças antigas viraram entidades soltas, sem tipo e sem ligação
+   * (e às vezes frases inteiras, ou o próprio dono como outra pessoa). O LLM revê tudo de uma vez, com a
+   * conversa como contexto: corrige nome e tipo, junta repetidas, apaga o que não serve e liga o que der.
+   * Guarda uma cópia do grafo antes (memoria-grafo.antes-da-arrumacao.json).
+   */
+  async arrumar(history: ChatMessage[]): Promise<boolean> {
+    if (!this.llm.enabled || this.arrumado()) return false;
+    const ref = new Map(this.items.map((e, i) => [`e${i + 1}`, e.id]));
+    const refDe = new Map([...ref].map(([r, id]) => [id, r]));
+    refDe.set(DONO, DONO);
+    const lista = [...ref]
+      .map(([r, id]) => {
+        const e = this.items.find((x) => x.id === id)!;
+        return `${r}: ${e.texto} (${e.tipo}${e.apelidos.length ? `; ${e.apelidos.join(', ')}` : ''}; ${e.mentions}x)`;
+      })
+      .join('\n');
+    const ligacoes =
+      this.relacoes
+        .map((r) => `${refDe.get(r.de)} ${r.rel} ${r.para ? refDe.get(r.para) : `= ${r.valor}`}`)
+        .join('\n') || '(nenhuma)';
+    // A conversa dá o contexto de quem é quem; cabe no limite por minuto.
+    let conversa = '';
+    for (const m of [...history].reverse()) {
+      const linha = `${m.from === 'user' ? 'Dono' : 'Robô'}: ${m.text.slice(0, 300)}\n`;
+      if (conversa.length + linha.length > 8_000) break;
+      conversa = linha + conversa;
+    }
+    try {
+      const msg = await this.llm.complete(
+        [
+          {
+            role: 'system',
+            content:
+              `Você arruma a memória de longo prazo de um robô sobre o dono dele (${this.nomeDoDono()}, a entidade "dono"). ` +
+              'A memória é um grafo, mas muita coisa entrou bagunçada: tudo como "outro", sem ligações, às vezes uma frase ' +
+              'em vez de um nome, às vezes repetida ou o próprio dono como se fosse outra pessoa.\n' +
+              `Tipos: ${TIPOS.join(', ')}. Use a conversa para saber quem é quem; não invente o que ela não mostra.\n` +
+              '- "corrigir": tipo certo de cada entidade e, se o nome for uma frase, um nome curto (1 a 5 palavras) do assunto.\n' +
+              '- "juntar": entidades que são a mesma coisa ("em" é a que fica; o dono é "dono").\n' +
+              '- "apagar": o que não vale lembrar por semanas (tarefa pontual, teste do robô, trivialidade).\n' +
+              '- "relacoes": ligações que a conversa mostra, "rel" em snake_case curto (trabalha_em, colega_de, cliente_de, ' +
+              'parte_de, mora_em); entre duas entidades use "para", para um atributo use "valor".\n' +
+              'Use só os ids da lista (e1, e2...) ou "dono". Responda SOMENTE com JSON {"corrigir": [{"id","nome"?,"tipo",' +
+              '"apelidos"?}], "juntar": [{"id","em"}], "apagar": [id], "relacoes": [{"de","rel","para"|"valor"}]}.',
+          },
+          { role: 'user', content: `Entidades:\n${lista}\n\nLigações:\n${ligacoes}\n\nConversa:\n${conversa || '(vazia)'}` },
+        ],
+        undefined,
+        // Sem pressa: começa pela reserva para não comer a cota diária do Groq.
+        { maxTokens: 4000, temperature: 0.2, reservaPrimeiro: true },
+      );
+      const out = this.parseArrumacao(msg.content ?? '');
+      if (!out) {
+        this.log.warn('arrumar(): resposta sem JSON — tenta de novo amanhã');
+        return false;
+      }
+      if (existsSync(this.file)) copyFileSync(this.file, this.file.replace(/\.json$/, '.antes-da-arrumacao.json'));
+      const antes = { entidades: this.items.length, relacoes: this.relacoes.length };
+      this.aplicarArrumacao(out, ref);
+      this.arrumadoEm = Date.now();
+      this.save();
+      this.log.log(
+        `Memória arrumada: ${antes.entidades} → ${this.items.length} entidade(s), ${antes.relacoes} → ${this.relacoes.length} ligação(ões)`,
+      );
+      return true;
+    } catch (err) {
+      this.log.warn(`arrumar() falhou: ${(err as Error).message}`);
+      return false;
+    }
+  }
+
+  private parseArrumacao(raw: string): z.infer<typeof ArrumacaoLlm> | null {
+    const clean = raw.replace(/```json/gi, '').replace(/```/g, '');
+    const start = clean.indexOf('{');
+    const end = clean.lastIndexOf('}');
+    if (start < 0 || end <= start) return null;
+    try {
+      const r = ArrumacaoLlm.safeParse(JSON.parse(clean.slice(start, end + 1)));
+      return r.success ? r.data : null;
+    } catch {
+      return null;
+    }
+  }
+
+  private aplicarArrumacao(out: z.infer<typeof ArrumacaoLlm>, ref: Map<string, string>): void {
+    const id = (r: string) => (r === DONO ? DONO : ref.get(r));
+    const ent = (i: string | undefined) => (i ? this.items.find((e) => e.id === i) : undefined);
+    for (const c of out.corrigir) {
+      const e = ent(id(c.id));
+      if (!e) continue;
+      if (c.tipo) e.tipo = c.tipo;
+      if (c.nome && NORMALIZE(c.nome) !== NORMALIZE(e.texto)) {
+        const antigo = e.texto;
+        e.texto = c.nome.slice(0, 120);
+        e.apelidos = e.apelidos.filter((a) => NORMALIZE(a) !== NORMALIZE(e.texto));
+        this.apelidar(e, [antigo]);
+      }
+      this.apelidar(e, c.apelidos);
+    }
+    for (const j of out.juntar) {
+      const sai = ent(id(j.id));
+      const fica = id(j.em);
+      if (!sai || !fica || fica === sai.id || (fica !== DONO && !ent(fica))) continue;
+      const alvo = ent(fica);
+      if (alvo) {
+        alvo.mentions += sai.mentions;
+        alvo.lastSeenAt = Math.max(alvo.lastSeenAt, sai.lastSeenAt);
+        alvo.createdAt = Math.min(alvo.createdAt, sai.createdAt);
+        this.apelidar(alvo, [sai.texto, ...sai.apelidos]);
+      }
+      for (const r of this.relacoes) {
+        if (r.de === sai.id) r.de = fica;
+        if (r.para === sai.id) r.para = fica;
+      }
+      this.relacoes = this.relacoes.filter((r) => r.de !== r.para);
+      this.items = this.items.filter((e) => e !== sai);
+    }
+    this.remover(new Set(out.apagar.map(id).filter((i): i is string => !!i && i !== DONO)));
+    // As ligações passam pelo mesmo caminho do learn(), pelo nome — mas só entre quem está na lista.
+    const nome = (r: string | undefined) => {
+      const i = r ? id(r) : undefined;
+      return i === DONO ? DONO : ent(i)?.texto;
+    };
+    const relacoes = out.relacoes.flatMap((r) => {
+      const de = nome(r.de);
+      const para = r.para ? nome(r.para) : undefined;
+      if (!de || (r.para && !para)) return [];
+      return [{ de, rel: r.rel, ...(para ? { para } : { valor: r.valor }) }];
+    });
+    this.aplicar({ entidades: [], relacoes, esquecer: [] });
+  }
+
   private aplicar(out: ReturnType<MemoryService['parse']>): void {
     if (out.esquecer.length) {
       const fora = new Set(out.esquecer.map((n) => this.achar(n)?.id).filter((id): id is string => !!id));
       this.remover(fora);
     }
-    for (const e of out.entidades) this.note(e.nome, e.tipo, e.apelidos);
+    // O dono é o nó fixo: "Jean" na lista viraria um segundo Jean solto no mapa.
+    for (const e of out.entidades) if (!this.ehDono(e.nome)) this.note(e.nome, e.tipo, e.apelidos);
     const agora = Date.now();
     for (const r of out.relacoes) {
       const de = this.idDe(r.de);
@@ -326,10 +476,14 @@ export class MemoryService {
 
   /** Id de uma ponta de ligação: o dono, uma entidade conhecida ou uma nova (tipo "outro"). */
   private idDe(nome: string): string | undefined {
+    if (this.ehDono(nome)) return DONO;
+    return (this.achar(nome) ?? this.note(nome))?.id;
+  }
+
+  private ehDono(nome: string): boolean {
     const key = NORMALIZE(nome);
     const dono = NORMALIZE(this.cfg.OWNER_NAME ?? '');
-    if (key === DONO || key === 'eu' || (dono && key === dono)) return DONO;
-    return (this.achar(nome) ?? this.note(nome))?.id;
+    return key === DONO || key === 'eu' || (!!dono && key === dono);
   }
 
   private apelidar(e: Entidade, apelidos: string[]): void {
@@ -393,6 +547,7 @@ export class MemoryService {
       const g = JSON.parse(readFileSync(this.file, 'utf8')) as Partial<Grafo>;
       this.items = g.entidades ?? [];
       this.relacoes = g.relacoes ?? [];
+      this.arrumadoEm = g.arrumadoEm ?? 0;
       return;
     } catch {
       /* grafo ainda não existe */
@@ -411,7 +566,7 @@ export class MemoryService {
   private save(): void {
     try {
       mkdirSync(dirname(this.file), { recursive: true });
-      writeFileSync(this.file, JSON.stringify({ entidades: this.items, relacoes: this.relacoes } satisfies Grafo));
+      writeFileSync(this.file, JSON.stringify({ entidades: this.items, relacoes: this.relacoes, arrumadoEm: this.arrumadoEm || undefined } satisfies Grafo));
     } catch (err) {
       this.log.warn(`Falha ao salvar memória: ${(err as Error).message}`);
     }

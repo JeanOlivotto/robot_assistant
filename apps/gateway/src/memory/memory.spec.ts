@@ -179,4 +179,65 @@ describe('MemoryService', () => {
     const duda = m.all().find((e) => e.texto === 'Duda')!;
     expect(m.curiosidades(5, 2, duda.id).map((e) => e.texto)).toEqual(['confeitaria']);
   });
+
+  describe('arrumar()', () => {
+    it('corrige tipo e nome, junta repetidas e o dono, apaga e liga', async () => {
+      const c = cfg();
+      const resp = JSON.stringify({
+        corrigir: [
+          { id: 'e1', tipo: 'pessoa' },
+          { id: 'e3', tipo: 'trabalho' },
+          { id: 'e6', tipo: 'lugar' },
+        ],
+        juntar: [
+          { id: 'e2', em: 'dono' },
+          { id: 'e5', em: 'e3' },
+        ],
+        apagar: ['e4'],
+        relacoes: [
+          { de: 'e1', rel: 'trabalha_em', para: 'e3' },
+          { de: 'dono', rel: 'mora_em', para: 'e6' },
+          { de: 'e9', rel: 'inventado', para: 'e1' },
+        ],
+      });
+      // Como as lembranças antigas chegaram: tudo "outro", o dono como outra entidade, frase, repetida.
+      const m = new MemoryService(c, llm(resp));
+      for (const n of ['Kleiton', 'Jean', 'TaxResearch', 'cálculo retornando zero no relatório', 'Tax Research', 'Rio Preto']) m.note(n);
+      m.touch(m.all()[0]!.id); // grava o arquivo
+      expect(await m.arrumar([userMsg('o Kleiton é da TaxResearch')])).toBe(true);
+
+      const nomes = m.all().map((e) => `${e.texto}:${e.tipo}`);
+      expect(nomes).toEqual(['Kleiton:pessoa', 'TaxResearch:trabalho', 'Rio Preto:lugar']);
+      expect(m.all()[1]!.apelidos).toContain('Tax Research');
+      expect(m.all()[1]!.mentions).toBe(2);
+      expect(m.ficha(m.all()[0]!)).toBe('Kleiton — trabalha em TaxResearch');
+      expect(m.grafo().relacoes).toHaveLength(2);
+      expect(m.arrumado()).toBe(true);
+      expect(readFileSync(join(c.DATA_DIR, 'memoria-grafo.antes-da-arrumacao.json'), 'utf8')).toContain('cálculo retornando zero');
+      // Só uma vez: recarregando, continua arrumada.
+      expect(await new MemoryService(c, llm(resp)).arrumar([])).toBe(false);
+    });
+
+    it('troca frase por nome curto, guardando a frase como apelido', async () => {
+      const c = cfg();
+      const m = new MemoryService(c, llm('{"corrigir":[{"id":"e1","nome":"auto process COMPESA","tipo":"projeto"}]}'));
+      m.note('ajuste no auto process da COMPESA');
+      await m.arrumar([]);
+      expect(m.all()[0]).toMatchObject({ texto: 'auto process COMPESA', tipo: 'projeto', apelidos: ['ajuste no auto process da COMPESA'] });
+    });
+
+    it('resposta sem JSON não marca como arrumada', async () => {
+      const m = new MemoryService(cfg(), llm('não sei'));
+      m.note('Kleiton');
+      expect(await m.arrumar([])).toBe(false);
+      expect(m.arrumado()).toBe(false);
+      expect(m.all()).toHaveLength(1);
+    });
+  });
+
+  it('learn() não guarda o dono como entidade solta', async () => {
+    const m = new MemoryService(cfg(), llm('{"entidades":[{"nome":"Jean","tipo":"pessoa"},{"nome":"Duda","tipo":"pessoa"}]}'));
+    await m.learn([userMsg('a Duda é minha esposa')]);
+    expect(m.all().map((e) => e.texto)).toEqual(['Duda']);
+  });
 });
