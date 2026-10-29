@@ -29,7 +29,7 @@ const Schema = z.object({
 
   /*
    * Claude (Anthropic): com a chave, vira o cérebro — conversa, ligação e fotos. O Groq e a NVIDIA
-   * passam a ser a reserva. CLAUDE_MODEL_LEVE (barato) faz o que não tem pressa: memória, WhatsApp de terceiros.
+   * passam a ser a reserva. CLAUDE_MODEL_LEVE (barato) faz o que não tem pressa: arrumar a memória.
    */
   API_CLAUDE: z.string().default(''),
   CLAUDE_MODEL: z.string().default('claude-sonnet-5-5'),

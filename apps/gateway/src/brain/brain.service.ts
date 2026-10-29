@@ -1342,6 +1342,7 @@ export class BrainService {
           texto,
           ...(figurinha ? { figurinha } : {}),
           ...(audio ? { audio } : {}),
+          ...(doRobo ? { doRobo } : {}),
           ...(arquivo ? { arquivo, ...(maquina ? { maquina } : {}) } : {}),
         },
       },

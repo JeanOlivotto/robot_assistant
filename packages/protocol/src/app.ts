@@ -34,6 +34,8 @@ export const Proposal = z.object({
   figurinha: z.enum(FACES).optional(),
   /** Só em 'whatsapp': o `texto` vai falado, como mensagem de voz, com a voz do robô. */
   audio: z.boolean().optional(),
+  /** Só em 'whatsapp': vai em nome do robô (assinada por ele) — quem responder está falando com ele. */
+  doRobo: z.boolean().optional(),
   /** Só em 'whatsapp': caminho de um arquivo no computador do dono, que vai anexado (o texto vira legenda). */
   arquivo: z.string().max(500).optional(),
   /** Só em 'reuniao': a ligação do WhatsApp — quando ela acabar, a gravação dela encerra sozinha. */

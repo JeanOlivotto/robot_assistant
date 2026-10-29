@@ -399,8 +399,11 @@ export class ChatService implements OnModuleInit, OnModuleDestroy {
       if (p.arquivo && arquivoSensivel(p.arquivo)) throw new Error('esse arquivo parece chave, senha ou token: não sai pelo WhatsApp');
       const arquivo = p.arquivo ? await this.braco.pegarArquivo(p.arquivo, p.maquina) : null;
       if (arquivo && (!arquivo.ok || !arquivo.arquivo)) throw new Error(arquivo.erro ?? 'não consegui pegar o arquivo no computador');
-      if (p.texto && p.audio) await this.whatsapp.enviarAudio(p.chat ?? '', p.texto);
-      else if (p.texto && !arquivo) await this.whatsapp.enviar(p.chat ?? '', p.texto);
+      let id: string | undefined;
+      if (p.texto && p.audio) id = await this.whatsapp.enviarAudio(p.chat ?? '', p.texto);
+      else if (p.texto && !arquivo) id = await this.whatsapp.enviar(p.chat ?? '', p.texto);
+      // Em nome dele: o atendente fica sabendo, para entender a resposta de quem recebeu como conversa com ele.
+      if (p.doRobo && p.texto && p.chat) this.whatsapp.roboFalou$.next({ chat: p.chat, destino: p.destino ?? p.chat, id, texto: p.texto });
       if (arquivo?.arquivo) {
         await this.whatsapp.enviarArquivo(p.chat ?? '', arquivo.arquivo.dados, arquivo.arquivo.nome, p.audio ? undefined : p.texto || undefined);
       }

@@ -147,6 +147,8 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
   readonly chegou$ = new Subject<Recebida>();
   /** O dono escreveu numa conversa pelo celular (a conversa é dele agora). */
   readonly donoEscreveu$ = new Subject<string>();
+  /** O robô mandou, em nome dele, uma mensagem que o dono aprovou no app: quem responder está falando com ele. */
+  readonly roboFalou$ = new Subject<{ chat: string; destino: string; id?: string; texto: string }>();
   /** Ligação chegando, ou acabando (nunca com a privacidade ligada). O áudio não vem: só o aviso. */
   readonly ligacao$ = new Subject<Ligacao>();
   /** O que o próprio robô mandou: volta como "fromMe" e não pode passar por mensagem do dono. */

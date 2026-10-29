@@ -98,6 +98,7 @@ export class AtendenteService implements OnModuleInit, OnModuleDestroy {
         this.conversas.delete(chat);
         this.assumidas.set(chat, Date.now() + DONO_ASSUMIU_MS);
       }),
+      this.whatsapp.roboFalou$.subscribe((f) => this.falouPeloApp(f)),
     ];
   }
 
@@ -193,10 +194,12 @@ export class AtendenteService implements OnModuleInit, OnModuleDestroy {
       ? [{
           role: 'system',
           content:
-            `Ninguém te chamou agora: ${m.grupo ? 'o grupo está conversando' : `${conversa.nome} escreveu`} e pode não ser com você. ` +
-            'Entre só se a mensagem for PARA você (pergunta ou resposta a você, algo que você disse, um "e você?" no papo em que ' +
-            'você estava) ou se falarem de você de um jeito que peça reação. Conversa entre eles, recado para ' +
-            `${this.dono()} ou assunto que não é seu: fique quieto — responda só {"calar": true}. Na dúvida, fique quieto.`,
+            `Ninguém te chamou pelo nome agora: ${m.grupo ? 'o grupo está conversando' : `${conversa.nome} escreveu`} e pode não ser com você. ` +
+            'É com você quando a mensagem reage ao que VOCÊ disse por último — zoa, ri, discorda, completa ou responde a sua frase, ' +
+            'mesmo sem citar a mensagem nem dizer o seu nome —, quando é uma pergunta para você ou um "e você?" no papo em que ' +
+            'você estava, ou quando falam de você de um jeito que pede reação: aí entre como um amigo do grupo entraria. ' +
+            `Conversa entre eles sobre outro assunto, recado para ${this.dono()} ou papo que já fechou: fique quieto — responda só ` +
+            '{"calar": true}. Se não dá para ligar a mensagem a nada que você disse, fique quieto.',
         }]
       : [];
 
@@ -205,8 +208,9 @@ export class AtendenteService implements OnModuleInit, OnModuleDestroy {
       const msg = await this.llm.complete(
         [{ role: 'system', content: this.prompt(conversa.nome, tecnico, cobrindo, m.grupo, this.podeEncaminhar(m.chat)) }, ...conversa.falas.slice(-HISTORICO), ...duvida, ...alerta],
         undefined, // de propósito: nenhuma ferramenta
-        // NVIDIA primeiro: conversa de terceiros não pode comer a cota diária do Groq (a do dono).
-        { maxTokens: MAX_TOKENS, temperature: 0.8, reservaPrimeiro: true },
+        // No Claude grande, sem pensar: o barato não percebia quando zoavam a fala dele sem citar nem chamar
+        // pelo nome. O Groq (a cota do dono) só entra se o Claude falhar.
+        { maxTokens: MAX_TOKENS, temperature: 0.8, quick: true },
       );
       saida = lerSaida(msg.content ?? '');
     } catch (err) {
@@ -219,7 +223,9 @@ export class AtendenteService implements OnModuleInit, OnModuleDestroy {
       this.log.debug(`Atendente: ${quem} — não era com ele, ficou quieto`);
       return;
     }
-    if (!saida || saida.calar) return this.anotar(quem, 'não respondeu: o LLM voltou vazio');
+    // A conversa fechou ("valeu", "blz", um 👍): não precisa da última palavra.
+    if (saida?.calar) return this.anotar(quem, 'não respondeu: a conversa já tinha acabado');
+    if (!saida) return this.anotar(quem, 'não respondeu: o LLM voltou vazio');
     if (talvez) lote.forEach((x) => void this.whatsapp.marcarLida(x.id));
 
     // Fingiu que mandou, ou colou algo com cara de código/arquivo: é invenção — sai a recusa padrão.
@@ -406,6 +412,20 @@ export class AtendenteService implements OnModuleInit, OnModuleDestroy {
     return true;
   }
 
+  /**
+   * Mandou no grupo (ou no privado) pelo cartão do app, em nome dele: a fala entra na conversa, e a
+   * resposta que vier logo depois — citando ou não — é avaliada como possível conversa com ele.
+   */
+  private falouPeloApp(f: { chat: string; destino: string; id?: string; texto: string }): void {
+    this.lembrar(f.id);
+    const grupo = f.chat.endsWith('@g.us');
+    const conversa = this.conversas.get(f.chat) ?? { nome: f.destino, ate: 0, falouEm: 0, falas: [] };
+    conversa.falas = [...conversa.falas, { role: 'assistant' as const, content: JSON.stringify({ resposta: f.texto }) }].slice(-HISTORICO);
+    conversa.ate = grupo ? 0 : Date.now() + CONVERSA_MS;
+    conversa.falouEm = Date.now();
+    this.conversas.set(f.chat, conversa);
+  }
+
   private lembrar(id: string | undefined): void {
     if (!id) return;
     this.minhas.add(id);
@@ -505,6 +525,13 @@ Brincadeira ou sério? Antes de responder, decida o tom de quem escreveu — é 
   pedido concreto ou recado de verdade para ${dono}. Aí você muda a chave: responde curto e direto, sem zoeira
   e sem gíria pesada, confirma que ${dono} vai saber — e avisa ele.
 Na dúvida entre os dois (ex.: "kkk mas sério, cadê o relatório?"), trate como sério.
+
+Converse como gente no WhatsApp, não como quem responde chamado:
+- Resposta não precisa de nome nem de citação: se a pessoa reagiu ao que VOCÊ acabou de dizer (zoou, discordou,
+  completou, riu), é com você — entre na onda como um amigo do grupo faria.
+- Saiba a hora de parar. Conversa que fechou — despedida, "valeu", "blz", "fechou", "tmj", um "kkk" ou emoji solto
+  depois de você já ter respondido, um 👍 — não pede resposta: responda só {"calar": true}. Não queira ter a última
+  palavra, não puxe assunto para esticar e não repita o que já disse. Pergunta nova ou assunto novo reabre a conversa.
 
 Responda SOMENTE com JSON: {"resposta": "o que vai para ${contato}", "tom": "brincadeira" | "serio", "avisar": "recado curto para ${dono}, ou vazio", "pendencia": "", ${tecnico ? '"consulta": "", ' : ''}${cobrindo ? '"importante": "", ' : ''}${cobrindo && encaminha ? '"encaminhar": "", ' : ''}"expressao": "...", "figurinha": false, "audio": false}.
 "pendencia": só quando é sério E é algo para ${dono} FAZER (ex.: "fazer os endpoints que alinhamos de manhã",
