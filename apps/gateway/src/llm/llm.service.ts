@@ -281,7 +281,10 @@ export class LlmService {
     });
     this.guardadas.guardar(res);
     const u = res.usage;
-    this.log.debug(`${t.label}: ${u.input_tokens} + ${u.cache_read_input_tokens ?? 0} do cache + ${u.output_tokens} tokens`);
+    // input_tokens é só o que ficou fora do cache: o que foi gravado nele vem à parte.
+    this.log.debug(
+      `${t.label}: ${u.input_tokens} + ${u.cache_creation_input_tokens ?? 0} gravados + ${u.cache_read_input_tokens ?? 0} lidos do cache → ${u.output_tokens} tokens`,
+    );
     return deClaude(res);
   }
 
