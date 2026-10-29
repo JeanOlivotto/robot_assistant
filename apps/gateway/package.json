@@ -13,6 +13,7 @@
     "fake-app": "tsx scripts/fake-app.ts"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^1.3.0",
     "@date-fns/tz": "^1.5.0",
     "@grpc/grpc-js": "^1.14.4",
     "@grpc/proto-loader": "^0.8.1",

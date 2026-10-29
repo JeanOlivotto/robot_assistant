@@ -1,3 +1,4 @@
+import Anthropic from '@anthropic-ai/sdk';
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import OpenAI from 'openai';
 import type {
@@ -6,6 +7,7 @@ import type {
   ChatCompletionTool,
 } from 'openai/resources/chat/completions';
 import { APP_CONFIG, type AppConfig } from '../config/app-config.js';
+import { deClaude, ferramentasParaClaude, paraClaude, RespostasGuardadas } from './claude.js';
 
 /** Quanto esperar cada modelo antes de tentar o próximo (a Siri desiste perto de 1 min). */
 const ATTEMPT_TIMEOUT_MS = 15_000;
@@ -22,19 +24,39 @@ const RATE_WAIT_MAX_MS = 20_000;
  * ("try again in 30ms"): vale insistir nele dentro disto em vez de ir para a reserva.
  */
 const RATE_WAIT_BUDGET_MS = 25_000;
+/** O Claude pensando antes de responder leva mais que os 15 s do Groq; a Siri ainda espera. */
+const CLAUDE_TIMEOUT_MS = 30_000;
+/** Tokens a mais para o raciocínio do Claude: o max_tokens dele conta o pensamento junto com a resposta. */
+const PENSAR_TOKENS = 6000;
+
+/**
+ * claude: o cérebro (Claude, pago — sem cota diária). claude-leve: o Claude barato, para o que roda
+ * sem pressa. rapido: o Groq (grátis, com cota). reserva: a NVIDIA (grátis e lenta).
+ */
+type Papel = 'claude' | 'claude-leve' | 'rapido' | 'reserva';
+
+/** A ordem de tentativa: a conversa vai no melhor; o que não tem pressa, no mais barato. */
+const ORDEM: Record<'normal' | 'leve', Record<Papel, number>> = {
+  normal: { claude: 0, rapido: 1, reserva: 2, 'claude-leve': 3 },
+  leve: { 'claude-leve': 0, reserva: 1, rapido: 2, claude: 3 },
+};
 
 interface Target {
-  client: OpenAI;
+  /** Provedores compatíveis com OpenAI (Groq, NVIDIA). */
+  client?: OpenAI;
+  /** O Claude, pelo SDK da Anthropic. */
+  anthropic?: Anthropic;
   model: string;
   /** "provedor/modelo", para log e castigo */
   label: string;
+  papel: Papel;
   /** No provedor principal (rápido). A reserva é mais lenta: só entra quando esperar não resolve. */
   fast?: boolean;
 }
 
 /**
- * Qualquer API compatível com OpenAI Chat Completions. Principal (hoje Groq) e reserva
- * (hoje NVIDIA) em ordem: se um modelo demora ou falha, tenta o próximo.
+ * Claude (se houver API_CLAUDE) e qualquer API compatível com OpenAI Chat Completions: principal
+ * (hoje Groq) e reserva (hoje NVIDIA), em ordem — se um modelo demora ou falha, tenta o próximo.
  */
 @Injectable()
 export class LlmService {
@@ -43,8 +65,19 @@ export class LlmService {
   private readonly penalizedUntil = new Map<string, number>();
   /** Modelos rápidos no limite por minuto, e quando liberam. */
   private readonly rateLimitedUntil = new Map<string, number>();
+  /** As respostas do Claude que chamaram ferramenta, para devolvê-las inteiras na volta. */
+  private readonly guardadas = new RespostasGuardadas();
+  private readonly esforco: AppConfig['CLAUDE_EFFORT'];
 
   constructor(@Inject(APP_CONFIG) cfg: AppConfig) {
+    this.esforco = cfg.CLAUDE_EFFORT ?? 'medium';
+    if (cfg.API_CLAUDE) {
+      const anthropic = new Anthropic({ apiKey: cfg.API_CLAUDE, timeout: CLAUDE_TIMEOUT_MS, maxRetries: 0 });
+      const modelos: [string | undefined, Papel][] = [[cfg.CLAUDE_MODEL, 'claude'], [cfg.CLAUDE_MODEL_LEVE, 'claude-leve']];
+      for (const [model, papel] of modelos) {
+        if (model?.trim()) this.targets.push({ anthropic, model: model.trim(), label: `anthropic/${model.trim()}`, papel });
+      }
+    }
     const make = (baseURL: string, apiKey: string) =>
       new OpenAI({ apiKey, baseURL, timeout: ATTEMPT_TIMEOUT_MS, maxRetries: 0 });
     const host = (url: string) => new URL(url).hostname.replace(/^(api|integrate)\./, '');
@@ -53,7 +86,7 @@ export class LlmService {
       const client = make(cfg.LLM_BASE_URL, cfg.LLM_API_KEY);
       for (const model of [cfg.LLM_MODEL, ...cfg.LLM_EXTRA_MODELS.split(',')].map((m) => m.trim()).filter(Boolean)) {
         const label = `${host(cfg.LLM_BASE_URL)}/${model}`;
-        if (!this.targets.some((t) => t.label === label)) this.targets.push({ client, model, label, fast: true });
+        if (!this.targets.some((t) => t.label === label)) this.targets.push({ client, model, label, papel: 'rapido', fast: true });
       }
     }
     const fallbackKey = cfg.LLM_FALLBACK_API_KEY || cfg.LLM_API_KEY;
@@ -62,7 +95,7 @@ export class LlmService {
       const client = make(fallbackUrl, fallbackKey);
       for (const model of cfg.LLM_FALLBACK_MODELS.split(',').map((m) => m.trim()).filter(Boolean)) {
         const label = `${host(fallbackUrl)}/${model}`;
-        if (!this.targets.some((t) => t.label === label)) this.targets.push({ client, model, label });
+        if (!this.targets.some((t) => t.label === label)) this.targets.push({ client, model, label, papel: 'reserva' });
       }
     }
 
@@ -80,28 +113,35 @@ export class LlmService {
     opts?: {
       maxTokens?: number;
       temperature?: number;
-      /** Pensar pouco antes de responder (ligação): o gpt-oss raciocina bem menos e responde mais rápido. */
+      /** Pensar pouco antes de responder (ligação): o gpt-oss raciocina bem menos e o Claude não pensa — responde mais rápido. */
       quick?: boolean;
       /**
-       * Começa pela reserva (NVIDIA) e só depois vai para o principal. Para o que não tem pressa e
-       * não pode comer a cota diária do Groq — ex.: terceiros conversando com ele no WhatsApp.
+       * Começa pelo Claude barato (Haiku) e pela reserva (NVIDIA), e só depois vai para o principal. Para o
+       * que não tem pressa e não pode comer a cota diária do Groq nem o crédito do Claude grande — ex.:
+       * terceiros conversando com ele no WhatsApp, arrumar a memória.
        */
       reservaPrimeiro?: boolean;
     },
   ): Promise<ChatCompletionMessage> {
     if (!this.targets.length) throw new Error('LLM desligado (sem chave)');
     const now = Date.now();
-    // Os que estão bem primeiro, na ordem configurada; os de castigo ficam de último recurso.
+    // Os que estão bem primeiro, na ordem do papel; os de castigo ficam de último recurso.
+    const rank = ORDEM[opts?.reservaPrimeiro ? 'leve' : 'normal'];
     const order = [...this.targets].sort(
       (a, b) =>
-        Number(this.isPenalized(a.label, now)) - Number(this.isPenalized(b.label, now)) ||
-        (opts?.reservaPrimeiro ? Number(!!a.fast) - Number(!!b.fast) : 0),
+        Number(this.isPenalized(a.label, now)) - Number(this.isPenalized(b.label, now)) || rank[a.papel] - rank[b.papel],
     );
 
     const attempt = async (t: Target): Promise<ChatCompletionMessage> => {
       const started = Date.now();
       try {
-        const res = await t.client.chat.completions.create({
+        if (t.anthropic) {
+          const msg = await this.perguntarAoClaude(t, t.anthropic, messages, tools, opts);
+          this.penalizedUntil.delete(t.label);
+          this.log.debug(`${t.label} respondeu em ${Date.now() - started} ms`);
+          return msg;
+        }
+        const res = await t.client!.chat.completions.create({
           model: t.model,
           messages,
           ...(tools?.length ? { tools, tool_choice: 'auto' as const } : {}),
@@ -132,7 +172,7 @@ export class LlmService {
     // Reserva que deu timeout há pouco: tentar de novo custa 15 s à toa. Fica para o fim, se nada mais der.
     const deixadas: Target[] = [];
     for (const t of order) {
-      if (!t.fast) {
+      if (t.papel === 'reserva') {
         // Antes da reserva lenta: algum rápido libera logo? Espera por ele — e de novo, se ele pedir
         // mais um pouco, enquanto couber no orçamento.
         for (let vez = 0; vez < 5; vez++) {
@@ -188,7 +228,7 @@ export class LlmService {
     for (const t of alvos) {
       const started = Date.now();
       try {
-        const res = await t.client.chat.completions.create({
+        const res = await t.client!.chat.completions.create({
           model: t.model,
           messages: [
             {
@@ -216,6 +256,35 @@ export class LlmService {
     throw erro instanceof Error ? erro : new Error('a busca falhou');
   }
 
+  /** Uma chamada ao Claude, no formato da OpenAI na entrada e na saída. */
+  private async perguntarAoClaude(
+    t: Target,
+    anthropic: Anthropic,
+    messages: ChatCompletionMessageParam[],
+    tools: ChatCompletionTool[] | undefined,
+    opts: { maxTokens?: number; quick?: boolean } | undefined,
+  ): Promise<ChatCompletionMessage> {
+    const { system, messages: conversa } = paraClaude(messages, this.guardadas);
+    // Ligação e tarefa de fundo: sem pensar, para sair rápido e barato. Conversa escrita: pensa o quanto precisar.
+    const rapido = !!opts?.quick || t.papel === 'claude-leve';
+    const thinking = rapido ? semPensar(t.model) : ({ type: 'adaptive' } as const);
+    const res = await anthropic.messages.create({
+      model: t.model,
+      max_tokens: (opts?.maxTokens ?? 800) + (rapido ? 0 : PENSAR_TOKENS),
+      ...(system ? { system } : {}),
+      messages: conversa,
+      ...(tools?.length ? { tools: ferramentasParaClaude(tools) } : {}),
+      ...(thinking ? { thinking } : {}),
+      output_config: { effort: rapido ? 'low' : this.esforco },
+      // O prompt de sistema e as ferramentas se repetem entre as voltas de ferramenta: do cache sai ~10x mais barato.
+      cache_control: { type: 'ephemeral' },
+    });
+    this.guardadas.guardar(res);
+    const u = res.usage;
+    this.log.debug(`${t.label}: ${u.input_tokens} + ${u.cache_read_input_tokens ?? 0} do cache + ${u.output_tokens} tokens`);
+    return deClaude(res);
+  }
+
   /** O modelo rápido que sai do limite por minuto mais cedo, se for em até RATE_WAIT_MAX_MS. */
   private soonestFast(): { target: Target; wait: number } | null {
     const now = Date.now();
@@ -241,11 +310,16 @@ export class LlmService {
  * mensagem, não do modelo: não fica de castigo.
  */
 export function penaltyFor(err: unknown): number {
-  const e = err as { status?: number; message?: string };
+  const e = err as { status?: number; message?: string; headers?: { get?: (h: string) => string | null } };
+  // Crédito do Claude acabou (vem como 400): não é desta mensagem, e não volta sozinho tão cedo.
+  if (/credit balance/i.test(e?.message ?? '')) return 30 * 60_000;
   if (e?.status === 400) return 0;
   if (e?.status === 429 || /rate limit/i.test(e?.message ?? '')) {
     const espera = esperaPedida(e?.message ?? '');
-    return espera !== null ? espera + 1000 : 60_000;
+    if (espera !== null) return espera + 1000;
+    // A Anthropic diz quanto esperar no cabeçalho, não na mensagem.
+    const retry = Number(e?.headers?.get?.('retry-after'));
+    return retry > 0 ? retry * 1000 + 1000 : 60_000;
   }
   return PENALTY_MS;
 }
@@ -263,6 +337,16 @@ export function esperaPedida(mensagem: string): number | null {
   const m = Number(/(\d+)m(?!s)/.exec(t)?.[1] ?? 0);
   const s = Number(/([\d.]+)s$/.exec(t)?.[1] ?? 0);
   return Math.ceil(((h * 60 + m) * 60 + s) * 1000);
+}
+
+/**
+ * Como pedir ao Claude para não pensar: cada modelo tem o seu jeito. Opus e Fable sempre pensam
+ * (aí vai sem o campo, e o esforço baixo faz pensar pouco).
+ */
+export function semPensar(model: string): Anthropic.ThinkingConfigParam | undefined {
+  if (/sonnet-5-5/.test(model)) return { type: 'between_tools' };
+  if (/haiku|sonnet/.test(model)) return { type: 'disabled' };
+  return undefined;
 }
 
 /** Nenhum modelo respondeu, e o principal está sem cota: `volta` = em quanto tempo o primeiro libera. */

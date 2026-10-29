@@ -1,3 +1,4 @@
+import Anthropic from '@anthropic-ai/sdk';
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import OpenAI from 'openai';
 import { APP_CONFIG, type AppConfig } from '../config/app-config.js';
@@ -13,17 +14,20 @@ export class VisionService {
   private readonly log = new Logger(VisionService.name);
   private readonly client: OpenAI | null;
   private readonly models: string[];
+  /** O Claude enxerga melhor (lê texto miúdo, entende a cena): vai primeiro, e os da NVIDIA ficam de reserva. */
+  private readonly claude: Anthropic | null;
 
   constructor(@Inject(APP_CONFIG) private readonly cfg: AppConfig) {
+    this.claude = cfg.API_CLAUDE ? new Anthropic({ apiKey: cfg.API_CLAUDE, timeout: ATTEMPT_TIMEOUT_MS, maxRetries: 0 }) : null;
     const key = cfg.VISION_API_KEY || cfg.LLM_FALLBACK_API_KEY || cfg.LLM_API_KEY;
     const baseURL = cfg.VISION_BASE_URL || (cfg.LLM_FALLBACK_API_KEY ? cfg.LLM_FALLBACK_BASE_URL : cfg.LLM_BASE_URL);
     this.models = cfg.VISION_MODELS.split(',').map((m) => m.trim()).filter(Boolean);
     this.client = key && this.models.length ? new OpenAI({ apiKey: key, baseURL, timeout: ATTEMPT_TIMEOUT_MS, maxRetries: 0 }) : null;
-    if (!this.client) this.log.warn('Sem chave para visão — as fotos chegam, mas o robô não enxerga');
+    if (!this.client && !this.claude) this.log.warn('Sem chave para visão — as fotos chegam, mas o robô não enxerga');
   }
 
   get enabled(): boolean {
-    return this.client !== null;
+    return this.client !== null || this.claude !== null;
   }
 
   /**
@@ -32,7 +36,7 @@ export class VisionService {
    * ela mostra e o clima/piada, numa frase.
    */
   async describe(image: Buffer, mime: string, pedido = '', opts: { de?: string; figurinha?: boolean } = {}): Promise<string | null> {
-    if (!this.client) return null;
+    if (!this.enabled) return null;
     const owner = opts.de || this.cfg.OWNER_NAME || 'o dono';
     if (opts.figurinha) return this.perguntar(image, mime, 'Isto é uma figurinha (sticker) de WhatsApp. Em UMA frase, em português: o que ela mostra, o clima ou a piada dela, e o texto escrito nela, se houver.', 200);
     const prompt =
@@ -46,6 +50,10 @@ export class VisionService {
   }
 
   private async perguntar(image: Buffer, mime: string, prompt: string, maxTokens: number): Promise<string | null> {
+    if (this.claude) {
+      const texto = await this.perguntarAoClaude(this.claude, image, mime, prompt, maxTokens);
+      if (texto) return texto;
+    }
     if (!this.client) return null;
     const url = `data:${mime};base64,${image.toString('base64')}`;
 
@@ -66,6 +74,41 @@ export class VisionService {
       } catch (err) {
         this.log.warn(`${model} não descreveu a foto (${(err as Error).message}) — tentando o próximo`);
       }
+    }
+    return null;
+  }
+
+  private async perguntarAoClaude(claude: Anthropic, image: Buffer, mime: string, prompt: string, maxTokens: number): Promise<string | null> {
+    const model = this.cfg.CLAUDE_MODEL;
+    const tipos = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'] as const;
+    const media_type = tipos.find((t) => t === mime) ?? 'image/jpeg';
+    const started = Date.now();
+    try {
+      const res = await claude.messages.create({
+        model,
+        max_tokens: maxTokens,
+        output_config: { effort: 'low' },
+        messages: [
+          {
+            role: 'user',
+            content: [
+              { type: 'image', source: { type: 'base64', media_type, data: image.toString('base64') } },
+              { type: 'text', text: prompt },
+            ],
+          },
+        ],
+      });
+      const text = res.content
+        .filter((b) => b.type === 'text')
+        .map((b) => b.text)
+        .join('')
+        .trim();
+      if (text && res.stop_reason !== 'refusal') {
+        this.log.log(`Foto descrita por ${model} em ${Date.now() - started} ms`);
+        return text.slice(0, 3000);
+      }
+    } catch (err) {
+      this.log.warn(`${model} não descreveu a foto (${(err as Error).message}) — tentando o próximo`);
     }
     return null;
   }

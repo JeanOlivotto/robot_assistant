@@ -27,7 +27,17 @@ const Schema = z.object({
   CALENDAR_POLL_SEC: z.coerce.number().int().min(30).default(120),
   AGENDA_HORIZON_H: z.coerce.number().int().min(1).max(168).default(36),
 
-  /* Cérebro principal: qualquer API compatível com OpenAI (padrão: Groq, rápido e com plano grátis). */
+  /*
+   * Claude (Anthropic): com a chave, vira o cérebro — conversa, ligação e fotos. O Groq e a NVIDIA
+   * passam a ser a reserva. CLAUDE_MODEL_LEVE (barato) faz o que não tem pressa: memória, WhatsApp de terceiros.
+   */
+  API_CLAUDE: z.string().default(''),
+  CLAUDE_MODEL: z.string().default('claude-sonnet-5-5'),
+  CLAUDE_MODEL_LEVE: z.string().default('claude-haiku-5-5'),
+  /* Quanto o Claude pensa na conversa escrita (na ligação ele não pensa, para responder rápido). */
+  CLAUDE_EFFORT: z.enum(['low', 'medium', 'high', 'xhigh', 'max']).default('medium'),
+
+  /* Cérebro de reserva: qualquer API compatível com OpenAI (padrão: Groq, rápido e com plano grátis). */
   LLM_BASE_URL: z.string().default('https://api.groq.com/openai/v1'),
   LLM_API_KEY: z.string().default(''),
   LLM_MODEL: z.string().default('openai/gpt-oss-120b'),

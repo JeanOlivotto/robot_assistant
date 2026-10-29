@@ -207,3 +207,98 @@ describe('LlmService: sem cota', () => {
     expect(Math.round((err as SemCotaError).volta / 60_000)).toBe(8);
   });
 });
+
+describe('LlmService: com o Claude', () => {
+  const make = () => {
+    const svc = new LlmService({
+      API_CLAUDE: 'k',
+      CLAUDE_MODEL: 'claude-sonnet-5-5',
+      CLAUDE_MODEL_LEVE: 'claude-haiku-5-5',
+      CLAUDE_EFFORT: 'medium',
+      LLM_BASE_URL: 'https://api.groq.com/openai/v1',
+      LLM_API_KEY: 'x',
+      LLM_MODEL: 'grande',
+      LLM_EXTRA_MODELS: '',
+      LLM_FALLBACK_BASE_URL: 'https://integrate.api.nvidia.com/v1',
+      LLM_FALLBACK_API_KEY: 'y',
+      LLM_FALLBACK_MODELS: 'lento',
+    } as unknown as AppConfig);
+    const resposta = (texto: string) => ({
+      content: [{ type: 'text', text: texto }],
+      stop_reason: 'end_turn',
+      usage: { input_tokens: 1, output_tokens: 1 },
+    });
+    const sonnet = vi.fn().mockResolvedValue(resposta('[feliz] sonnet'));
+    const haiku = vi.fn().mockResolvedValue(resposta('haiku'));
+    const groq = vi.fn().mockResolvedValue({ choices: [{ message: { content: 'groq' } }] });
+    const nvidia = vi.fn().mockResolvedValue({ choices: [{ message: { content: 'nvidia' } }] });
+    const targets = (svc as unknown as { targets: { label: string; client?: unknown; anthropic?: unknown }[] }).targets;
+    expect(targets.map((t) => t.label)).toEqual(['anthropic/claude-sonnet-5-5', 'anthropic/claude-haiku-5-5', 'groq.com/grande', 'api.nvidia.com/lento']);
+    targets[0]!.anthropic = { messages: { create: sonnet } };
+    targets[1]!.anthropic = { messages: { create: haiku } };
+    targets[2]!.client = { chat: { completions: { create: groq } } };
+    targets[3]!.client = { chat: { completions: { create: nvidia } } };
+    return { svc, sonnet, haiku, groq, nvidia };
+  };
+
+  it('a conversa vai no Claude grande, pensando; a ligação, sem pensar', async () => {
+    const { svc, sonnet, groq } = make();
+    expect((await svc.complete([{ role: 'system', content: 'você é o Miro' }, { role: 'user', content: 'oi' }])).content).toBe('[feliz] sonnet');
+    expect(sonnet.mock.calls[0]![0]).toMatchObject({ system: 'você é o Miro', thinking: { type: 'adaptive' }, output_config: { effort: 'medium' } });
+    expect(sonnet.mock.calls[0]![0]).not.toHaveProperty('temperature');
+    await svc.complete([{ role: 'user', content: 'oi' }], undefined, { quick: true });
+    expect(sonnet.mock.calls[1]![0]).toMatchObject({ thinking: { type: 'between_tools' }, output_config: { effort: 'low' } });
+    expect(groq).not.toHaveBeenCalled();
+  });
+
+  it('o que não tem pressa vai no Claude barato', async () => {
+    const { svc, sonnet, haiku } = make();
+    expect((await svc.complete([{ role: 'user', content: 'oi' }], undefined, { reservaPrimeiro: true })).content).toBe('haiku');
+    expect(haiku.mock.calls[0]![0]).toMatchObject({ thinking: { type: 'disabled' } });
+    expect(sonnet).not.toHaveBeenCalled();
+  });
+
+  it('Claude fora do ar: cai no Groq sem esperar', async () => {
+    const { svc, sonnet, groq, haiku } = make();
+    sonnet.mockRejectedValue(Object.assign(new Error('529 Overloaded'), { status: 529 }));
+    expect((await svc.complete([{ role: 'user', content: 'oi' }])).content).toBe('groq');
+    expect(haiku).not.toHaveBeenCalled();
+  });
+
+  it('chamada de ferramenta: volta no formato da OpenAI, e na próxima volta a resposta original (com o raciocínio)', async () => {
+    const { svc, sonnet } = make();
+    const original = [
+      { type: 'thinking', thinking: '', signature: 'sig' },
+      { type: 'tool_use', id: 'tu_1', name: 'consultar_agenda', input: { dia: 'hoje' } },
+    ];
+    sonnet.mockResolvedValueOnce({ content: original, stop_reason: 'tool_use', usage: { input_tokens: 1, output_tokens: 1 } });
+    const tools = [{ type: 'function' as const, function: { name: 'consultar_agenda', description: 'agenda', parameters: { type: 'object', properties: {} } } }];
+    const msg = await svc.complete([{ role: 'user', content: 'o que tenho hoje?' }], tools);
+    expect(msg.tool_calls).toEqual([{ id: 'tu_1', type: 'function', function: { name: 'consultar_agenda', arguments: '{"dia":"hoje"}' } }]);
+    expect(sonnet.mock.calls[0]![0].tools[0]).toMatchObject({ name: 'consultar_agenda', input_schema: { type: 'object' }, cache_control: { type: 'ephemeral' } });
+
+    await svc.complete(
+      [
+        { role: 'user', content: 'o que tenho hoje?' },
+        { role: 'assistant', content: '', tool_calls: msg.tool_calls },
+        { role: 'tool', tool_call_id: 'tu_1', content: '(nenhum compromisso)' },
+      ],
+      tools,
+    );
+    expect(sonnet.mock.calls[1]![0].messages).toEqual([
+      { role: 'user', content: [{ type: 'text', text: 'o que tenho hoje?' }] },
+      { role: 'assistant', content: original },
+      { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'tu_1', content: '(nenhum compromisso)' }] },
+    ]);
+  });
+
+  it('recusa do Claude: tenta o próximo', async () => {
+    const { svc, sonnet } = make();
+    sonnet.mockResolvedValue({ content: [], stop_reason: 'refusal', stop_details: { category: 'cyber' }, usage: { input_tokens: 1, output_tokens: 0 } });
+    expect((await svc.complete([{ role: 'user', content: 'oi' }])).content).toBe('groq');
+  });
+
+  it('crédito do Claude acabou: fica de lado meia hora', () => {
+    expect(penaltyFor(Object.assign(new Error('400 Your credit balance is too low'), { status: 400 }))).toBe(30 * 60_000);
+  });
+});
