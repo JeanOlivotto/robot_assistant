@@ -67,7 +67,7 @@ export class DiarioService {
     const linhas = msgs
       .slice(-MAX_MSGS)
       .map((m) => {
-        const quem = m.from === 'user' ? owner : m.kind === 'codigo' ? 'Robô (olhando o código dele)' : m.kind === 'whatsapp' ? 'Robô (recado do WhatsApp)' : 'Robô';
+        const quem = m.from === 'user' ? owner : m.kind === 'codigo' ? 'Robô (olhando o código dele)' : m.kind === 'whatsapp' ? 'Robô (recado do WhatsApp)' : m.kind === 'recado' ? 'Robô (recado de um sistema)' : 'Robô';
         return `${quem}: ${m.text.replace(/\s+/g, ' ').slice(0, m.from === 'user' ? 300 : 160)}`;
       })
       .join('\n');

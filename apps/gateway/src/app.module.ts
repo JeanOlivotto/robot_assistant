@@ -61,9 +61,14 @@ import { LigacaoService } from './whatsapp/ligacao.service.js';
 import { CodigoService } from './proactive/codigo.service.js';
 import { WhatsappService } from './whatsapp/whatsapp.service.js';
 import { WsRouter } from './ws/ws-router.service.js';
+import { RecadoTokenGuard } from './recados/recado-token.guard.js';
+import { RecadosController } from './recados/recados.controller.js';
+import { RecadosAppsService } from './recados/recados-apps.service.js';
+import { RecadosService } from './recados/recados.service.js';
+import { RecadosStore } from './recados/recados.store.js';
 
 @Module({
-  controllers: [DebugController, AppAuthController, VoiceController, PushController, TtsController, ClaudeUsageController, MeetingController, SpotifyController, FirmwareController, MemoryController, CalendarController, TaskController, PhotoController, BancoVozesController, RobotController, IdentidadeController, BracoController, WhatsappController],
+  controllers: [DebugController, AppAuthController, VoiceController, PushController, TtsController, ClaudeUsageController, MeetingController, SpotifyController, FirmwareController, MemoryController, CalendarController, TaskController, PhotoController, BancoVozesController, RobotController, IdentidadeController, BracoController, WhatsappController, RecadosController],
   providers: [
     { provide: APP_CONFIG, useFactory: () => loadConfig() },
     WsRouter,
@@ -109,6 +114,10 @@ import { WsRouter } from './ws/ws-router.service.js';
     FirmwareService,
     TokenGuard,
     AppTokenGuard,
+    RecadosStore,
+    RecadosAppsService,
+    RecadosService,
+    RecadoTokenGuard,
   ],
 })
 export class AppModule {}

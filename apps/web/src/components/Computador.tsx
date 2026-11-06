@@ -13,6 +13,7 @@ import {
   type Sistema,
 } from '../lib/braco';
 import { speak, setVolume, stopSpeaking, unlockAudio, VOLUME_MAX, volume } from '../lib/speech';
+import { Recados } from './Recados';
 import { Whatsapp } from './Whatsapp';
 
 /** O volume da voz do Miro (no computador, até 200%: às vezes 100% do sistema ainda é baixo). */
@@ -209,6 +210,7 @@ export function Computador({ token }: { token: string }) {
       </div>
 
       <Whatsapp token={token} />
+      <Recados token={token} />
     </div>
   );
 }

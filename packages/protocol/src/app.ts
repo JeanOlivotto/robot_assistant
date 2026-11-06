@@ -47,8 +47,9 @@ export const Proposal = z.object({
 /**
  * 'whatsapp': recado que o robô repassa ao dono sobre o WhatsApp (quem aparece nele NÃO está na conversa).
  * 'codigo': comentário dele sobre o que o dono está programando — aparece só no computador, sem push.
+ * 'recado': aviso que uma aplicação do dono mandou (suporte, saúde, cadastro) e o robô repassou.
  */
-export const MESSAGE_KINDS = ['reply', 'proactive', 'reminder', 'meeting', 'whatsapp', 'codigo'] as const;
+export const MESSAGE_KINDS = ['reply', 'proactive', 'reminder', 'meeting', 'whatsapp', 'codigo', 'recado'] as const;
 
 /** Por onde a mensagem do dono chegou. */
 export const MESSAGE_VIA = ['text', 'voice', 'siri'] as const;

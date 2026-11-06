@@ -14,6 +14,9 @@ interface StoredSubscription extends PushSubscription {
   ua?: string;
 }
 
+/** Título da notificação por tipo de mensagem (o resto leva o nome do robô e a tag 'conversa'). */
+const TITULO: Partial<Record<string, string>> = { reminder: 'Lembrete', meeting: 'Reunião', whatsapp: 'WhatsApp', recado: 'Recado' };
+
 export interface PushPayload {
   title: string;
   body: string;
@@ -70,9 +73,9 @@ export class PushService implements OnModuleInit, OnModuleDestroy {
       // Comentário sobre o código: é para quem está no computador, não para o celular.
       if (kind === 'codigo') return;
       void this.notify({
-        title: kind === 'reminder' ? 'Lembrete' : kind === 'meeting' ? 'Reunião' : kind === 'whatsapp' ? 'WhatsApp' : this.identidade.nome, // o nome que ele escolheu
+        title: TITULO[kind] ?? this.identidade.nome, // o nome que ele escolheu
         body: message.text,
-        tag: kind === 'reminder' ? `lembrete-${message.id}` : kind === 'meeting' ? `reuniao-${message.id}` : kind === 'whatsapp' ? `whatsapp-${message.id}` : 'conversa',
+        tag: TITULO[kind] ? `${kind}-${message.id}` : 'conversa',
         url: '/',
       });
     });

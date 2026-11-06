@@ -40,4 +40,9 @@ describe('gruposDaConversa', () => {
     expect(grupos([dele('oi', { voz: { certeza: 'duvida', nome: 'Jean' } })])).toEqual(['vozes']);
     expect(grupos([dele('oi', { voz: { certeza: 'alta', nome: 'Jean' } })])).toEqual([]);
   });
+
+  it('recados: o assunto dos sistemas, ou um recado na conversa', () => {
+    expect(grupos([dele('tem algum chamado no suporte do baixaxml?')])).toEqual(['recados']);
+    expect(grupos([doRobo('💬 baixaxml · suporte: Chamado novo', { kind: 'recado' }), dele('já vi, valeu')])).toEqual(['recados']);
+  });
 });

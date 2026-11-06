@@ -6,8 +6,8 @@ import { semAcento } from '../whatsapp/mensagem.js';
  * enchia o limite por minuto do Groq grátis (8 mil). Só vão as do assunto da conversa; o resto o
  * modelo pede com `mais_ferramentas` se precisar.
  */
-export type Grupo = 'whatsapp' | 'computador' | 'vozes' | 'ajustes';
-export const GRUPOS: Grupo[] = ['whatsapp', 'computador', 'vozes', 'ajustes'];
+export type Grupo = 'whatsapp' | 'computador' | 'vozes' | 'ajustes' | 'recados';
+export const GRUPOS: Grupo[] = ['whatsapp', 'computador', 'vozes', 'ajustes', 'recados'];
 
 /** Ferramenta → grupo. Fora daqui (agenda, pendências, internet) vai sempre. */
 export const GRUPO_DA_FERRAMENTA: Record<string, Grupo> = {
@@ -27,6 +27,8 @@ export const GRUPO_DA_FERRAMENTA: Record<string, Grupo> = {
   definir_identidade: 'ajustes',
   silenciar_mensagens: 'ajustes',
   esquecer_assunto: 'ajustes',
+  ver_recados: 'recados',
+  dar_baixa_recado: 'recados',
 };
 
 /* Palavras (sem acento, minúsculas) que puxam cada grupo. Generosas de propósito: mandar um grupo à toa
@@ -39,6 +41,8 @@ const PALAVRAS: Record<Grupo, RegExp> = {
   vozes: /\b(voz|vozes|sou o|sou a|meu nome|quem (fala|esta falando|e voce)|reconhec\w*|e eu|sou eu)\b/,
   ajustes:
     /\b(seu nome|se chamar|te chamar|personalidade|silencio\w*|silenci\w*|para de (mandar|falar)|nao me (manda|mande|chama)|fim de semana|esquec\w*|teste|nao importa|ignora)\b|\bvoce e\b|\bvoce (gosta|prefere)\b/,
+  recados:
+    /\b(recado\w*|suporte|chamado\w*|ticket\w*|baixa ?xml|saas|sistema\w*|aplica(cao|coes)|cadastr\w*|cliente\w*|fora do ar|caiu|saude|dar baixa|da baixa|dei baixa|resolvid\w*)\b/,
 };
 
 /**
@@ -54,6 +58,8 @@ export function gruposDaConversa(history: ChatMessage[], extra: { voz?: boolean 
   if (doRobo.some((m) => m.kind === 'whatsapp' || m.proposal?.kind === 'whatsapp')) grupos.add('whatsapp');
   // Comando proposto, ou comentário do código aberto no PC: o assunto é o computador.
   if (doRobo.some((m) => m.kind === 'codigo' || m.proposal?.kind === 'command')) grupos.add('computador');
+  // Recado de um sistema na conversa: o "já vi", o "resolvi" é sobre ele.
+  if (doRobo.some((m) => m.kind === 'recado')) grupos.add('recados');
   // Voz sem certeza, ou alguém que ainda não o conhece: pode precisar guardar a voz.
   const voz = history.at(-1)?.voz;
   if (extra.voz || (voz && voz.certeza !== 'alta')) grupos.add('vozes');

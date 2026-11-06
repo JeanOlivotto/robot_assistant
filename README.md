@@ -47,6 +47,11 @@ no computador.
   disse sem citar o nome; sabe quando a conversa acabou.
 - Pode **cobrir você** (férias, reunião) respondendo no seu lugar.
 
+**Recados das aplicações**
+- Os sistemas do dono (ex.: o baixaxml) avisam o robô por `POST /api/recados`: chamado de suporte,
+  saúde, cadastro novo. Ele repassa conforme a prioridade e responde "tem algo do suporte?".
+- Também bate no `/health` delas: se uma cair, ele avisa mesmo sem ela conseguir mandar recado.
+
 **Computador**
 - App desktop com a **bolha** (carinha flutuante sempre por cima) e o painel completo.
 - **"Miro, …" por voz** no PC: Whisper tiny local filtra, o servidor confirma.
@@ -113,6 +118,39 @@ Tudo vem do `.env` — o [`.env.example`](.env.example) documenta cada variável
 | Voz | `STT_API_KEY`, `TTS_PROVIDER`, `EDGE_TTS_*`, `ELEVENLABS_*` | sem transcrição / voz padrão |
 | Push | `VAPID_*` | sem notificação no celular |
 | Spotify | `SPOTIFY_*` | sem música na tela |
+
+## Recados das aplicações
+
+Cada aplicação é cadastrada no app, em **Ajustes → Recados dos sistemas**. Lá você gera a chave de
+API dela (aparece uma vez só; o servidor guarda só o hash), desativa sem apagar, troca a chave e
+informa a URL de `/health` que o robô deve vigiar. A chave identifica quem mandou cada recado.
+
+```bash
+curl -X POST https://srv1966497.hstgr.cloud/api/recados \
+  -H "Authorization: Bearer $CHAVE_DA_APP" -H 'Content-Type: application/json' \
+  -d '{"tipo":"suporte","prioridade":"normal","titulo":"Chamado novo: lote parado",
+       "texto":"Fulano: o lote parou em 40%","link":"https://…/admin/suporte?c=123","chave":"suporte:123"}'
+# 202 {"id":"a1b2c3d4","novo":true,"aberto":true}
+```
+
+| Campo | Valores | Para quê |
+|---|---|---|
+| `tipo` | `suporte` · `saude` · `cadastro` · `outro` | como ele apresenta |
+| `prioridade` | `urgente` · `normal` · `baixa` | quando ele avisa (abaixo) |
+| `titulo`, `texto`, `link` | até 120 / 2000 / 500 caracteres | o recado |
+| `chave` | qualquer texto, por aplicação | a mesma chave atualiza o recado aberto em vez de criar outro |
+| `resolvido` | `true` + `chave` | fecha o recado (ex.: a saúde voltou) |
+
+- **urgente**: chat, push e balão na tela na hora, a qualquer hora, furando a folga.
+- **normal**: chat e push na hora, mas só das 8h às 21h e fora do silêncio combinado; senão, guarda e
+  manda quando puder.
+- **baixa**: só no bom-dia ou fim do dia e quando você pergunta.
+- Novidades do mesmo recado dentro de 10 min se juntam ("(3x)"); vários recados de uma vez viram uma
+  mensagem só. Limite de 60 recados por minuto por aplicação (depois disso, 429); aplicação
+  desativada recebe 403.
+- Com URL de saúde cadastrada, ele bate nela a cada 2 min: 3 falhas seguidas viram recado urgente
+  "Fora do ar", e a primeira resposta boa fecha.
+- O texto vem de terceiros: no cérebro ele entra marcado como informação, nunca como instrução.
 
 ## Firmware
 
