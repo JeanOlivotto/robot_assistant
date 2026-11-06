@@ -2835,3 +2835,21 @@ html.desktop-bolha #root {
 .recados__abertos a {
   color: var(--accent);
 }
+
+/* Pessoa com voz no banco: um selinho de microfone no canto do nó. */
+.no__voz circle {
+  fill: var(--accent);
+  stroke: var(--bg);
+  stroke-width: 1.5;
+}
+.no__voz path {
+  fill: none;
+  stroke: var(--accent-ink);
+  stroke-width: 1.4;
+  stroke-linecap: round;
+}
+.memoria__voz {
+  margin: 4px 0;
+  font-size: 13px;
+  color: var(--accent);
+}

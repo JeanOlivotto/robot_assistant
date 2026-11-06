@@ -5,6 +5,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type { ChatMessage } from '@robo/protocol';
 import type { AppConfig } from '../config/app-config.js';
 import type { LlmService } from '../llm/llm.service.js';
+import { BancoVozesService } from '../vozes/banco.service.js';
 import { MemoryService } from './memory.service.js';
 
 const cfg = () => ({ DATA_DIR: mkdtempSync(join(tmpdir(), 'robo-mem-')), OWNER_NAME: 'Jean' }) as unknown as AppConfig;
@@ -239,5 +240,48 @@ describe('MemoryService', () => {
     const m = new MemoryService(cfg(), llm('{"entidades":[{"nome":"Jean","tipo":"pessoa"},{"nome":"Duda","tipo":"pessoa"}]}'));
     await m.learn([userMsg('a Duda é minha esposa')]);
     expect(m.all().map((e) => e.texto)).toEqual(['Duda']);
+  });
+});
+
+describe('MemoryService + banco de vozes', () => {
+  const com = (vozes: string[] = []) => {
+    const c = cfg();
+    const banco = new BancoVozesService(c);
+    for (const v of vozes) banco.cadastrar(v, [1, 0, 0]);
+    const m = new MemoryService(c, llm(''), banco);
+    m.onModuleInit();
+    return { m, banco };
+  };
+
+  it('as vozes que já existiam viram pessoa no boot (menos o dono)', () => {
+    const { m } = com(['Tiago', 'Jean']);
+    expect(m.all().map((e) => [e.texto, e.tipo])).toEqual([['Tiago', 'pessoa']]);
+    expect(m.temVoz(m.all()[0]!)).toBe(true);
+    expect(m.donoTemVoz()).toBe(true);
+  });
+
+  it('voz nova vira pessoa; quem já era lembrança só ganha a marca', () => {
+    const { m, banco } = com();
+    m.note('Marcos', 'outro');
+    banco.cadastrar('Marcos', [0, 1, 0]);
+    banco.cadastrar('Tiago', [0, 0, 1]);
+    expect(m.all().map((e) => [e.texto, e.tipo])).toEqual([
+      ['Marcos', 'pessoa'],
+      ['Tiago', 'pessoa'],
+    ]);
+    expect(m.summaries().join(' | ')).toContain('Tiago — você reconhece a voz');
+  });
+
+  it('nome salvo errado: renomear tira o nó que só existia pela voz', () => {
+    const { m, banco } = com(['Gui']);
+    banco.renomear('Gui', 'Guilherme');
+    expect(m.all().map((e) => e.texto)).toEqual(['Guilherme']);
+  });
+
+  it('apagar a voz não apaga a pessoa', () => {
+    const { m, banco } = com(['Tiago']);
+    banco.removerPorNome('Tiago');
+    expect(m.all().map((e) => e.texto)).toEqual(['Tiago']);
+    expect(m.temVoz(m.all()[0]!)).toBe(false);
   });
 });

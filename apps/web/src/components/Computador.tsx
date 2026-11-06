@@ -116,6 +116,7 @@ export function Computador({ token }: { token: string }) {
 
   return (
     <div className="ajustes">
+      <Recados token={token} />
       <div className="ajustes__grade">
         <VolumeDoMiro />
 
@@ -210,7 +211,6 @@ export function Computador({ token }: { token: string }) {
       </div>
 
       <Whatsapp token={token} />
-      <Recados token={token} />
     </div>
   );
 }

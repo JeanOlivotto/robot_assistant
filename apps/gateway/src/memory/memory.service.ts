@@ -1,12 +1,14 @@
 import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { Inject, Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger, Optional, type OnModuleDestroy, type OnModuleInit } from '@nestjs/common';
+import type { Subscription } from 'rxjs';
 import { z } from 'zod';
 import type { ChatMessage } from '@robo/protocol';
 import { APP_CONFIG, type AppConfig } from '../config/app-config.js';
 import { rootPath } from '../config/paths.js';
 import { LlmService } from '../llm/llm.service.js';
+import { BancoVozesService } from '../vozes/banco.service.js';
 
 export interface Memoria {
   id: string;
@@ -95,8 +97,9 @@ const itens = <T>(v: unknown, schema: z.ZodType<T>, max: number): T[] =>
  * "faz tempo que não falamos disso" — e no prompt entra só a vizinhança do que está sendo conversado.
  */
 @Injectable()
-export class MemoryService {
+export class MemoryService implements OnModuleInit, OnModuleDestroy {
   private readonly log = new Logger(MemoryService.name);
+  private sub?: Subscription;
   private readonly file: string;
   private items: Entidade[] = [];
   private relacoes: Relacao[] = [];
@@ -105,9 +108,64 @@ export class MemoryService {
   constructor(
     @Inject(APP_CONFIG) private readonly cfg: AppConfig,
     private readonly llm: LlmService,
+    @Optional() private readonly banco?: BancoVozesService,
   ) {
     this.file = rootPath(`${cfg.DATA_DIR}/memoria-grafo.json`);
     this.load(rootPath(`${cfg.DATA_DIR}/lembrancas.json`));
+  }
+
+  /**
+   * Quem tem voz no banco é gente que ele conhece: entra no grafo como pessoa (as vozes de antes de
+   * existir essa ligação entram no boot). Sem isso, o diário falava de "um tal de Tiago" que ele
+   * reconhecia pela voz mas não sabia quem era.
+   */
+  onModuleInit(): void {
+    if (!this.banco) return;
+    const novas = this.banco.listar().filter((v) => this.garantirPessoa(v.nome));
+    if (novas.length) {
+      this.save();
+      this.log.log(`Vozes que viraram pessoa na memória: ${novas.map((v) => v.nome).join(', ')}`);
+    }
+    this.sub = this.banco.mudou$.subscribe((m) => this.vozMudou(m));
+  }
+
+  onModuleDestroy(): void {
+    this.sub?.unsubscribe();
+  }
+
+  /** A voz entrou ou mudou de nome: a pessoa existe no grafo. Apagar a voz não apaga a pessoa. */
+  vozMudou(m: { nome: string; antigo?: string; removida?: boolean }): void {
+    if (m.removida) return;
+    let mudou = this.garantirPessoa(m.nome);
+    // Nome salvo errado ("Gui" no lugar de "Tiago"): o nó que só existia por causa da voz sai.
+    const velho = m.antigo ? this.achar(m.antigo) : undefined;
+    if (velho && velho.mentions <= 1 && !this.relacoes.some((r) => r.de === velho.id || r.para === velho.id)) {
+      this.remover(new Set([velho.id]));
+      mudou = true;
+    }
+    if (mudou) this.save();
+  }
+
+  /** Tem voz cadastrada com este nome (ou um apelido dele)? */
+  temVoz(e: Pick<Entidade, 'texto' | 'apelidos'>): boolean {
+    return !!this.banco && [e.texto, ...e.apelidos].some((n) => this.banco!.conhece(n));
+  }
+
+  /** O dono tem voz cadastrada? */
+  donoTemVoz(): boolean {
+    return !!this.banco && !!this.cfg.OWNER_NAME && this.banco.conhece(this.cfg.OWNER_NAME);
+  }
+
+  /** true = criou ou virou pessoa agora. O dono não vira nó (ele é o centro fixo). */
+  private garantirPessoa(nome: string): boolean {
+    if (this.ehDono(nome)) return false;
+    const e = this.achar(nome);
+    if (e) {
+      if (e.tipo !== 'outro') return false;
+      e.tipo = 'pessoa';
+      return true;
+    }
+    return !!this.note(nome, 'pessoa');
   }
 
   all(): Entidade[] {
@@ -525,6 +583,7 @@ export class MemoryService {
         return alvo ? `${rel} ${alvo}` : '';
       })
       .filter(Boolean);
+    if (this.temVoz(e)) partes.push('você reconhece a voz (banco de vozes)');
     return partes.length ? `${e.texto} — ${partes.join('; ')}` : e.texto;
   }
 

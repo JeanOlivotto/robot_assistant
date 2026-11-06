@@ -38,7 +38,16 @@ export class MemoryController {
     const { entidades, relacoes } = this.memory.grafo();
     return {
       dono: this.memory.nomeDoDono(),
-      entidades: entidades.map((e) => ({ id: e.id, nome: e.texto, tipo: e.tipo, apelidos: e.apelidos, mentions: e.mentions, lastSeenAt: e.lastSeenAt })),
+      donoTemVoz: this.memory.donoTemVoz(),
+      entidades: entidades.map((e) => ({
+        id: e.id,
+        nome: e.texto,
+        tipo: e.tipo,
+        apelidos: e.apelidos,
+        mentions: e.mentions,
+        lastSeenAt: e.lastSeenAt,
+        voz: this.memory.temVoz(e),
+      })),
       relacoes: relacoes.map((r) => ({ de: r.de, rel: r.rel, para: r.para, valor: r.valor })),
     };
   }

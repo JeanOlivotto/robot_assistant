@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { Inject, Injectable, Logger } from '@nestjs/common';
+import { Subject } from 'rxjs';
 import { APP_CONFIG, type AppConfig } from '../config/app-config.js';
 import { rootPath } from '../config/paths.js';
 
@@ -61,6 +62,9 @@ export class BancoVozesService {
   /** A última voz do chat que ele não reconheceu (ou ficou em dúvida), esperando alguém dizer quem é. */
   private pendente: { embedding: number[]; at: number } | null = null;
 
+  /** Quem entrou, mudou de nome ou saiu do banco — a memória acompanha (a pessoa vira um nó do grafo). */
+  readonly mudou$ = new Subject<{ nome: string; antigo?: string; removida?: boolean }>();
+
   constructor(@Inject(APP_CONFIG) cfg: AppConfig) {
     this.file = rootPath(`${cfg.DATA_DIR}/vozes-banco.json`);
     try {
@@ -71,8 +75,8 @@ export class BancoVozesService {
   }
 
   /** Quem está no banco (sem as assinaturas). */
-  listar(): { id: string; nome: string; amostras: number; atualizadaEm: number }[] {
-    return this.vozes.map((v) => ({ id: v.id, nome: v.nome, amostras: v.amostras.length, atualizadaEm: v.atualizadaEm }));
+  listar(): { id: string; nome: string; amostras: number; criadaEm: number; atualizadaEm: number }[] {
+    return this.vozes.map((v) => ({ id: v.id, nome: v.nome, amostras: v.amostras.length, criadaEm: v.criadaEm, atualizadaEm: v.atualizadaEm }));
   }
 
   /** A voz mais parecida com esta assinatura, se passar da dúvida. */
@@ -100,6 +104,9 @@ export class BancoVozesService {
       v = { id: randomUUID(), nome: limpo, amostras: [embedding], criadaEm: agora, atualizadaEm: agora };
       this.vozes.push(v);
       this.log.log(`Voz nova no banco: ${limpo}`);
+      this.save();
+      this.mudou$.next({ nome: limpo });
+      return v;
     }
     this.save();
     return v;
@@ -168,12 +175,15 @@ export class BancoVozesService {
       outra.atualizadaEm = Date.now();
       this.vozes = this.vozes.filter((x) => x !== v);
       this.save();
+      this.mudou$.next({ nome: outra.nome, antigo: v.nome });
       return outra;
     }
+    const antigo = v.nome;
     v.nome = limpo;
     v.atualizadaEm = Date.now();
     this.save();
     this.log.log(`Voz renomeada: ${atual} → ${limpo}`);
+    this.mudou$.next({ nome: limpo, antigo });
     return v;
   }
 
@@ -184,11 +194,12 @@ export class BancoVozesService {
   }
 
   remover(id: string): boolean {
-    const antes = this.vozes.length;
-    this.vozes = this.vozes.filter((v) => v.id !== id);
-    if (this.vozes.length === antes) return false;
+    const v = this.vozes.find((x) => x.id === id);
+    if (!v) return false;
+    this.vozes = this.vozes.filter((x) => x !== v);
     this.save();
     this.log.log('Voz apagada do banco');
+    this.mudou$.next({ nome: v.nome, removida: true });
     return true;
   }
 

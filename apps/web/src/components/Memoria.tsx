@@ -268,6 +268,15 @@ export function Memoria({ token }: { token: string }) {
                     <text x={n.x} y={n.y + n.r + 16}>
                       {n.e.nome.length > 22 ? `${n.e.nome.slice(0, 21)}…` : n.e.nome}
                     </text>
+                    {n.e.voz && (
+                      <g className="no__voz" aria-hidden="true">
+                        <title>Voz cadastrada</title>
+                        <circle cx={n.x + n.r * 0.75} cy={n.y - n.r * 0.75} r={6.5} />
+                        <path
+                          d={`M${n.x + n.r * 0.75} ${n.y - n.r * 0.75 - 3.2}v3.2M${n.x + n.r * 0.75 - 2.2} ${n.y - n.r * 0.75 - 0.6}a2.2 2.2 0 0 0 4.4 0M${n.x + n.r * 0.75} ${n.y - n.r * 0.75 + 1.6}v1.6`}
+                        />
+                      </g>
+                    )}
                   </g>
                 );
               })}
@@ -278,6 +287,7 @@ export function Memoria({ token }: { token: string }) {
                 <span className="eyebrow">{NOME_DO_TIPO[sel.tipo]}</span>
                 <h3>{sel.nome}</h3>
                 {!!sel.apelidos.length && <p className="dim">também: {sel.apelidos.join(', ')}</p>}
+                {sel.voz && <p className="memoria__voz">Voz cadastrada — ele reconhece quando {sel.nome.split(' ')[0]} fala.</p>}
                 <ul>
                   {ligacoesDoSel.map((r, i) => (
                     <li key={i}>

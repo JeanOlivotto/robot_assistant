@@ -11,6 +11,8 @@ export interface Entidade {
   apelidos: string[];
   mentions: number;
   lastSeenAt: number;
+  /** Tem voz no banco de vozes: ele reconhece quando a pessoa fala. */
+  voz?: boolean;
 }
 
 export interface Ligacao {
@@ -22,6 +24,7 @@ export interface Ligacao {
 
 export interface Grafo {
   dono: string;
+  donoTemVoz?: boolean;
   entidades: Entidade[];
   relacoes: Ligacao[];
 }
