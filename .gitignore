@@ -30,3 +30,7 @@ Thumbs.db
 REVISION
 apps/braco/braco.config.json
 tools/screen-preview/preview.png
+
+# Cache do Python (os clientes da skill de recados)
+__pycache__/
+*.pyc

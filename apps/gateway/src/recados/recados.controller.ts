@@ -5,7 +5,11 @@ import {
   Controller,
   Delete,
   Get,
+  Header,
   HttpCode,
+  Inject,
+  InternalServerErrorException,
+  Logger,
   HttpException,
   HttpStatus,
   NotFoundException,
@@ -14,14 +18,21 @@ import {
   Post,
   Query,
   Req,
+  StreamableFile,
   UseGuards,
 } from '@nestjs/common';
 import { z } from 'zod';
 import { AppTokenGuard } from '../auth/app-token.guard.js';
+import { APP_CONFIG, type AppConfig } from '../config/app-config.js';
+import { rootPath } from '../config/paths.js';
 import { RecadoTokenGuard, type RequestDeApp } from './recado-token.guard.js';
 import { MudarApp, NovaApp, RecadosAppsService } from './recados-apps.service.js';
 import { RecadosService } from './recados.service.js';
 import { NovoRecado, RecadosStore } from './recados.store.js';
+import { PASTA_SKILL, zipDaSkill } from './skill-zip.js';
+
+/** O endereço que a skill traz escrito — trocado pelo deste servidor na hora de baixar. */
+const URL_NA_SKILL = 'https://srv1966497.hstgr.cloud';
 
 function validar<T>(schema: z.ZodType<T>, body: unknown): T {
   const parsed = schema.safeParse(body ?? {});
@@ -35,7 +46,10 @@ function validar<T>(schema: z.ZodType<T>, body: unknown): T {
  */
 @Controller('api/recados')
 export class RecadosController {
+  private readonly log = new Logger(RecadosController.name);
+
   constructor(
+    @Inject(APP_CONFIG) private readonly cfg: AppConfig,
     private readonly recados: RecadosService,
     private readonly store: RecadosStore,
     private readonly apps: RecadosAppsService,
@@ -63,6 +77,22 @@ export class RecadosController {
     const [r] = this.store.darBaixa([id]);
     if (!r) throw new NotFoundException('recado aberto não encontrado');
     return r;
+  }
+
+  /** A skill do Claude Code que implanta os recados num sistema, pronta para descompactar em ~/.claude/skills. */
+  @Get('skill.zip')
+  @UseGuards(AppTokenGuard)
+  @Header('Content-Type', 'application/zip')
+  @Header('Content-Disposition', 'attachment; filename="miro-recados.zip"')
+  @Header('Cache-Control', 'no-store')
+  skill(): StreamableFile {
+    const base = this.cfg.PUBLIC_URL.replace(/\/+$/, '');
+    try {
+      return new StreamableFile(zipDaSkill(rootPath(PASTA_SKILL), (t) => t.replaceAll(URL_NA_SKILL, base)));
+    } catch (err) {
+      this.log.error(`Skill de recados não encontrada em ${PASTA_SKILL}: ${(err as Error).message}`);
+      throw new InternalServerErrorException('a skill não está neste servidor');
+    }
   }
 
   /** As aplicações, com quantos recados abertos cada uma tem e como a última sonda do /health a viu. */

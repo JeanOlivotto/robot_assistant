@@ -257,3 +257,14 @@ describe('RecadoTokenGuard', () => {
     expect(() => new RecadoTokenGuard(apps).canActivate(ctx(`Bearer ${a.token}`).ctx)).toThrow(/desativada/);
   });
 });
+
+describe('zipDaSkill', () => {
+  it('zipa a skill dentro de miro-recados/ e troca o endereço', async () => {
+    const { zipDaSkill } = await import('./skill-zip.js');
+    const { rootPath } = await import('../config/paths.js');
+    const z = zipDaSkill(rootPath('../../tools/miro-recados-skill'), (t) => t.replaceAll('https://srv1966497.hstgr.cloud', 'https://exemplo.test'));
+    expect(z.readUInt32LE(0)).toBe(0x04034b50);
+    const nomes = z.toString('latin1');
+    for (const n of ['miro-recados/SKILL.md', 'miro-recados/clientes/nestjs.ts', 'miro-recados/clientes/python.py']) expect(nomes).toContain(n);
+  });
+});

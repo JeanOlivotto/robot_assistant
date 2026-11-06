@@ -70,3 +70,17 @@ export function nomeDeApp(s: string): string {
     .replace(/^-+/, '')
     .slice(0, 31);
 }
+
+/** Baixa a skill do Claude Code (miro-recados.zip) — vem do servidor, com o endereço dele já escrito. */
+export async function baixarSkill(token: string): Promise<void> {
+  const res = await fetch('/api/recados/skill.zip', { headers: { Authorization: `Bearer ${token}` } });
+  if (!res.ok) throw new Error((await res.text().catch(() => '')) || `HTTP ${res.status}`);
+  const url = URL.createObjectURL(await res.blob());
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'miro-recados.zip';
+  document.body.append(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 10_000);
+}

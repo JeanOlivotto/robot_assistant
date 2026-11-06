@@ -15,6 +15,8 @@ RUN pnpm install --frozen-lockfile
 COPY packages/protocol packages/protocol
 COPY apps/gateway apps/gateway
 COPY apps/web apps/web
+# A skill de recados do Claude Code: o app oferece para baixar (GET /api/recados/skill.zip).
+COPY tools/miro-recados-skill tools/miro-recados-skill
 RUN pnpm -r build
 
 

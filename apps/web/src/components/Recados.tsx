@@ -2,6 +2,7 @@ import { type FormEvent, useEffect, useState } from 'react';
 import {
   type AppRecados,
   apagarApp,
+  baixarSkill,
   criarApp,
   darBaixa,
   listarAbertos,
@@ -183,8 +184,92 @@ export function Recados({ token }: { token: string }) {
           {abertos.length > 10 && <p className="hint">E mais {abertos.length - 10}. Pergunte ao Miro: "o que tem de recado?"</p>}
         </div>
       )}
+      <ComoImplantar token={token} />
       {erro && <p className="hint">{erro}</p>}
     </section>
+  );
+}
+
+const PEDIDO = 'Liga os recados do Miro neste sistema (suporte, saúde e cadastros).';
+const INSTALAR: { so: string; comando: string }[] = [
+  { so: 'Linux / Mac', comando: 'mkdir -p ~/.claude/skills && unzip -o ~/Downloads/miro-recados.zip -d ~/.claude/skills' },
+  {
+    so: 'Windows (PowerShell)',
+    comando: 'Expand-Archive -Force "$env:USERPROFILE\\Downloads\\miro-recados.zip" "$env:USERPROFILE\\.claude\\skills"',
+  },
+];
+
+/**
+ * Como levar os recados para um sistema: a skill do Claude Code faz o trabalho (acha os pontos,
+ * escreve o cliente da stack, testa). Daqui sai o .zip e o comando para instalar.
+ */
+function ComoImplantar({ token }: { token: string }) {
+  const [copiado, setCopiado] = useState('');
+  const [baixando, setBaixando] = useState(false);
+  const [erro, setErro] = useState('');
+
+  const copiar = (oQue: string, texto: string) =>
+    void navigator.clipboard
+      ?.writeText(texto)
+      .then(() => {
+        setCopiado(oQue);
+        setTimeout(() => setCopiado(''), 2000);
+      })
+      .catch(() => setErro('Não consegui copiar — selecione e copie à mão.'));
+
+  const baixar = () => {
+    setBaixando(true);
+    setErro('');
+    void baixarSkill(token)
+      .catch((e: Error) => setErro(e.message))
+      .finally(() => setBaixando(false));
+  };
+
+  const linha = (id: string, texto: string) => (
+    <div className="meeting__link-linha">
+      <code className="meeting__link recados__cmd">{texto}</code>
+      <button type="button" className="mini-btn" onClick={() => copiar(id, texto)}>
+        {copiado === id ? 'Copiado ✓' : 'Copiar'}
+      </button>
+    </div>
+  );
+
+  return (
+    <details className="recados__skill">
+      <summary>Como implantar num sistema</summary>
+      <p className="hint">
+        Com a skill <strong>miro-recados</strong> no Claude Code, ele mesmo acha os pontos certos (suporte, saúde, cadastro), escreve o
+        cliente da stack (NestJS, Laravel, PHP, Python) e testa. Você só aprova a lista e cola a chave no .env do sistema.
+      </p>
+
+      <ol className="recados__passos">
+        <li>
+          <span>Baixe a skill</span>
+          <button type="button" className="btn btn--ghost btn--mini" disabled={baixando} onClick={baixar}>
+            {baixando ? 'Baixando…' : 'Baixar miro-recados.zip'}
+          </button>
+        </li>
+        <li>
+          <span>Instale (descompacta em ~/.claude/skills)</span>
+          {INSTALAR.map((i) => (
+            <div key={i.so} className="recados__so">
+              <small>{i.so}</small>
+              {linha(i.so, i.comando)}
+            </div>
+          ))}
+        </li>
+        <li>
+          <span>Crie o sistema aqui em cima e guarde a chave no .env dele</span>
+          {linha('env', 'MIRO_RECADOS_URL=' + location.origin + '\nMIRO_RECADOS_CHAVE=rcd_…')}
+        </li>
+        <li>
+          <span>No projeto, peça ao Claude Code (ou rode /miro-recados)</span>
+          {linha('pedido', PEDIDO)}
+        </li>
+      </ol>
+      <p className="hint">No computador onde está o repositório do Miro a skill já está instalada e se atualiza sozinha.</p>
+      {erro && <p className="hint">{erro}</p>}
+    </details>
   );
 }
 

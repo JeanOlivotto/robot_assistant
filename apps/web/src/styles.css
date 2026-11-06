@@ -2853,3 +2853,46 @@ html.desktop-bolha #root {
   font-size: 13px;
   color: var(--accent);
 }
+.recados__skill {
+  padding: 10px 14px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+}
+.recados__skill summary {
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 600;
+}
+.recados__skill[open] summary {
+  margin-bottom: 8px;
+}
+.recados__passos {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin: 10px 0;
+  padding-left: 20px;
+}
+.recados__passos li {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  font-size: 13px;
+}
+.recados__passos li > .meeting__link-linha,
+.recados__so {
+  align-self: stretch;
+}
+.recados__so small {
+  display: block;
+  margin-bottom: 3px;
+  color: var(--dim);
+}
+.meeting__link-linha .recados__cmd {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-family: ui-monospace, 'SFMono-Regular', Menlo, monospace;
+  color: var(--text);
+}
