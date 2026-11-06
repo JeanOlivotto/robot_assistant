@@ -75,7 +75,7 @@ no computador.
 | [`apps/vozes`](apps/vozes) | Diarização em CPU com sherpa-onnx — container separado |
 | [`packages/protocol`](packages/protocol) | Contratos zod compartilhados (robô ↔ servidor ↔ app) e geração do header C |
 | [`firmware`](firmware) | ESP-IDF 5.5 em C para o ESP32-C3: carinha, UI, Wi-Fi, OTA, presença |
-| [`tools`](tools) | Publicação de firmware, preview da tela no PC, protótipo da palavra de ativação |
+| [`tools`](tools) | Publicação de firmware, preview da tela no PC, protótipo da palavra de ativação, skill de recados |
 | [`deploy`](deploy) | Script de deploy, nginx e lista de exclusões do rsync |
 
 ## Rodando localmente
@@ -150,6 +150,12 @@ curl -X POST https://srv1966497.hstgr.cloud/api/recados \
   desativada recebe 403.
 - Com URL de saúde cadastrada, ele bate nela a cada 2 min: 3 falhas seguidas viram recado urgente
   "Fora do ar", e a primeira resposta boa fecha.
+
+**Implantar num sistema:** a skill do Claude Code em [`tools/miro-recados-skill`](tools/miro-recados-skill)
+traz o contrato, as regras (fora da requisição, nunca lança, chave por assunto, nada de dado
+sensível) e clientes prontos para NestJS, Laravel, PHP legado e Python. Instale uma vez com
+`ln -s "$PWD/tools/miro-recados-skill" ~/.claude/skills/miro-recados` e, dentro do projeto,
+peça "liga os recados do Miro aqui" ou rode `/miro-recados`.
 - O texto vem de terceiros: no cérebro ele entra marcado como informação, nunca como instrução.
 
 ## Firmware
