@@ -24,6 +24,8 @@ export interface Recebida {
   citou?: string;
   /** Num grupo: é com o dono — marcou ele com @ ou respondeu uma mensagem dele. */
   paraDono?: boolean;
+  /** Foi o próprio dono que escreveu (num grupo liberado para dúvidas de código): só conta se chamar o robô. */
+  doDono?: boolean;
 }
 
 type Tipo = Recebida['tipo'];
@@ -278,4 +280,27 @@ export function corpo(m: Recebida, entendido?: string): string {
     return `[${ROTULO[m.tipo]} — o que aparece: ${entendido}]${m.texto ? ` ${m.texto}` : ''}`;
   }
   return `[${ROTULO[m.tipo]}]${m.texto ? ` ${m.texto}` : ''}`;
+}
+
+/** O que fica no histórico (só texto): a mensagem, ou o rótulo da mídia — com a transcrição/descrição, se já houver. */
+export function paraHistorico(m: Recebida, entendido?: string): string {
+  if (m.tipo === 'audio' && !entendido) return `[áudio${m.segundos ? ` de ${m.segundos}s` : ''}]`;
+  return corpo(m, entendido).slice(0, 500);
+}
+
+/**
+ * Apara as mensagens guardadas: só as do período, no máximo `porConversa` de cada conversa (um grupo
+ * agitado não empurra para fora o áudio que chegou no privado) e `total` no geral — as mais novas ficam.
+ */
+export function aparar<T extends { m: { chat: string; ts: number } }>(lista: T[], o: { desde: number; porConversa: number; total: number }): T[] {
+  const porChat = new Map<string, number>();
+  const fica: T[] = [];
+  for (let i = lista.length - 1; i >= 0 && fica.length < o.total; i--) {
+    const r = lista[i];
+    if (r.m.ts <= o.desde) continue;
+    const n = (porChat.get(r.m.chat) ?? 0) + 1;
+    porChat.set(r.m.chat, n);
+    if (n <= o.porConversa) fica.push(r);
+  }
+  return fica.reverse();
 }

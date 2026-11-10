@@ -94,10 +94,7 @@ export class AtendenteService implements OnModuleInit, OnModuleDestroy {
     this.subs = [
       this.whatsapp.chegou$.subscribe((m) => void this.aoChegar(m)),
       // O dono respondeu pelo celular: a conversa é dele agora, o robô sai.
-      this.whatsapp.donoEscreveu$.subscribe((chat) => {
-        this.conversas.delete(chat);
-        this.assumidas.set(chat, Date.now() + DONO_ASSUMIU_MS);
-      }),
+      this.whatsapp.donoEscreveu$.subscribe((chat) => this.donoAssumiu(chat)),
       this.whatsapp.roboFalou$.subscribe((f) => this.falouPeloApp(f)),
     ];
   }
@@ -106,8 +103,16 @@ export class AtendenteService implements OnModuleInit, OnModuleDestroy {
     this.subs.forEach((s) => s.unsubscribe());
   }
 
+  private donoAssumiu(chat: string): void {
+    this.conversas.delete(chat);
+    this.assumidas.set(chat, Date.now() + DONO_ASSUMIU_MS);
+  }
+
   private async aoChegar(m: Recebida): Promise<void> {
     const nomes = [...new Set([this.identidade.nome, this.cfg.ROBOT_NAME])];
+    // O próprio dono num grupo liberado: só é com o robô se começar pelo nome dele ("Miro, ...").
+    // Qualquer outra coisa que ele escreve é o "dono escreveu" de sempre.
+    if (m.doDono && !(m.texto.trim() && chamou(m.texto, nomes, { soNoComeco: true }))) return this.donoAssumiu(m.chat);
     const aberta = this.conversas.get(m.chat);
     const emConversa = !m.grupo && !!aberta && aberta.ate > Date.now();
     // Respondendo no lugar do dono (ele pediu): tudo o que essa pessoa manda é com ele, sem chamar o nome.
@@ -171,7 +176,7 @@ export class AtendenteService implements OnModuleInit, OnModuleDestroy {
     const conversa = this.conversas.get(m.chat) ?? { nome: quem, ate: 0, falouEm: 0, falas: [] };
     conversa.nome = quem;
     // O tique azul só quando é com ele: no "talvez", depois que ele decidir entrar.
-    if (!talvez) lote.forEach((x) => void this.whatsapp.marcarLida(x.id));
+    if (!talvez) lote.forEach((x) => void (x.doDono || this.whatsapp.marcarLida(x.id)));
     // Áudio vira transcrição, foto e figurinha viram descrição. Em grupo, cada fala diz de quem é.
     const falas = await Promise.all(lote.map(async (x) => ((m.grupo ? `${x.autor}: ` : '') + ((await this.whatsapp.textoDe(x.id)) ?? x.texto))));
     conversa.falas.push({ role: 'user', content: falas.join('\n') });
@@ -190,6 +195,11 @@ export class AtendenteService implements OnModuleInit, OnModuleDestroy {
             `Recuse do seu jeito, curto, e diga que ${this.dono()} fica sabendo do pedido. Tom: serio. Pendência: vazia.`,
         }]
       : [];
+    // Foi o próprio dono que chamou: fala com ele (as regras continuam — o grupo inteiro lê a resposta).
+    const doDono = lote.every((x) => x.doDono);
+    const eOdono: ChatCompletionMessageParam[] = doDono
+      ? [{ role: 'system', content: `Quem te chamou agora é o próprio ${this.dono()}, o seu dono. Fale com ele direto — nada de "vou avisar o ${this.dono()}".` }]
+      : [];
     const duvida: ChatCompletionMessageParam[] = talvez
       ? [{
           role: 'system',
@@ -206,7 +216,7 @@ export class AtendenteService implements OnModuleInit, OnModuleDestroy {
     let saida: Saida | null = null;
     try {
       const msg = await this.llm.complete(
-        [{ role: 'system', content: this.prompt(conversa.nome, tecnico, cobrindo, m.grupo, this.podeEncaminhar(m.chat)) }, ...conversa.falas.slice(-HISTORICO), ...duvida, ...alerta],
+        [{ role: 'system', content: this.prompt(conversa.nome, tecnico, cobrindo, m.grupo, this.podeEncaminhar(m.chat)) }, ...conversa.falas.slice(-HISTORICO), ...eOdono, ...duvida, ...alerta],
         undefined, // de propósito: nenhuma ferramenta
         // No Claude grande, sem pensar: o barato não percebia quando zoavam a fala dele sem citar nem chamar
         // pelo nome. O Groq (a cota do dono) só entra se o Claude falhar.
@@ -265,7 +275,7 @@ export class AtendenteService implements OnModuleInit, OnModuleDestroy {
           await this.whatsapp.enviar(
             m.chat,
             assinar(saida.resposta, this.identidade.nome, this.dono()),
-            m.grupo ? { citando: m.id, marcar: m.autorId ? [m.autorId] : [] } : {},
+            m.grupo ? { citando: m.id, marcar: m.autorId && !m.doDono ? [m.autorId] : [] } : {},
           ),
         );
       }

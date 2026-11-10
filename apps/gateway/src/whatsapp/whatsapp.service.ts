@@ -25,7 +25,7 @@ import { MAX_VOICE_SECONDS, SttService } from '../stt/stt.service.js';
 import { TtsService } from '../tts/tts.service.js';
 import { VisionService } from '../vision/vision.service.js';
 import { figurinha } from './figurinha.js';
-import { acharPorNome, aplicarMencoes, arroba, comAPalavra, conteudo, corpo, descrever, falaCom, naoENome, type Recebida, semAcento } from './mensagem.js';
+import { acharPorNome, aparar, aplicarMencoes, arroba, comAPalavra, conteudo, corpo, descrever, falaCom, naoENome, paraHistorico, type Recebida, semAcento } from './mensagem.js';
 import { digitosDe, jidDoNumero, type Lembranca, numeroBate, porAssunto } from './procurar.js';
 import type { Face } from '@robo/protocol';
 
@@ -33,10 +33,15 @@ type Socket = ReturnType<typeof makeWASocket>;
 
 export type EstadoWhatsapp = 'desligado' | 'aguardando_qr' | 'conectando' | 'conectado';
 
-/** Só as últimas, e só por um tempo: é para "chegou uma mensagem agora, vê pra mim", não um arquivo. */
-const MAX_RECEBIDAS = 60;
+/**
+ * Só as últimas, e só por um tempo: é para "chegou uma mensagem agora, vê pra mim", não um arquivo.
+ * Com 60 no total, os grupos agitados empurravam para fora em 2 horas o áudio que chegou no privado:
+ * agora é por conversa, com um teto geral.
+ */
+const MAX_RECEBIDAS = 400;
+const MAX_POR_CONVERSA = 30;
 const GUARDA_MS = 12 * 3600_000;
-/** Só o texto (sem mídia) fica mais tempo: é por ele que o dono acha o cliente pelo assunto. */
+/** Só o texto (a mídia vira rótulo ou transcrição) fica mais tempo: é por ele que o dono acha o cliente pelo assunto. */
 const HISTORICO_MS = 7 * 24 * 3600_000;
 const MAX_HISTORICO = 3000;
 /** Contatos da agenda chegam do celular numa sincronização à parte; sem eles, tenta de novo nestes tempos. */
@@ -209,8 +214,7 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
     try {
       // BufferJSON: a mensagem crua tem bytes (chave da mídia) — sem ela o áudio/foto não baixa depois.
       const salvas = JSON.parse(readFileSync(this.recebidasFile, 'utf8'), BufferJSON.reviver) as { m: Recebida; raw: WAMessage }[];
-      const corte = Date.now() - GUARDA_MS;
-      if (!this.privado()) this.recebidas = salvas.filter((r) => r.m.ts > corte).slice(-MAX_RECEBIDAS);
+      if (!this.privado()) this.recebidas = this.aparadas(salvas);
     } catch {
       /* nada guardado */
     }
@@ -562,20 +566,30 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
     const k = raw.key;
     const chat = k.remoteJid;
     if (!chat || !k.id) return;
-    if (k.fromMe) {
-      if (!this.enviadas.delete(k.id)) this.donoEscreveu$.next(chat);
-      return;
+    // A conta é a do dono: o que ele manda (de qualquer aparelho) chega como "fromMe".
+    const doDono = !!k.fromMe;
+    if (doDono) {
+      if (this.enviadas.delete(k.id)) return; // foi o próprio robô
+      // Num grupo liberado para dúvidas de código, o dono também pode chamar o robô ("Miro, ..."):
+      // segue marcado como dele, e o atendente decide — se não chamou, é o "dono escreveu" de sempre.
+      if (!(isJidGroup(chat) && this.tecnico(chat))) {
+        this.donoEscreveu$.next(chat);
+        return;
+      }
     }
     if (isJidStatusBroadcast(chat) || isJidBroadcast(chat) || isJidNewsletter(chat)) return;
     const c = conteudo(raw.message);
-    if (!c) return;
+    if (!c) {
+      if (doDono) this.donoEscreveu$.next(chat);
+      return;
+    }
 
     const grupo = !!isJidGroup(chat);
     const alt = (k as { remoteJidAlt?: string }).remoteJidAlt;
     const autorJid = grupo ? (k.participant ?? '') : chat;
     const autorAlt = grupo ? (k as { participantAlt?: string }).participantAlt : alt;
     // Nome que a própria pessoa usa no WhatsApp: vale para achar ela depois, se não estiver na agenda.
-    if (raw.pushName && !this.nomes.has(autorJid)) {
+    if (!doDono && raw.pushName && !this.nomes.has(autorJid)) {
       this.nomes.set(autorJid, raw.pushName);
       if (autorAlt) this.nomes.set(autorAlt, raw.pushName);
       if (!grupo) this.guardarDestino(isPnUser(alt) ? alt! : chat, raw.pushName, false);
@@ -595,18 +609,18 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
         grupo,
         ts: Number(raw.messageTimestamp ?? 0) * 1000 || Date.now(),
         ...c,
-        ...(grupo && falaCom(raw.message, this.meusJids) ? { paraDono: true } : {}),
+        ...(doDono ? { doDono: true } : grupo && falaCom(raw.message, this.meusJids) ? { paraDono: true } : {}),
       },
       raw,
     });
-    const corte = Date.now() - GUARDA_MS;
-    this.recebidas = this.recebidas.filter((r) => r.m.ts > corte).slice(-MAX_RECEBIDAS);
+    this.recebidas = this.aparadas(this.recebidas);
     if (!this.salvarRecebidas) this.salvarRecebidas = setTimeout(() => this.gravarRecebidas(), 3_000);
     const m = this.recebidas.at(-1)!.m;
-    if (m.texto.trim()) {
+    // Mídia entra também (como "[áudio de 41s]"): saiu das recentes, ainda dá para dizer que chegou e quando.
+    if ((m.texto.trim() || m.tipo !== 'texto') && !doDono) {
       const pn = !grupo && isPnUser(alt) ? alt : undefined;
       const corteHist = Date.now() - HISTORICO_MS;
-      this.historico = [...this.historico, { chat, pn, nome: nomeChat, grupo, autor, texto: m.texto.slice(0, 500), ts: m.ts }]
+      this.historico = [...this.historico, { chat, pn, nome: nomeChat, grupo, autor, texto: paraHistorico(m), ts: m.ts }]
         .filter((l) => l.ts > corteHist)
         .slice(-MAX_HISTORICO);
       if (!this.salvarHistorico) this.salvarHistorico = setTimeout(() => this.gravarHistorico(), 10_000);
@@ -734,28 +748,32 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
   async ler(opts: { de?: string; quantas?: number } = {}): Promise<string> {
     if (!this.conectado) return 'o WhatsApp não está conectado (o dono conecta pelo app, aba PC)';
     if (this.privado()) return 'a privacidade do WhatsApp está ligada: você não está olhando as mensagens. Só volta se o dono pedir.';
-    if (!this.recebidas.length) return 'nenhuma mensagem nova chegou desde que você conectou (ou nas últimas 12 horas)';
+    // O que o próprio dono escreveu (chamando o robô num grupo) não é mensagem que chegou para ele.
+    const recebidas = this.recebidas.filter((r) => !r.m.doDono);
+    if (!recebidas.length) return 'nenhuma mensagem nova chegou desde que você conectou (ou nas últimas 12 horas)';
 
     let escolha: { m: Recebida; raw: WAMessage }[];
     if (opts.de) {
-      const conversas = [...new Map(this.recebidas.map((r) => [r.m.chat, { id: r.m.chat, nome: r.m.nomeChat }])).values()];
-      const autores = this.recebidas.map((r) => ({ id: r.m.chat, nome: r.m.autor }));
+      const conversas = [...new Map(recebidas.map((r) => [r.m.chat, { id: r.m.chat, nome: r.m.nomeChat }])).values()];
+      const autores = recebidas.map((r) => ({ id: r.m.chat, nome: r.m.autor }));
       const { achou: pelaConversa, parecidos } = acharPorNome([...conversas, ...autores], opts.de);
       // Apelido ou número ("o cliente da padaria", "final 4321"): a conversa pelo que ele deu.
       const alvo = pelaConversa ? undefined : (this.apelidos.size || digitosDe(opts.de) ? this.resolver(opts.de).destino : undefined);
-      const doAlvo = alvo && this.recebidas.find((r) => r.m.chat === alvo.id || this.historico.some((l) => l.chat === r.m.chat && l.pn === alvo.id));
+      const doAlvo = alvo && recebidas.find((r) => r.m.chat === alvo.id || this.historico.some((l) => l.chat === r.m.chat && l.pn === alvo.id));
       const achou = pelaConversa ?? (doAlvo ? { id: doAlvo.m.chat, nome: doAlvo.m.nomeChat } : undefined);
       if (!achou) {
-        return parecidos.length
-          ? `mais de uma conversa com esse nome: ${[...new Set(parecidos.map((p) => p.nome))].join(', ')}. Pergunte qual.`
-          : `não chegou mensagem de "${opts.de}" nas últimas horas. Conversas com mensagem: ${conversas.map((c) => c.nome).join(', ')}`;
+        if (parecidos.length) return `mais de uma conversa com esse nome: ${[...new Set(parecidos.map((p) => p.nome))].join(', ')}. Pergunte qual.`;
+        // Já saiu das recentes (passou o tempo, ou a conversa encheu): o histórico ainda tem o texto.
+        const antigas = this.doHistorico(opts.de, opts.quantas);
+        if (antigas) return antigas;
+        return `não chegou mensagem de "${opts.de}" nos últimos dias. Conversas com mensagem agora: ${conversas.slice(-15).map((c) => c.nome).join(', ')}`;
       }
-      escolha = this.recebidas.filter((r) => r.m.chat === achou.id).slice(-Math.min(Math.max(opts.quantas ?? 5, 1), 15));
+      escolha = recebidas.filter((r) => r.m.chat === achou.id).slice(-Math.min(Math.max(opts.quantas ?? 5, 1), 15));
     } else if (opts.quantas && opts.quantas > 1) {
-      escolha = this.recebidas.slice(-Math.min(opts.quantas, 15));
+      escolha = recebidas.slice(-Math.min(opts.quantas, 15));
     } else {
-      const ultima = this.recebidas.at(-1)!;
-      escolha = this.recebidas
+      const ultima = recebidas.at(-1)!;
+      escolha = recebidas
         .filter((r) => r.m.chat === ultima.m.chat && r.m.ts >= ultima.m.ts - RAJADA_MS)
         .slice(-MAX_RAJADA);
     }
@@ -768,6 +786,29 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
       linhas.push(descrever(r.m, hora.format(r.m.ts), await this.entender(r)));
     }
     return linhas.join('\n');
+  }
+
+  /** As últimas de uma conversa (ou de quem escreveu) pelo histórico de texto — quando a mensagem já saiu das recentes. */
+  private doHistorico(de: string, quantas?: number): string | null {
+    const conversas = [...new Map(this.historico.map((l) => [l.chat, { id: l.chat, nome: l.nome }])).values()];
+    const autores = [...new Map(this.historico.filter((l) => l.grupo).map((l) => [`${l.chat}|${l.autor}`, { id: `${l.chat}|${l.autor}`, nome: l.autor }])).values()];
+    const { achou, parecidos } = acharPorNome([...conversas, ...autores], de);
+    if (!achou) {
+      return parecidos.length ? `mais de uma conversa com esse nome: ${[...new Set(parecidos.map((p) => p.nome))].join(', ')}. Pergunte qual.` : null;
+    }
+    const [chat, autor] = achou.id.split('|');
+    const linhas = this.historico
+      .filter((l) => l.chat === chat && (!autor || l.autor === autor))
+      .slice(-Math.min(Math.max(quantas ?? 5, 1), 15));
+    if (!linhas.length) return null;
+    const ultima = linhas.at(-1)!;
+    this.ultimaVista = { id: ultima.pn ?? ultima.chat, nome: ultima.nome, grupo: ultima.grupo };
+    const hora = new Intl.DateTimeFormat('pt-BR', { weekday: 'short', hour: '2-digit', minute: '2-digit', timeZone: this.cfg.TZ_NAME });
+    return [
+      '(já saiu das mensagens recentes: isto é o histórico em texto — áudio que não foi transcrito na hora e foto não dá mais para abrir; ' +
+        'se precisar do conteúdo, peça para o dono abrir no celular)',
+      ...linhas.map((l) => `${hora.format(l.ts)} · ${l.grupo ? `${l.autor} (no grupo "${l.nome}")` : l.nome}: ${l.texto}`),
+    ].join('\n');
   }
 
   /** A mensagem em texto (áudio transcrito, foto/figurinha descrita) — para o atendente. */
@@ -785,8 +826,24 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
   /** Transcreve o áudio ou descreve a foto/figurinha — uma vez só por mensagem. */
   private entender(r: { m: Recebida; raw: WAMessage; entendido?: Promise<string | undefined> }): Promise<string | undefined> {
     if (!['audio', 'foto', 'figurinha'].includes(r.m.tipo)) return Promise.resolve(undefined);
-    r.entendido ??= this.baixarEEntender(r.m, r.raw);
+    r.entendido ??= this.baixarEEntender(r.m, r.raw).then((t) => {
+      if (t) this.anotarEntendido(r.m, t);
+      return t;
+    });
     return r.entendido;
+  }
+
+  /** Transcreveu o áudio (ou descreveu a foto): o histórico troca o rótulo pelo conteúdo — dura mais que a mídia. */
+  private anotarEntendido(m: Recebida, entendido: string): void {
+    if (this.privado() || m.doDono) return;
+    const l = this.historico.findLast((x) => x.chat === m.chat && x.ts === m.ts && x.autor === m.autor);
+    if (!l) return;
+    l.texto = paraHistorico(m, entendido);
+    if (!this.salvarHistorico) this.salvarHistorico = setTimeout(() => this.gravarHistorico(), 10_000);
+  }
+
+  private aparadas<T extends { m: Recebida }>(lista: T[]): T[] {
+    return aparar(lista, { desde: Date.now() - GUARDA_MS, porConversa: MAX_POR_CONVERSA, total: MAX_RECEBIDAS });
   }
 
   private async baixarEEntender(m: Recebida, raw: WAMessage): Promise<string | undefined> {

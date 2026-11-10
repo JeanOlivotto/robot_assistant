@@ -174,3 +174,79 @@ describe('WhatsappService: responder no lugar do dono', () => {
     expect(svc.cobrindo(doZe)).toBe(false);
   });
 });
+
+describe('WhatsappService: o próprio dono chamando no grupo', () => {
+  const grupo = '120363000000000001@g.us';
+  const doDono = (id: string, chat: string, texto: string) => ({
+    key: { remoteJid: chat, id, fromMe: true },
+    pushName: 'Jean',
+    messageTimestamp: Math.floor(Date.now() / 1000),
+    message: { conversation: texto },
+  });
+
+  it('num grupo liberado, segue para o atendente marcado como dele (e não aparece no "ler")', async () => {
+    const wa = make(mkdtempSync(join(tmpdir(), 'wa-')));
+    wa.definirGrupoTecnico(grupo, true);
+    const chegou: Recebida[] = [];
+    const escreveu: string[] = [];
+    wa.chegou$.subscribe((m) => chegou.push(m));
+    wa.donoEscreveu$.subscribe((c) => escreveu.push(c));
+    await (wa as unknown as Interno).aoReceber(doDono('D1', grupo, 'miro ?'));
+    expect(chegou).toHaveLength(1);
+    expect(chegou[0]).toMatchObject({ doDono: true, grupo: true, texto: 'miro ?' });
+    expect(chegou[0].paraDono).toBeUndefined();
+    expect(escreveu).toEqual([]);
+    (wa as unknown as { estado: string }).estado = 'conectado';
+    expect(await wa.ler()).not.toContain('miro ?');
+  });
+
+  it('fora dos grupos liberados continua sendo só "o dono escreveu"', async () => {
+    const wa = make(mkdtempSync(join(tmpdir(), 'wa-')));
+    const chegou: Recebida[] = [];
+    const escreveu: string[] = [];
+    wa.chegou$.subscribe((m) => chegou.push(m));
+    wa.donoEscreveu$.subscribe((c) => escreveu.push(c));
+    await (wa as unknown as Interno).aoReceber(doDono('D2', grupo, 'miro ?'));
+    await (wa as unknown as Interno).aoReceber(doDono('D3', '5511999990001@s.whatsapp.net', 'miro ?'));
+    expect(chegou).toEqual([]);
+    expect(escreveu).toEqual([grupo, '5511999990001@s.whatsapp.net']);
+  });
+});
+
+describe('WhatsappService: áudio no privado num dia de grupo agitado', () => {
+  const agora = Math.floor(Date.now() / 1000);
+  const vitor = {
+    key: { remoteJid: '5511999990002@s.whatsapp.net', id: 'V1', fromMe: false },
+    pushName: 'Vitor Carneiro',
+    messageTimestamp: agora - 3600,
+    message: { audioMessage: { seconds: 41, mediaKey: new Uint8Array([1]) } },
+  };
+  const doGrupo = (i: number) => ({
+    key: { remoteJid: '120363000000000009@g.us', id: `G${i}`, fromMe: false, participant: '5511900000000@s.whatsapp.net' },
+    pushName: 'Fulano',
+    messageTimestamp: agora - 3000 + i,
+    message: { conversation: `mensagem ${i}` },
+  });
+  const conectar = (wa: WhatsappService) => ((wa as unknown as { estado: string }).estado = 'conectado');
+
+  it('o áudio do Vitor continua lá depois de 100 mensagens no grupo', async () => {
+    const wa = make(mkdtempSync(join(tmpdir(), 'wa-')));
+    conectar(wa);
+    await (wa as unknown as Interno).aoReceber(vitor);
+    for (let i = 0; i < 100; i++) await (wa as unknown as Interno).aoReceber(doGrupo(i));
+    const lido = await wa.ler({ de: 'Vitor' });
+    expect(lido).toContain('Vitor Carneiro');
+    expect(lido).toContain('[áudio de 41s, sem transcrição]');
+  });
+
+  it('saiu das recentes: o histórico ainda diz que chegou e quando', async () => {
+    const wa = make(mkdtempSync(join(tmpdir(), 'wa-')));
+    conectar(wa);
+    await (wa as unknown as Interno).aoReceber(vitor);
+    (wa as unknown as Interno).recebidas = (wa as unknown as Interno).recebidas.filter((r) => r.m.id !== 'V1');
+    await (wa as unknown as Interno).aoReceber(doGrupo(0));
+    const lido = await wa.ler({ de: 'Vitor Carneiro' });
+    expect(lido).toContain('já saiu das mensagens recentes');
+    expect(lido).toContain('Vitor Carneiro: [áudio de 41s]');
+  });
+});

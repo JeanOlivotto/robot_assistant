@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { acharPorNome, aplicarMencoes, comAPalavra, apresentar, assinar, chamou, conteudo, descrever, falaCom, mencionou, pedidoSensivel, respostaSuspeita, type Recebida } from './mensagem.js';
+import { acharPorNome, aparar, aplicarMencoes, comAPalavra, apresentar, assinar, chamou, conteudo, descrever, falaCom, mencionou, paraHistorico, pedidoSensivel, respostaSuspeita, type Recebida } from './mensagem.js';
 
 describe('conteudo', () => {
   it('lê texto simples e texto com link/resposta', () => {
@@ -254,5 +254,29 @@ describe('falaCom: no grupo, é com o dono?', () => {
   it('papo do grupo, ou marcando outra pessoa: não', () => {
     expect(falaCom({ conversation: 'bom dia' }, eu)).toBe(false);
     expect(falaCom({ extendedTextMessage: { text: '@Ana', contextInfo: { mentionedJid: ['5511900000000@s.whatsapp.net'] } } }, eu)).toBe(false);
+  });
+});
+
+describe('aparar: quais mensagens recentes ficam guardadas', () => {
+  const r = (chat: string, ts: number) => ({ m: { chat, ts } });
+  it('um grupo agitado não empurra para fora o que chegou no privado', () => {
+    const lista = [r('vitor', 100), ...Array.from({ length: 50 }, (_, i) => r('grupo', 200 + i))];
+    const fica = aparar(lista, { desde: 0, porConversa: 30, total: 400 });
+    expect(fica[0]).toEqual(r('vitor', 100));
+    expect(fica.filter((x) => x.m.chat === 'grupo')).toHaveLength(30);
+    expect(fica.at(-1)).toEqual(r('grupo', 249)); // as mais novas do grupo ficam, na ordem
+  });
+  it('respeita o período e o teto geral', () => {
+    const lista = [r('a', 1), r('b', 5), r('c', 6), r('d', 7)];
+    expect(aparar(lista, { desde: 2, porConversa: 30, total: 2 }).map((x) => x.m.chat)).toEqual(['c', 'd']);
+  });
+});
+
+describe('paraHistorico', () => {
+  const base: Recebida = { id: '1', chat: 'c', nomeChat: 'Vitor', autor: 'Vitor', grupo: false, ts: 0, tipo: 'audio', texto: '', segundos: 41 };
+  it('áudio vira rótulo, e a transcrição quando houver', () => {
+    expect(paraHistorico(base)).toBe('[áudio de 41s]');
+    expect(paraHistorico(base, 'fala Jean, sobre o boleto')).toBe('[áudio] fala Jean, sobre o boleto');
+    expect(paraHistorico({ ...base, tipo: 'texto', texto: 'oi' })).toBe('oi');
   });
 });
