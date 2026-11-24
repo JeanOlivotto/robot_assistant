@@ -169,6 +169,24 @@ function aplicarModo(modo) {
   modoBolha = modo;
 }
 
+/*
+ * Com o painel aberto, a carinha sai da frente: o painel já mostra tudo. Ela só volta para avisar
+ * de mensagem (balão aberto) quando você não está olhando o painel, e some de novo assim que ele
+ * ganha o foco ou o balão fecha. Painel fechado: aparece sempre (se não estiver escondida pelo atalho).
+ */
+function bolhaDeveAparecer() {
+  if (!visivel) return false;
+  if (!painelAberto) return true;
+  return modoBolha === 'balao' && !painel?.isFocused();
+}
+
+function atualizarBolha() {
+  if (!bolha) return;
+  const mostrar = bolhaDeveAparecer();
+  if (mostrar && !bolha.isVisible()) bolha.showInactive(); // sem roubar o foco de quem está digitando
+  else if (!mostrar && bolha.isVisible()) bolha.hide();
+}
+
 function criarBolha() {
   canto = cantoInicial();
   bolha = new BrowserWindow({
@@ -209,7 +227,7 @@ function criarBolha() {
     }, 60);
   });
   bolha.once('ready-to-show', async () => {
-    if (visivel) bolha.showInactive(); // aparece sem roubar o foco de quem está digitando
+    atualizarBolha();
     await ajustarNoBspwm(bolha, { sticky: true, semBorda: true });
     aplicarModo(modoBolha); // o bspwm pode ter levado a janela para outro monitor: volta para o lugar
     // Moveu com Super+arrastar (o jeito do bspwm): a carinha passa a morar lá. Movimento logo
@@ -262,6 +280,8 @@ function criarPainel() {
   // O bspwm leva a janela flutuante nova para o monitor em foco: devolve para perto da carinha.
   painel.on('show', () => setTimeout(() => painel?.setBounds(lugarDoPainel()), 60));
   painel.once('ready-to-show', () => ajustarNoBspwm(painel, {}));
+  painel.on('focus', atualizarBolha);
+  painel.on('blur', atualizarBolha);
   // Fechar esconde: o painel guarda a conversa aberta e volta na hora.
   painel.webContents.on('did-start-loading', () => (painelPronto = false));
   painel.on('close', (e) => {
@@ -284,12 +304,14 @@ function abrirPainel() {
     painel.show();
     painel.focus();
   }
+  atualizarBolha();
   atualizarBandeja();
 }
 
 function fecharPainel() {
   painelAberto = false;
   painel?.hide();
+  atualizarBolha();
   atualizarBandeja();
 }
 
@@ -298,8 +320,8 @@ function fecharPainel() {
 function alternarVisivel() {
   visivel = !visivel;
   if (visivel) {
-    bolha?.showInactive();
     if (painelAberto) painel?.show();
+    atualizarBolha();
   } else {
     bolha?.hide();
     painel?.hide();
@@ -556,7 +578,7 @@ function andarAte(alvo, ritmo = TROCA) {
 function passearDeVezEmQuando() {
   const proxima = PASSEIO_A_CADA_MS.min + Math.random() * (PASSEIO_A_CADA_MS.max - PASSEIO_A_CADA_MS.min);
   setTimeout(async () => {
-    const quieta = !passear || !visivel || ocupada || dormindo || andando || modoBolha !== 'carinha';
+    const quieta = !passear || !bolha?.isVisible() || ocupada || dormindo || andando || modoBolha !== 'carinha';
     if (!quieta && Date.now() - arrastadaEm > PARADO_DEPOIS_DE_ARRASTAR_MS) {
       const area = await monitorFocado();
       if (area) {
@@ -610,7 +632,7 @@ function seguirMonitor() {
       ultimo = '';
       return;
     }
-    if (visivel) andarAte(cantoNo(area));
+    if (bolha.isVisible()) andarAte(cantoNo(area));
     else {
       canto = cantoNo(area); // escondido: aparece já no monitor certo
       aplicarModo(modoBolha);
@@ -789,7 +811,10 @@ function permissoes() {
 
 /* ── o que a página pede (preload.cjs) ───────────────────────────────── */
 
-ipcMain.on('bolha:modo', (_e, modo) => aplicarModo(modo === 'balao' ? 'balao' : 'carinha'));
+ipcMain.on('bolha:modo', (_e, modo) => {
+  aplicarModo(modo === 'balao' ? 'balao' : 'carinha');
+  atualizarBolha();
+});
 ipcMain.on('bolha:mover', (_e, dx, dy) => {
   if (!bolha || !Number.isFinite(dx) || !Number.isFinite(dy)) return;
   const c = cantoAtual();
