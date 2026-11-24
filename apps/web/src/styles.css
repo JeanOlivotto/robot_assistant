@@ -1733,6 +1733,12 @@ html.desktop-bolha #root {
 .balao__texto--convite {
   color: var(--dim);
 }
+/* Pensamento em voz alta (o humor dele mudou sozinho): é ele pensando, não falando com você. */
+.balao__texto--alto {
+  font-style: italic;
+  opacity: 0.85;
+}
+
 .balao__texto--pensando {
   color: var(--dim);
   font-style: italic;

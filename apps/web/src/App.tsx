@@ -215,7 +215,7 @@ function Main({ token, onLogout }: { token: string; onLogout(): void }) {
   else if (!r?.online) status = 'Miro desligado — o chat funciona igual';
   else status = 'na mesa, de olho em você';
 
-  const face = r?.online ? r.face : r?.thinking ? 'thinking' : null;
+  const face = r?.online ? r.face : r?.thinking ? 'thinking' : (r?.humor ?? null); // desligado: a cara do humor dele
 
   /** Tocou no robozinho: o da mesa acorda e dá um oi. */
   const acordarRobo = () => {

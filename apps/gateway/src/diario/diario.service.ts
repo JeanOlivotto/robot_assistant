@@ -58,11 +58,15 @@ export class DiarioService {
     });
   }
 
-  /** Escreve a anotação do `dia` a partir da conversa dele. Sem conversa do dono, não há o que anotar. */
-  async escrever(dia: string, conversa: ChatMessage[]): Promise<void> {
+  /**
+   * Escreve a anotação do `dia` a partir da conversa dele e de como o robô se sentiu (`comoMeSenti`,
+   * as trocas de humor do dia). Sem conversa do dono nem humor nenhum, não há o que anotar — mas um
+   * dia em que ninguém falou com ele e ele ficou entediado também é um dia para o diário.
+   */
+  async escrever(dia: string, conversa: ChatMessage[], comoMeSenti = ''): Promise<void> {
     if (!this.llm.enabled || this.tem(dia)) return;
     const msgs = conversa.filter((m) => this.dia(m.ts) === dia);
-    if (!msgs.some((m) => m.from === 'user')) return;
+    if (!msgs.some((m) => m.from === 'user') && !comoMeSenti) return;
     const owner = this.cfg.OWNER_NAME || 'o dono';
     const linhas = msgs
       .slice(-MAX_MSGS)
@@ -80,9 +84,14 @@ export class DiarioService {
               `Você é o robô que fica na mesa de ${owner} e mantém um diário pessoal. Escreva a anotação do dia ` +
               `abaixo: 2 a 4 frases, em primeira pessoa, informal, sobre o dia DELE — no que ele trabalhou, o que ` +
               'aconteceu, como ele parecia (corrido, de boa, estressado), o que ficou no ar e o que você quer ' +
-              'perguntar depois. Só o que está na conversa: não invente. Sem listas, sem markdown, sem data.',
+              'perguntar depois. Se vier como VOCÊ se sentiu no dia, inclua uma frase sobre isso, do seu jeito ' +
+              '("fiquei no vácuo de manhã, mas à tarde ele agradeceu"). Só o que está abaixo: não invente. Sem ' +
+              'listas, sem markdown, sem data.',
           },
-          { role: 'user', content: linhas },
+          {
+            role: 'user',
+            content: `${linhas || `(${owner} não falou com você nesse dia)`}${comoMeSenti ? `\n\nComo você se sentiu nesse dia:\n${comoMeSenti}` : ''}`,
+          },
         ],
         undefined,
         { maxTokens: 300, temperature: 0.5 },

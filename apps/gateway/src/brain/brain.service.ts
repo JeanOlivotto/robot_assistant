@@ -943,8 +943,11 @@ export class BrainService {
     }
   }
 
-  /** Frase curtinha para o balão na tela do robô — "pensar alto". Null se o LLM não responder. */
-  async thought(history: ChatMessage[]): Promise<{ text: string; face: Face } | null> {
+  /**
+   * Frase curtinha para o balão na tela do robô — "pensar alto". Com `sobre` (o porquê do humor que
+   * acabou de bater), o pensamento é sobre isso. Null se o LLM não responder.
+   */
+  async thought(history: ChatMessage[], sobre?: string): Promise<{ text: string; face: Face } | null> {
     if (!this.llm.enabled) return null;
     const now = new Date();
     const today = resolveDay('hoje', undefined, now, this.cfg.TZ_NAME);
@@ -956,11 +959,16 @@ export class BrainService {
         ...toLlmHistory(history.slice(-4), this.cfg.TZ_NAME),
         {
           role: 'user',
-          content:
-            '[instrução interna do sistema] Escreva UM pensamento seu, em voz alta, bem curto (no máximo 6 ' +
-            'palavras), para aparecer num balão na sua telinha agora. Uma observação sobre a hora, sobre o que ' +
-            'ainda falta no dia dele ou sobre o que você está achando disso. Seco, nada de fofura. ' +
-            `Sem emoji, sem aspas. Resto da agenda hoje:\n${describeAgenda(agenda, this.cfg.TZ_NAME)}`,
+          content: sobre
+            ? '[instrução interna do sistema] Seu humor acabou de mudar, sozinho, por uma coisa do seu dia: ' +
+              `${sobre}. Escreva UM pensamento seu sobre isso, em voz alta, bem curto (no máximo 10 palavras), ` +
+              'para aparecer num balão na sua carinha — o que passa pela sua cabeça, em primeira pessoa, do seu ' +
+              'jeito (pode ser seco, irônico ou carinhoso). Não é mensagem para ele: é você pensando. Não ' +
+              'cobre nada nem faça pergunta. Sem emoji, sem aspas.'
+            : '[instrução interna do sistema] Escreva UM pensamento seu, em voz alta, bem curto (no máximo 6 ' +
+              'palavras), para aparecer num balão na sua telinha agora. Uma observação sobre a hora, sobre o que ' +
+              'ainda falta no dia dele ou sobre o que você está achando disso. Seco, nada de fofura. ' +
+              `Sem emoji, sem aspas. Resto da agenda hoje:\n${describeAgenda(agenda, this.cfg.TZ_NAME)}`,
         },
       ]);
       const out = splitEmotion(msg.content ?? '');

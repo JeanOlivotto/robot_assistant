@@ -6,11 +6,14 @@ import { AlertService } from '../alerts/alert.service.js';
 import { BrainService, type ComposeKind } from '../brain/brain.service.js';
 import { ChatService } from '../chat/chat.service.js';
 import { DiarioService } from '../diario/diario.service.js';
+import { ELOGIO, type Sinais, sentirODia } from '../humor/animo.js';
+import { HumorService, rotuloDoHumor } from '../humor/humor.service.js';
 import { APP_CONFIG, type AppConfig } from '../config/app-config.js';
 import { rootPath } from '../config/paths.js';
 import { MemoryService } from '../memory/memory.service.js';
 import { RobotStateService } from '../robot/robot-state.service.js';
 import { TaskService } from '../tasks/task.service.js';
+import { WhatsappService } from '../whatsapp/whatsapp.service.js';
 import { SilencioService } from './silencio.service.js';
 
 const TICK_MS = 60_000;
@@ -42,6 +45,9 @@ interface ProactiveMemory {
 }
 
 const LEARN_GAP_MS = 90 * 60_000; // aprende assuntos no máximo a cada 1h30
+const SENTIR_A_CADA_MS = 15 * 60_000; // de quanto em quanto tempo ele sente como foi o dia até agora
+const PENSAMENTOS_DE_HUMOR_POR_DIA = 4; // pensar alto quando o humor muda (cada um é uma chamada ao LLM)
+const ELOGIO_VALE_MS = 2 * HOUR;
 
 /** O robô puxando assunto: bom-dia, resumo do fim do dia, lembretes e pedidos de atenção. */
 @Injectable()
@@ -58,6 +64,8 @@ export class ProactiveService implements OnModuleInit, OnModuleDestroy {
   private diarioTentado = '';
   /** O dia em que tentou a arrumação única da memória (uma tentativa por madrugada). */
   private arrumacaoTentada = '';
+  private sentiuEm = 0;
+  private pensouHumor = { dia: '', vezes: 0 };
   private mem: ProactiveMemory = { day: '', spokenCount: 0, lastSpokenAt: 0, lastSpokenText: '', lastJudgeAt: 0 };
 
   constructor(
@@ -70,6 +78,8 @@ export class ProactiveService implements OnModuleInit, OnModuleDestroy {
     private readonly silencio: SilencioService,
     private readonly diario: DiarioService,
     private readonly memory: MemoryService,
+    private readonly humor: HumorService,
+    private readonly whatsapp: WhatsappService,
   ) {
     this.file = rootPath(`${cfg.DATA_DIR}/proactive.json`);
     this.clock = new Intl.DateTimeFormat('en-CA', {
@@ -131,7 +141,7 @@ export class ProactiveService implements OnModuleInit, OnModuleDestroy {
       const ontem = this.diario.dia(Date.now() - 24 * HOUR);
       if (this.diarioTentado !== ontem && !this.diario.tem(ontem)) {
         this.diarioTentado = ontem;
-        void this.diario.escrever(ontem, this.chat.history(400));
+        void this.diario.escrever(ontem, this.chat.history(400), this.comoMeSenti(ontem));
       } else if (!this.memory.arrumado()) {
         // Arrumação única da memória antiga: de madrugada, ninguém conversando e a cota do dia sobrando.
         const { date, minutes } = this.now();
@@ -142,8 +152,69 @@ export class ProactiveService implements OnModuleInit, OnModuleDestroy {
       }
     }
 
+    if (await this.sentirODia()) return;
     if (await this.maybeThink(this.now().minutes)) return;
     await this.maybeSpeak();
+  }
+
+  /**
+   * O humor próprio: de tempos em tempos ele olha como foi o dia DELE até agora (ficou no vácuo? foi
+   * elogiado? o dono está trabalhando tarde?) e o humor muda sozinho. Mudou: pensa alto sobre isso, no
+   * balão da carinha (não no chat). true = pensou alto agora.
+   */
+  private async sentirODia(): Promise<boolean> {
+    const agora = Date.now();
+    if (agora - this.sentiuEm < SENTIR_A_CADA_MS) return false;
+    this.sentiuEm = agora;
+    const { date, minutes } = this.now();
+    const hora = Math.floor(minutes / 60);
+    if (hora >= 2 && hora < 7) {
+      this.humor.conferir(agora); // de madrugada ele dorme: o humor só vai passando
+      return false;
+    }
+    const mudou = this.humor.viver(sentirODia(this.sinais(agora, hora)), agora);
+    const motivo = this.humor.motivoProprio(agora);
+    if (!mudou || !motivo || hora < 8 || hora >= 22 || this.silencio.motivo()) return false;
+    if (this.pensouHumor.dia !== date) this.pensouHumor = { dia: date, vezes: 0 };
+    if (this.pensouHumor.vezes >= PENSAMENTOS_DE_HUMOR_POR_DIA) return false;
+    this.pensouHumor.vezes += 1;
+    this.busy = true;
+    try {
+      const t = await this.brain.thought(this.chat.history(4), motivo);
+      if (!t || this.chat.state.thinking) return false;
+      this.robot.pensar(t.text);
+      this.log.log(`Pensou alto (humor): ${t.text}`);
+      return true;
+    } finally {
+      this.busy = false;
+    }
+  }
+
+  /** As trocas de humor do dia, uma por linha ("10:15 entediado — o Jean não falou com você o dia todo"). */
+  private comoMeSenti(dia: string): string {
+    const hora = new Intl.DateTimeFormat('pt-BR', { hour: '2-digit', minute: '2-digit', timeZone: this.cfg.TZ_NAME });
+    return this.humor
+      .momentos(dia, (ts) => this.diario.dia(ts))
+      .map((m) => `${hora.format(m.ts)} ${rotuloDoHumor(m.face)}${m.porque ? ` — ${m.porque}` : ''}`)
+      .join('\n');
+  }
+
+  private sinais(agora: number, hora: number): Sinais {
+    const hoje = this.chat.history(200).filter((m) => this.sameDay(m.ts, agora));
+    const ultimaDele = this.chat.lastUserAt();
+    const semana = new Intl.DateTimeFormat('en-US', { weekday: 'short', timeZone: this.cfg.TZ_NAME }).format(agora);
+    const [espera] = this.whatsapp.esperandoResposta(agora, 24 * HOUR);
+    return {
+      hora,
+      fimDeSemana: semana === 'Sat' || semana === 'Sun',
+      doDonoHoje: hoje.filter((m) => m.from === 'user').length,
+      noVacuo: hoje.filter((m) => m.from === 'robot' && m.kind === 'proactive' && m.ts > ultimaDele).length,
+      elogios: hoje.filter((m) => m.from === 'user' && m.ts > agora - ELOGIO_VALE_MS && ELOGIO.test(m.text)).length,
+      fechadasHoje: this.tasks.all().filter((t) => t.doneAt && this.sameDay(t.doneAt, agora)).length,
+      trabalhandoTarde: (hora >= 21 || hora < 2) && agora - ultimaDele < 45 * 60_000,
+      esperandoHaMuito: espera ? { nome: espera.nome, horas: (agora - espera.desde) / HOUR } : undefined,
+      dono: this.cfg.OWNER_NAME,
+    };
   }
 
   /**

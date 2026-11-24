@@ -101,6 +101,10 @@ export const RobotView = z.object({
   thinking: z.boolean(),
   /** 0 = não está esperando resposta */
   waiting_since: epochMs,
+  /** O humor dele agora (null: nada marcante) — a carinha de descanso da bolha no computador. */
+  humor: z.enum(FACES).nullable().optional(),
+  /** Um pensamento dele em voz alta (não vai para o chat): a bolha mostra num balão rápido. */
+  pensamento: z.object({ texto: z.string().max(200), ts: epochMs }).nullable().optional(),
 });
 
 /* ───────────── Webapp → Servidor ───────────── */

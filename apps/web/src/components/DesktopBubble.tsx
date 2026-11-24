@@ -99,6 +99,8 @@ interface Balao {
   msg: ChatMessage | null;
   desde: number;
   porClique: boolean;
+  /** Um pensamento dele em voz alta (não é mensagem do chat). */
+  pensamento?: boolean;
 }
 
 /** Mensagem do robô recente o bastante para aparecer quando você clica na carinha. */
@@ -202,6 +204,18 @@ function BolhaLogada({ token, andando }: { token: string; andando: 'esquerda' | 
     }
     falarProxima.current = false;
   }, [robo.messages, voz]);
+
+  // Pensou alto (o humor dele mudou sozinho): um balão rápido, sem voz e sem ir para o chat. Não
+  // atropela o balão que você abriu para conversar.
+  const pensouVisto = useRef(Date.now());
+  const pensamento = robo.robot?.pensamento;
+  useEffect(() => {
+    if (!pensamento || pensamento.ts <= pensouVisto.current) return;
+    pensouVisto.current = pensamento.ts;
+    if (Date.now() - pensamento.ts > 60_000) return;
+    const msg: ChatMessage = { id: `pensamento-${pensamento.ts}`, from: 'robot', text: pensamento.texto, ts: pensamento.ts, mudo: true };
+    setBalao((b) => (b?.porClique ? b : { msg, desde: Date.now(), porClique: false, pensamento: true }));
+  }, [pensamento]);
 
   // Tamanho da janela acompanha o balão. O que abriu sozinho some depois de um tempo, contado de
   // quando APARECEU (antes contava da hora da mensagem, e o balão aberto no clique fechava na hora).
@@ -376,9 +390,10 @@ function BolhaLogada({ token, andando }: { token: string; andando: 'esquerda' | 
   const controles = emCima || !!balao?.porClique || digitando || !!resposta.trim();
 
   const r = robo.robot;
-  const face = r?.online ? r.face : r?.thinking || esperando ? 'thinking' : 'neutral';
+  // Parada, a carinha fica com o humor dele (entediado, preocupado...), não sempre neutra.
+  const face = r?.online ? r.face : r?.thinking || esperando ? 'thinking' : (r?.humor ?? 'neutral');
   const texto = esperando ? 'pensando…' : balao?.msg?.text ?? 'Oi! Fale comigo.';
-  const tag = !esperando && balao?.msg?.kind ? TAG[balao.msg.kind] : undefined;
+  const tag = esperando ? undefined : balao?.pensamento ? 'pensando alto' : balao?.msg?.kind ? TAG[balao.msg.kind] : undefined;
 
   return (
     <div className="bolha" onMouseEnter={() => setEmCima(true)} onMouseLeave={() => setEmCima(false)}>
@@ -408,7 +423,7 @@ function BolhaLogada({ token, andando }: { token: string; andando: 'esquerda' | 
               </button>
             </span>
           </div>
-          <p className={`balao__texto ${esperando ? 'balao__texto--pensando' : ''} ${!balao?.msg && !esperando ? 'balao__texto--convite' : ''}`}>
+          <p className={`balao__texto ${esperando ? 'balao__texto--pensando' : ''} ${balao?.pensamento && !esperando ? 'balao__texto--alto' : ''} ${!balao?.msg && !esperando ? 'balao__texto--convite' : ''}`}>
             {texto}
           </p>
           <form className="balao__resposta" onSubmit={responder} hidden={!controles}>
