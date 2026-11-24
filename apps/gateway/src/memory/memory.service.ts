@@ -49,6 +49,12 @@ const MAX = 300; // só a vizinhança do assunto vai para o prompt, então dá p
 /** Relações que só têm um valor por vez: um status novo substitui o antigo. */
 const UNICAS = new Set(['status', 'mora_em', 'cargo', 'idade', 'aniversario']);
 /** Palavras que não identificam assunto nenhum ("o projeto do jogo" → "jogo"). */
+/** Tipos que são da vida dele: tendo alguma ligação, já valem uma pergunta ("e a confeitaria?"). */
+const DA_VIDA = new Set<Tipo>(['saude', 'meta', 'hobby']);
+/** Status que já fechou: não tem o que perguntar. */
+const FECHADO = /\b(corrigid|conclu|resolvid|feit|encerrad|cancelad|finalizad|entregue|abandonad)/i;
+/** Nome solto (uma menção, sem ligação) parado há mais que isto sai da memória. */
+const SOLTA_MS = 14 * 24 * 3600_000;
 const VAZIAS = new Set(['que', 'dos', 'das', 'com', 'para', 'pra', 'meu', 'minha', 'esse', 'essa', 'isso', 'aquele', 'aquela', 'projeto', 'assunto']);
 
 const NORMALIZE = (s: string) =>
@@ -120,6 +126,7 @@ export class MemoryService implements OnModuleInit, OnModuleDestroy {
    * reconhecia pela voz mas não sabia quem era.
    */
   onModuleInit(): void {
+    this.podar();
     if (!this.banco) return;
     const novas = this.banco.listar().filter((v) => this.garantirPessoa(v.nome));
     if (novas.length) {
@@ -208,21 +215,25 @@ export class MemoryService implements OnModuleInit, OnModuleDestroy {
   /** Um assunto que não aparece há um tempo, para o robô puxar de volta. */
   stale(minDays: number): Entidade | null {
     const cutoff = Date.now() - minDays * 24 * 3600_000;
-    // Uma pessoa sem ligação nenhuma é só um nome solto — não vale um "faz tempo que...".
-    const vale = (e: Entidade) => e.tipo !== 'pessoa' || this.relacoes.some((r) => r.de === e.id || r.para === e.id);
+    // Sem ligação nenhuma é só um nome solto — dava "E o Projeto Itabirito, como tá?" sem saber nada dele.
+    const vale = (e: Entidade) => this.relacoes.some((r) => r.de === e.id || r.para === e.id);
     const old = this.items.filter((e) => e.lastSeenAt < cutoff && vale(e)).sort((a, b) => a.lastSeenAt - b.lastSeenAt);
     return old[0] ?? null;
   }
 
   /**
-   * Coisas da vida do dono para o robô ter curiosidade ("e o curso da Duda, já fez o bolo?"): só o que tem
-   * alguma ligação — um nome solto daria um "lembra do Eduardo? como ficou aquilo?" vazio — e que não
-   * apareceu nos últimos `minDias`. Sorteia pesando pelas menções, para variar o assunto de um dia pro outro.
+   * Coisas do dono para o robô ter curiosidade: só o que tem algo EM ANDAMENTO para perguntar — um
+   * status aberto ("Validador PVA — mês 3 com erro") ou uma coisa da vida dele (saúde, meta, hobby)
+   * com alguma ligação. Pessoa que ele só sabe onde trabalha não entra: virava "sumiu a Tamires da
+   * conversa, ela ainda tá na TaxResearch?" três vezes por semana. Fora o que apareceu nos últimos
+   * `minDias`; sorteia pesando pelas menções, para variar o assunto de um dia pro outro.
    */
   curiosidades(n = 2, minDias = 2, excluir?: string, sorteio: () => number = Math.random): Entidade[] {
     const cutoff = Date.now() - minDias * 24 * 3600_000;
     const ligadas = new Set(this.relacoes.flatMap((r) => [r.de, r.para ?? '']));
-    const pool = this.items.filter((e) => e.id !== excluir && e.lastSeenAt < cutoff && ligadas.has(e.id));
+    const emAndamento = (e: Entidade) =>
+      (DA_VIDA.has(e.tipo) && ligadas.has(e.id)) || this.relacoes.some((r) => r.de === e.id && r.rel === 'status' && !!r.valor && !FECHADO.test(r.valor));
+    const pool = this.items.filter((e) => e.id !== excluir && e.lastSeenAt < cutoff && emAndamento(e));
     const out: Entidade[] = [];
     while (out.length < n && pool.length) {
       const total = pool.reduce((t, e) => t + e.mentions, 0);
@@ -231,6 +242,20 @@ export class MemoryService implements OnModuleInit, OnModuleDestroy {
       out.push(pool.splice(i, 1)[0]!);
     }
     return out;
+  }
+
+  /**
+   * Tira os nomes soltos: uma menção só, nenhuma ligação, parados há SOLTA_MS (o contato que ligou
+   * uma vez no WhatsApp e ficou na memória como "Eliana Lopes"). Quem tem voz no banco fica.
+   */
+  podar(agora = Date.now()): string[] {
+    const ligadas = new Set(this.relacoes.flatMap((r) => [r.de, r.para ?? '']));
+    const foram = this.items.filter((e) => e.mentions <= 1 && !ligadas.has(e.id) && e.lastSeenAt < agora - SOLTA_MS && !this.temVoz(e));
+    if (!foram.length) return [];
+    this.remover(new Set(foram.map((e) => e.id)));
+    this.save();
+    this.log.log(`Memória: esqueceu ${foram.length} nome(s) solto(s): ${foram.map((e) => e.texto).join(', ')}`);
+    return foram.map((e) => e.texto);
   }
 
   /** Marca que um assunto voltou à tona agora (o robô citou, ou o dono falou dele). */

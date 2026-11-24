@@ -188,6 +188,7 @@ export class ProactiveService implements OnModuleInit, OnModuleDestroy {
           texto: t.texto,
           pessoa: t.pessoa,
           diasAberta: Math.floor((now - t.createdAt) / (24 * HOUR)),
+          cobradas: t.nudges,
         })),
       });
       if (!call) return;

@@ -8,6 +8,11 @@ import { rootPath } from '../config/paths.js';
 const MAX = 120;
 /** Aberta há mais tempo que isso sem ninguém tocar nela: vira assunto morto e some. */
 const VELHA_MS = 45 * 24 * 3600_000;
+/**
+ * Depois de tantas cobranças sem ela sair da lista, ele para de cobrar: virou ruído (o bug das
+ * negativações foi cobrado em todo bom-dia por duas semanas). Continua na lista, só não puxa assunto.
+ */
+export const MAX_COBRANCAS = 4;
 
 export type TaskOrigin = 'ata' | 'conversa' | 'manual' | 'whatsapp';
 
@@ -45,8 +50,10 @@ export class TaskService {
   private readonly log = new Logger(TaskService.name);
   private readonly file: string;
   private tasks: Task[] = [];
+  private readonly dono: string;
 
   constructor(@Inject(APP_CONFIG) cfg: AppConfig) {
+    this.dono = norm(cfg.OWNER_NAME ?? '').split(' ')[0] ?? '';
     this.file = rootPath(`${cfg.DATA_DIR}/tarefas.json`);
     try {
       this.tasks = JSON.parse(readFileSync(this.file, 'utf8')) as Task[];
@@ -145,10 +152,25 @@ export class TaskService {
     if (mexeu) this.save();
   }
 
-  /** As que valem cobrar agora: abertas e não cobradas nas últimas `horas`. */
-  worthNudging(horas = 20): Task[] {
-    const limite = Date.now() - horas * 3600_000;
-    return this.open().filter((t) => t.lastNudgeAt < limite);
+  /**
+   * As que valem cobrar agora: abertas, dele, e não cobradas há pouco. O intervalo dobra a cada
+   * cobrança (`horas`, depois 2×, 4×...) e, passando de MAX_COBRANCAS, ele para de cobrar.
+   */
+  worthNudging(horas = 20, agora = Date.now()): Task[] {
+    return this.open().filter((t) => {
+      if (!this.ehDoDono(t) || t.nudges >= MAX_COBRANCAS) return false;
+      const espera = horas * 3600_000 * 2 ** Math.max(0, t.nudges - 1);
+      return t.lastNudgeAt <= agora - espera;
+    });
+  }
+
+  /**
+   * Numa ata, `pessoa` é o responsável: tarefa do André é do André, não se cobra do dono. Nas outras
+   * origens, `pessoa` é com quem ele combinou ("mandar mensagem para o Fábio") — a tarefa é dele.
+   */
+  private ehDoDono(t: Task): boolean {
+    if (t.origem !== 'ata' || !t.pessoa) return true;
+    return !!this.dono && norm(t.pessoa).split(' ')[0] === this.dono;
   }
 
   private prune(): void {

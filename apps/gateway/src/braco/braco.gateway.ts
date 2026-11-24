@@ -57,7 +57,7 @@ const Olhar = z.object({
   projeto: z.string().max(100),
   arquivo: z.string().max(300).default(''),
   diff: z.string().max(12_000).default(''),
-  commits: z.string().max(3000).default(''),
+  commits: z.string().max(12_000).default(''), // mensagens + o código dos commits (olho.js)
 });
 
 /** O dono está mexendo nesta máquina (teclado/mouse): comandos sem máquina escolhida vão para ela. */

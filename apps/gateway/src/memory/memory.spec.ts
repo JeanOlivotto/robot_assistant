@@ -36,7 +36,8 @@ describe('MemoryService', () => {
 
   it('stale devolve o assunto mais antigo além do limite', () => {
     const m = new MemoryService(cfg(), llm(''));
-    m.note('academia');
+    const academia = m.note('academia', 'hobby')!;
+    m.grafo().relacoes.push({ id: 'r1', de: academia.id, rel: 'status', valor: 'três vezes por semana', lastSeenAt: 0 });
     m.all()[0]!.lastSeenAt = Date.now() - 10 * 24 * 3600_000; // 10 dias atrás
     expect(m.stale(4)?.texto).toBe('academia');
     expect(m.stale(30)).toBeNull();
@@ -140,11 +141,30 @@ describe('MemoryService', () => {
     expect(m.summaries()).toEqual(['Duda']);
   });
 
-  it('pessoa sem ligação nenhuma não volta como assunto antigo', () => {
+  it('nome solto (pessoa ou projeto, sem ligação) não volta como assunto antigo', () => {
     const m = new MemoryService(cfg(), llm(''));
     m.note('Carlos', 'pessoa');
-    m.all()[0]!.lastSeenAt = Date.now() - 10 * 24 * 3600_000;
+    m.note('Itabirito', 'projeto');
+    for (const e of m.all()) e.lastSeenAt = Date.now() - 10 * 24 * 3600_000;
     expect(m.stale(4)).toBeNull();
+  });
+
+  it('podar tira só o nome solto e parado (uma menção, sem ligação, há mais de 14 dias)', async () => {
+    const c = cfg();
+    const m = new MemoryService(
+      c,
+      llm(JSON.stringify({ entidades: [{ nome: 'Tamires', tipo: 'pessoa' }, { nome: 'TaxResearch', tipo: 'projeto' }], relacoes: [{ de: 'Tamires', rel: 'trabalha_em', para: 'TaxResearch' }] })),
+    );
+    await m.learn([userMsg('a Tamires trabalha na TaxResearch')]);
+    m.note('Eliana Lopes', 'pessoa');
+    m.note('Kleber', 'pessoa');
+    m.note('Kleber', 'pessoa'); // duas menções: fica
+    m.note('Duda', 'pessoa'); // recente: fica
+    const velho = Date.now() - 20 * 24 * 3600_000;
+    for (const e of m.all()) if (e.texto !== 'Duda') e.lastSeenAt = velho;
+    expect(m.podar()).toEqual(['Eliana Lopes']);
+    expect(m.all().map((e) => e.texto).sort()).toEqual(['Duda', 'Kleber', 'Tamires', 'TaxResearch']);
+    expect(new MemoryService(c, llm('')).all()).toHaveLength(4); // foi para o disco
   });
 
   it('migra o lembrancas.json antigo para o grafo', () => {
@@ -167,18 +187,37 @@ describe('MemoryService', () => {
     expect(m.ficha(duda)).toBe('Duda — esposa de Jean; faz confeitaria; Floripa — cidade de Duda');
   });
 
-  it('curiosidades só traz o que tem ligação e não apareceu nos últimos dias', async () => {
+  it('curiosidades só traz o que tem algo em andamento e não apareceu nos últimos dias', async () => {
     const m = new MemoryService(
       cfg(),
-      llm(JSON.stringify({ entidades: [{ nome: 'Duda', tipo: 'pessoa' }, { nome: 'confeitaria', tipo: 'hobby' }, { nome: 'Eduardo', tipo: 'pessoa' }], relacoes: [{ de: 'Duda', rel: 'faz', para: 'confeitaria' }] })),
+      llm(
+        JSON.stringify({
+          entidades: [
+            { nome: 'Duda', tipo: 'pessoa' },
+            { nome: 'confeitaria', tipo: 'hobby' },
+            { nome: 'Eduardo', tipo: 'pessoa' },
+            { nome: 'Tamires', tipo: 'pessoa' },
+            { nome: 'TaxResearch', tipo: 'projeto' },
+            { nome: 'Validador PVA', tipo: 'projeto' },
+            { nome: 'Bug do recibo', tipo: 'trabalho' },
+          ],
+          relacoes: [
+            { de: 'Duda', rel: 'faz', para: 'confeitaria' },
+            { de: 'Tamires', rel: 'trabalha_em', para: 'TaxResearch' },
+            { de: 'Validador PVA', rel: 'status', valor: 'mês 3 com erro de cadastro' },
+            { de: 'Bug do recibo', rel: 'status', valor: 'corrigido' },
+          ],
+        }),
+      ),
     );
-    await m.learn([userMsg('a Duda faz confeitaria; o Eduardo deu oi')]);
+    await m.learn([userMsg('um monte de coisa')]);
     expect(m.curiosidades(2, 2)).toEqual([]); // tudo visto agora há pouco
     for (const e of m.all()) e.lastSeenAt = Date.now() - 5 * 24 * 3600_000;
-    const nomes = m.curiosidades(5, 2).map((e) => e.texto);
-    expect(nomes.sort()).toEqual(['Duda', 'confeitaria']); // Eduardo é nome solto, sem ligação
-    const duda = m.all().find((e) => e.texto === 'Duda')!;
-    expect(m.curiosidades(5, 2, duda.id).map((e) => e.texto)).toEqual(['confeitaria']);
+    const nomes = m.curiosidades(9, 2).map((e) => e.texto);
+    // Eduardo é nome solto; Tamires e TaxResearch só têm "onde trabalha"; o bug já foi corrigido.
+    expect(nomes.sort()).toEqual(['Validador PVA', 'confeitaria']);
+    const pva = m.all().find((e) => e.texto === 'Validador PVA')!;
+    expect(m.curiosidades(9, 2, pva.id).map((e) => e.texto)).toEqual(['confeitaria']);
   });
 
   describe('arrumar()', () => {

@@ -13,7 +13,7 @@ function montar(arquivo: Resultado) {
   const cfg = { DATA_DIR: mkdtempSync(join(tmpdir(), 'arquivo-')), TZ_NAME: 'America/Sao_Paulo', OWNER_NAME: 'Jean' } as unknown as AppConfig;
   const store = new ChatStore(cfg);
   const braco = { pegarArquivo: vi.fn(async () => arquivo), escolher: () => ({ nome: 'arch' }) };
-  const whatsapp = { enviar: vi.fn(async () => 'id'), enviarArquivo: vi.fn(async () => 'id'), enviarAudio: vi.fn(async () => 'id') };
+  const whatsapp = { enviar: vi.fn(async () => 'id'), enviarArquivo: vi.fn(async () => 'id'), enviarAudio: vi.fn(async () => 'id'), respondida: vi.fn() };
   const chat = new ChatService(cfg, store, {} as never, {} as never, braco as unknown as BracoService, {} as never, whatsapp as unknown as WhatsappService);
   const propor = (p: Partial<Proposal>) =>
     chat.robotSay('Mando?', 'neutral', 'reply', {

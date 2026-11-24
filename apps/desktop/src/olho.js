@@ -113,6 +113,15 @@ export function resumirDiff(diff, arquivoAberto = '') {
   return saida.trim();
 }
 
+/** Os commits dos últimos minutos: as mensagens e o código (filtrado como o diff), ou '' se não teve. */
+async function commitsRecentes(git, arquivoAberto) {
+  const desde = ['--since=25 minutes ago', '--no-color', '-3'];
+  const msgs = ((await git(['log', ...desde, '--format=%h %s'])) ?? '').trim();
+  if (!msgs) return '';
+  const codigo = resumirDiff((await git(['log', ...desde, '-p', '-U2', '--no-ext-diff', '--format='])) ?? '', arquivoAberto);
+  return `${mascarar(msgs).slice(0, COMMITS_MAX)}\n${codigo}`.trim();
+}
+
 let ultimoVscode = null; // { titulo, em }
 let ultimaOlhada = '';
 
@@ -130,7 +139,8 @@ export async function olhar(recenteMs = 20 * 60_000) {
   if (!pasta) return null;
   const git = (args) => rodar('git', ['-C', pasta, '-c', 'core.quotepath=off', ...args]);
   const diff = resumirDiff((await git(['diff', 'HEAD', '--no-color', '--no-ext-diff', '-U2'])) ?? (await git(['diff', '--no-color', '-U2'])) ?? '', t.arquivo);
-  const commits = diff ? '' : mascarar(((await git(['log', '--since=25 minutes ago', '--no-color', '--stat', '--format=%h %s', '-3'])) ?? '').trim()).slice(0, COMMITS_MAX);
+  // Commit: a mensagem e o código que entrou (só o --stat fazia ele comentar o tamanho, sem ler nada).
+  const commits = diff ? '' : await commitsRecentes(git, t.arquivo);
   if (!diff && !commits) return null;
   // Nada mudou desde a última olhada: não manda de novo (nem gasta a cota do Miro).
   const marca = createHash('sha1').update(diff + commits).digest('hex');

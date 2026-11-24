@@ -58,7 +58,7 @@ export interface JudgeContext {
   /** Já trocaram alguma palavra hoje? */
   talkedToday: boolean;
   /** O que ficou de ser feito e ainda não foi — o que ele pode cobrar. */
-  pending: { texto: string; pessoa?: string; diasAberta: number }[];
+  pending: { texto: string; pessoa?: string; diasAberta: number; cobradas?: number }[];
   /** A última fala espontânea dele ainda está sem resposta. */
   unanswered: boolean;
 }
@@ -830,6 +830,8 @@ export class BrainService {
     const periodo = hora < 12 ? 'manhã' : hora < 18 ? 'tarde' : 'noite';
     const assunto = this.memory.stale(this.cfg.MEMORY_RECALL_DAYS);
     const curiosas = this.memory.curiosidades(2, 2, assunto?.id);
+    // Só quem e desde quando: o conteúdo das mensagens não vai para o LLM sem ele pedir.
+    const esperando = this.whatsapp.esperandoResposta(now.getTime(), 60 * 60_000).slice(0, 5);
 
     const situacao = [
       `- agora é ${periodo} (${this.timeFmt.format(now)})`,
@@ -849,12 +851,22 @@ export class BrainService {
               (t, i) =>
                 `  ${i + 1}. ${t.texto}${t.pessoa ? ` (com ${t.pessoa})` : ''} — aberta há ${
                   t.diasAberta < 1 ? 'menos de um dia' : `${t.diasAberta} dia(s)`
-                }`,
+                }${(t.cobradas ?? 0) >= 2 ? ` — você já cobrou ${t.cobradas} vezes: se citar, não cobre de novo, pergunte se ainda vale ou se pode tirar da lista` : ''}`,
             )
             .join('\n')}`
         : '- nenhuma pendência aberta para cobrar agora',
       this.recados.resumo()
         ? `- recados dos sistemas dele ainda abertos: ${this.recados.resumo()} (os urgentes e de suporte ele já recebeu na hora; num bom-dia ou fim de tarde vale lembrar em uma frase, sem ler a lista)`
+        : '',
+      esperando.length
+        ? `- no WhatsApp, gente esperando resposta de ${owner} (você só sabe quem e desde quando, não o que disseram):\n${esperando
+            .map(
+              (e) =>
+                `  - ${e.nome}${e.grupo ? ' (no grupo, falando com ele)' : ''}: desde ${rotuloDoDia(e.desde, now, this.cfg.TZ_NAME)} ${this.timeFmt.format(e.desde)}, ${
+                  e.mensagens === 1 ? '1 mensagem' : `${e.mensagens} mensagens`
+                }${e.audios ? ` (${e.audios === 1 ? '1 áudio' : `${e.audios} áudios`})` : ''}`,
+            )
+            .join('\n')}`
         : '',
       assunto ? `- um assunto de vocês que não aparece há dias: "${assunto.texto}" (o que você sabe: ${this.memory.ficha(assunto)})` : '',
       curiosas.length
@@ -876,13 +888,20 @@ export class BrainService {
             content:
               `[instrução interna do sistema — não é ${owner} falando, e ele não vê esta mensagem]\n` +
               `Situação agora:\n${situacao}\n\n` +
-              `Você é um robô com vida própria, que mora na mesa de ${owner} — não um assistente que só fala quando ` +
-              'chamado. Quer mandar uma mensagem para ele agora?\n' +
-              'Bons motivos para falar: dar bom dia se ainda não se falaram; cobrar uma pendência; perguntar como foi ' +
-              'um compromisso que já passou; comentar o que vem pela frente no dia; puxar de volta um assunto de ' +
-              'vocês; ou ter curiosidade de amigo pela vida dele — perguntar de uma das coisas da vida dele acima com ' +
-              'um detalhe ESPECÍFICO do que você sabe ("e o curso da Duda, já saiu bolo?"), nunca um "como ficou aquilo?" ' +
-              'vago. Curiosidade vale mais que cobrar de novo uma pendência que você já cobrou nos últimos dias.\n' +
+              `Você mora na mesa de ${owner} e trabalha junto com ele: ele é dev e consultor, e você está aqui para o ` +
+              'dia dele render — um parceiro de trabalho, não um assistente que só fala quando chamado, nem alguém ' +
+              'puxando assunto à toa. Quer mandar uma mensagem para ele agora?\n' +
+              'O que mais ajuda, nesta ordem:\n' +
+              '1. Gente esperando resposta dele no WhatsApp: de manhã, quem ficou sem resposta desde ontem; no resto do ' +
+              'dia, só quem está esperando há horas. Diga quem e desde quando, numa frase ("a Bruna te mandou 3 áudios ' +
+              'ontem à tarde e ficou sem resposta"); você não sabe o que disseram, então não invente o assunto — se ' +
+              'quiser, ofereça transcrever ou ler para ele.\n' +
+              '2. O que vem pela frente na agenda, ou perguntar como foi um compromisso que já passou.\n' +
+              '3. Uma pendência dele, uma de cada vez.\n' +
+              '4. Um assunto em andamento das listas acima, com o detalhe ESPECÍFICO que você sabe ("e o mês 3 da ' +
+              'Bruna, o erro de cadastro do participante resolveu?"), nunca um "como ficou aquilo?" vago.\n' +
+              'NÃO pergunte de uma pessoa só porque ela "sumiu da conversa": se não tem nada em andamento com ela, ' +
+              'não é assunto. Bom dia sem nada de 1 a 4: curto, sem inventar pauta.\n' +
               'Fique quieto se acabou de falar algo parecido, se ele está no meio de um compromisso agora, ou se ' +
               'não tem nada de verdadeiro e novo para dizer (nunca invente fato, compromisso ou pendência). Mensagem ' +
               'demais cansa: umas duas ou três no dia inteiro é o normal, e na dúvida fique quieto. Frase genérica ' +

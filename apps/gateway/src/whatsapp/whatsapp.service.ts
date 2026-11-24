@@ -24,6 +24,7 @@ import { rootPath } from '../config/paths.js';
 import { MAX_VOICE_SECONDS, SttService } from '../stt/stt.service.js';
 import { TtsService } from '../tts/tts.service.js';
 import { VisionService } from '../vision/vision.service.js';
+import { type Espera, Esperas, pedeResposta } from './esperando.js';
 import { figurinha } from './figurinha.js';
 import { acharPorNome, aparar, aplicarMencoes, arroba, comAPalavra, conteudo, corpo, descrever, falaCom, naoENome, paraHistorico, type Recebida, semAcento } from './mensagem.js';
 import { digitosDe, jidDoNumero, type Lembranca, numeroBate, porAssunto } from './procurar.js';
@@ -137,6 +138,10 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
   /** O texto das mensagens dos últimos 7 dias (sem mídia) — para achar a conversa pelo assunto. */
   private readonly historicoFile: string;
   private salvarHistorico: NodeJS.Timeout | null = null;
+  private readonly esperasFile: string;
+  /** Quem está esperando resposta dele (só quem e desde quando — nenhum conteúdo). */
+  private esperas = new Esperas();
+  private salvarEsperas: NodeJS.Timeout | null = null;
   private historico: Lembranca[] = [];
   /** Apelido que o dono deu a uma conversa (jid → "cliente da padaria"): cliente fora da agenda, sem nome lembrado. */
   private apelidos = new Map<string, string>();
@@ -190,6 +195,7 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
     this.contatosFile = rootPath(`${cfg.DATA_DIR}/whatsapp-contatos.json`);
     this.recebidasFile = rootPath(`${cfg.DATA_DIR}/whatsapp-recebidas.json`);
     this.historicoFile = rootPath(`${cfg.DATA_DIR}/whatsapp-historico.json`);
+    this.esperasFile = rootPath(`${cfg.DATA_DIR}/whatsapp-esperando.json`);
     try {
       this.c = { ...this.c, ...(JSON.parse(readFileSync(this.file, 'utf8')) as Partial<Combinado>) };
     } catch {
@@ -225,6 +231,11 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
     } catch {
       /* nada guardado */
     }
+    try {
+      if (!this.privado()) this.esperas = new Esperas(JSON.parse(readFileSync(this.esperasFile, 'utf8')) as Espera[]);
+    } catch {
+      /* nada guardado */
+    }
   }
 
   onModuleInit(): void {
@@ -238,6 +249,7 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
     if (this.salvarContatos) this.gravarContatos();
     if (this.salvarRecebidas) this.gravarRecebidas();
     if (this.salvarHistorico) this.gravarHistorico();
+    if (this.salvarEsperas) this.gravarEsperas();
     this.sock?.end(undefined);
   }
 
@@ -257,9 +269,11 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
       this.c.privadoAte = horas && horas > 0 ? Date.now() + Math.min(horas, 24 * 30) * 3600_000 : -1;
       this.recebidas = [];
       this.historico = [];
+      this.esperas.limpar();
       this.ultimaVista = null;
       rmSync(this.recebidasFile, { force: true }); // privacidade apaga do disco também, na hora
       rmSync(this.historicoFile, { force: true });
+      rmSync(this.esperasFile, { force: true });
       this.log.log(`WhatsApp: privacidade ligada${this.c.privadoAte > 0 ? ` até ${new Date(this.c.privadoAte).toISOString()}` : ''}`);
     } else {
       this.c.privadoAte = 0;
@@ -549,6 +563,8 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
     rmSync(this.authDir, { recursive: true, force: true });
     rmSync(this.contatosFile, { force: true });
     rmSync(this.recebidasFile, { force: true });
+    rmSync(this.esperasFile, { force: true });
+    this.esperas.limpar();
     this.nomes.clear();
     this.destinos.clear();
     this.daAgenda.clear();
@@ -569,7 +585,11 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
     // A conta é a do dono: o que ele manda (de qualquer aparelho) chega como "fromMe".
     const doDono = !!k.fromMe;
     if (doDono) {
-      if (this.enviadas.delete(k.id)) return; // foi o próprio robô
+      // Foi o próprio robô. Resposta do atendente ("ele já te responde") não tira ninguém da espera;
+      // a que o dono aprovou no app tira, por respondida().
+      if (this.enviadas.delete(k.id)) return;
+      // Ele escreveu ali: a conversa não está mais esperando resposta.
+      if (this.esperas.respondeu(chat, (k as { remoteJidAlt?: string }).remoteJidAlt)) this.agendarEsperas();
       // Num grupo liberado para dúvidas de código, o dono também pode chamar o robô ("Miro, ..."):
       // segue marcado como dele, e o atendente decide — se não chamou, é o "dono escreveu" de sempre.
       if (!(isJidGroup(chat) && this.tecnico(chat))) {
@@ -616,6 +636,10 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
     this.recebidas = this.aparadas(this.recebidas);
     if (!this.salvarRecebidas) this.salvarRecebidas = setTimeout(() => this.gravarRecebidas(), 3_000);
     const m = this.recebidas.at(-1)!.m;
+    if (pedeResposta(m)) {
+      this.esperas.chegou(m);
+      this.agendarEsperas();
+    }
     // Mídia entra também (como "[áudio de 41s]"): saiu das recentes, ainda dá para dizer que chegou e quando.
     if ((m.texto.trim() || m.tipo !== 'texto') && !doDono) {
       const pn = !grupo && isPnUser(alt) ? alt : undefined;
@@ -706,6 +730,34 @@ export class WhatsappService implements OnModuleInit, OnModuleDestroy {
       renameSync(tmp, this.recebidasFile);
     } catch (err) {
       this.log.error(`Falha ao salvar as mensagens recentes: ${(err as Error).message}`);
+    }
+  }
+
+  /** O robô mandou, com o "sim" do dono, uma mensagem para esta conversa: conta como resposta dele. */
+  respondida(chat: string): void {
+    if (this.esperas.respondeu(chat)) this.agendarEsperas();
+  }
+
+  /** Quem está esperando resposta dele há pelo menos `minMs` (as mais antigas primeiro). */
+  esperandoResposta(agora = Date.now(), minMs?: number): Espera[] {
+    return this.privado() ? [] : this.esperas.abertas(agora, minMs);
+  }
+
+  private agendarEsperas(): void {
+    if (!this.salvarEsperas) this.salvarEsperas = setTimeout(() => this.gravarEsperas(), 10_000);
+  }
+
+  private gravarEsperas(): void {
+    if (this.salvarEsperas) clearTimeout(this.salvarEsperas);
+    this.salvarEsperas = null;
+    if (this.privado()) return;
+    try {
+      mkdirSync(dirname(this.esperasFile), { recursive: true });
+      const tmp = `${this.esperasFile}.tmp`;
+      writeFileSync(tmp, JSON.stringify(this.esperas.todas()), { mode: 0o600 });
+      renameSync(tmp, this.esperasFile);
+    } catch (err) {
+      this.log.error(`Falha ao salvar quem espera resposta: ${(err as Error).message}`);
     }
   }
 

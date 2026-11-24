@@ -6,6 +6,7 @@ import type { AppConfig } from '../config/app-config.js';
 import type { IdentidadeService } from '../identidade/identidade.service.js';
 import type { LlmService } from '../llm/llm.service.js';
 import type { MeetingService } from '../meeting/meeting.service.js';
+import type { TaskService } from '../tasks/task.service.js';
 import { CodigoService, lerComentario } from './codigo.service.js';
 
 const olhada = (diff = '+ console.log("aqui")'): Olhada => ({ maquina: 'arch', projeto: 'robot_assistant', arquivo: 'main.ts', diff, commits: '' });
@@ -22,6 +23,7 @@ function montar(resposta = '{"comentario": "Esse console.log vai pra produção,
     llm as unknown as LlmService,
     { nome: 'Miro' } as unknown as IdentidadeService,
     meetings as unknown as MeetingService,
+    { open: () => [{ texto: 'Fechar o bug das negativações', pessoa: undefined }] } as unknown as TaskService,
   );
   svc.onModuleInit();
   const olhar = async (o = olhada()) => {
@@ -75,13 +77,22 @@ describe('o Miro comentando o código', () => {
     expect(svc.motivoParaNao()).toBe('estão conversando');
   });
 
-  it('no máximo 6 comentários por dia', async () => {
+  it('arquivo de segredo aberto: nem o nome vai para o LLM; as pendências vão de contexto', async () => {
+    const { llm, olhar } = montar();
+    await olhar({ ...olhada(), arquivo: '.env.local' });
+    const conteudo = (llm.complete.mock.calls[0] as unknown as [{ content: string }[]])[0][1]!.content;
+    expect(conteudo).not.toContain('.env');
+    expect(conteudo).toContain('Arquivo aberto: (não deu para ver)');
+    expect(conteudo).toContain('Fechar o bug das negativações');
+  });
+
+  it('no máximo 3 comentários por dia', async () => {
     const { chat, olhar } = montar();
     for (let h = 0; h < 8; h++) {
       vi.setSystemTime(new Date(`2026-09-30T${String(9 + h).padStart(2, '0')}:00:00-03:00`));
       await olhar(olhada(`+ mudança ${h}`));
     }
-    expect(chat.robotSay).toHaveBeenCalledTimes(6);
+    expect(chat.robotSay).toHaveBeenCalledTimes(3);
   });
 });
 

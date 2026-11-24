@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import type { AppConfig } from '../config/app-config.js';
-import { TaskService } from './task.service.js';
+import { MAX_COBRANCAS, TaskService } from './task.service.js';
 
 const make = () => new TaskService({ DATA_DIR: mkdtempSync(join(tmpdir(), 'robo-task-')) } as unknown as AppConfig);
 
@@ -52,6 +52,35 @@ describe('TaskService', () => {
     // um dia depois, volta a valer a pena lembrar
     svc.open()[0]!.lastNudgeAt = Date.now() - 25 * 3600_000;
     expect(svc.worthNudging(20)).toHaveLength(1);
+  });
+
+  it('cobra cada vez mais espaçado e desiste depois de MAX_COBRANCAS', () => {
+    const svc = make();
+    const t = svc.add('Fechar o bug das negativações')!;
+    const agora = Date.now();
+    const task = svc.open()[0]!;
+    task.nudges = 2;
+    task.lastNudgeAt = agora - 25 * 3600_000;
+    expect(svc.worthNudging(20, agora)).toEqual([]); // segunda cobrança: espera 40 h
+    task.lastNudgeAt = agora - 41 * 3600_000;
+    expect(svc.worthNudging(20, agora).map((x) => x.id)).toEqual([t.id]);
+    task.nudges = MAX_COBRANCAS;
+    task.lastNudgeAt = 0;
+    expect(svc.worthNudging(20, agora)).toEqual([]);
+  });
+
+  it('tarefa de ata com outro responsável não é cobrada do dono', () => {
+    const svc = new TaskService({ DATA_DIR: mkdtempSync(join(tmpdir(), 'robo-task-')), OWNER_NAME: 'Jean Olivotto' } as unknown as AppConfig);
+    svc.add('Verificar a conta da Meta', { pessoa: 'André', origem: 'ata' });
+    svc.add('Investigar o bug das negativações', { pessoa: 'Pessoa 1', origem: 'ata' });
+    svc.add('Subir o front', { pessoa: 'Jean', origem: 'ata' });
+    svc.add('Trazer as consultas para o front', { origem: 'ata' });
+    svc.add('Liberar o campo de honorários', { pessoa: 'Matheus', origem: 'whatsapp' });
+    expect(svc.worthNudging(20).map((t) => t.texto)).toEqual([
+      'Subir o front',
+      'Trazer as consultas para o front',
+      'Liberar o campo de honorários',
+    ]);
   });
 
   it('cobrar não mexe no que já foi concluído', () => {

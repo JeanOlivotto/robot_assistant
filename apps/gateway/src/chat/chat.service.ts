@@ -408,6 +408,7 @@ export class ChatService implements OnModuleInit, OnModuleDestroy {
         await this.whatsapp.enviarArquivo(p.chat ?? '', arquivo.arquivo.dados, arquivo.arquivo.nome, p.audio ? undefined : p.texto || undefined);
       }
       if (p.figurinha) await this.whatsapp.enviarFigurinha(p.chat ?? '', p.figurinha);
+      if (p.chat) this.whatsapp.respondida(p.chat);
       this.updateProposal(msg, { status: 'confirmed' });
       return this.robotSay(`Mandei para ${p.destino ?? 'a conversa'}.`, 'happy', 'reply', { para });
     } catch (err) {
